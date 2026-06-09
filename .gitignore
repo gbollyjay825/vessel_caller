@@ -1,0 +1,12 @@
+# OS
+.DS_Store
+
+# Editor / local tooling
+.claude/settings.local.json
+
+# Vercel
+.vercel
+
+# Node (not used, but standard hygiene)
+node_modules/
+*.log

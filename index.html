@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Calabar Port Inspection Platform — vessel calls, cargo inspections, harbour dues and invoicing." />
+  <title>Calabar Port — Inspection Platform</title>
+
+  <!-- Inter from Google Fonts; degrades to system sans offline (spec 1.3) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+  <!-- Application shell is rendered into #app by js/main.js -->
+  <div id="app" aria-busy="true"></div>
+
+  <!-- Portals for overlays so they escape the content stacking context -->
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root" role="region" aria-label="Notifications" aria-live="polite"></div>
+
+  <noscript>
+    <div style="padding:32px;font-family:sans-serif">
+      This application requires JavaScript to run.
+    </div>
+  </noscript>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

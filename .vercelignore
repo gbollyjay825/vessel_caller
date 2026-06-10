@@ -1,0 +1,13 @@
+# Only the web app should be deployed (Vercel ignores .gitignore, not this).
+.git
+.gitignore
+.claude
+node_modules
+*.log
+.DS_Store
+.vercel
+
+# Local dev / tooling — not needed on the static host
+server.py
+serve.sh
+*.md

@@ -38,12 +38,23 @@ export function renderInvoices(ctx) {
   const segButtons = {};
   const seg = h(
     "div.seg-filter",
-    { role: "tablist", "aria-label": "Filter by status" },
+    { role: "group", "aria-label": "Filter by status" },
     STATUSES.map(([v, l]) => {
-      const b = h("button", { type: "button", class: v === state.status ? "is-active" : "", role: "tab" }, l);
+      const b = h(
+        "button",
+        {
+          type: "button",
+          class: v === state.status ? "is-active" : "",
+          "aria-pressed": String(v === state.status),
+        },
+        l
+      );
       b.addEventListener("click", () => {
         state.status = v;
-        Object.entries(segButtons).forEach(([k, btn]) => btn.classList.toggle("is-active", k === v));
+        Object.entries(segButtons).forEach(([k, btn]) => {
+          btn.classList.toggle("is-active", k === v);
+          btn.setAttribute("aria-pressed", String(k === v));
+        });
         refresh();
       });
       segButtons[v] = b;
@@ -115,15 +126,18 @@ export function renderInvoices(ctx) {
         footer: rows.length
           ? h("div.table-foot", h("span", `${rows.length} invoice${rows.length === 1 ? "" : "s"}`))
           : null,
+        // `mobile` roles compose the <768px card: vessel + invoice no. as
+        // title, amount prominent, status badge, PDF buttons last (§1.8).
         columns: [
-          { key: "invoiceNo", label: "Invoice No.", sortable: true, render: (r) => h("span.tnum.cell-primary", r.invoiceNo) },
-          { key: "vesselName", label: "Vessel", sortable: true },
+          { key: "invoiceNo", label: "Invoice No.", sortable: true, mobile: "sub", render: (r) => h("span.tnum.cell-primary", r.invoiceNo) },
+          { key: "vesselName", label: "Vessel", sortable: true, mobile: "title" },
           { key: "callRef", label: "Call Reference", render: (r) => h("span.tnum", r.callRef) },
           {
             key: "amountUSD",
             label: "Amount (USD)",
             align: "num",
             sortable: true,
+            mobile: "prominent",
             render: (r) => h("span.money", money(r.amountUSD)),
           },
           {
@@ -133,7 +147,7 @@ export function renderInvoices(ctx) {
             sortable: true,
             render: (r) => moneyFigure(r.commissionUSD, { ngn: r.commissionNGN }),
           },
-          { key: "status", label: "Status", sortable: true, render: (r) => badge(r.status) },
+          { key: "status", label: "Status", sortable: true, mobile: "status", render: (r) => badge(r.status) },
           {
             key: "issued",
             label: "Issued",
@@ -251,7 +265,8 @@ export function renderInvoices(ctx) {
         all = rows;
         refresh();
       })
-      .catch((err) =>
+      .catch((err) => {
+        toastError("Couldn't load invoices", err.message);
         tableSlot.replaceChildren(
           emptyState({
             iconName: "alert-circle",
@@ -259,8 +274,8 @@ export function renderInvoices(ctx) {
             body: err.message,
             action: button({ label: "Retry", onClick: load }),
           })
-        )
-      );
+        );
+      });
   }
 
   content.replaceChildren(page);

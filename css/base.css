@@ -173,11 +173,11 @@ textarea.input:focus-visible,
 .brand__glyph {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-btn);
-  background: var(--accent-tint);
-  color: var(--accent);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-card);
+  background: var(--accent);
+  color: #fff;
   flex-shrink: 0;
 }
 .brand__name {
@@ -188,11 +188,9 @@ textarea.input:focus-visible,
 }
 .brand__sub {
   display: block;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 1px;
 }
 
 .nav {
@@ -321,7 +319,8 @@ textarea.input:focus-visible,
   z-index: var(--z-topbar);
 }
 .topbar__title {
-  font-size: var(--fs-h2);
+  /* The top bar carries the current page title at the H1 scale (spec §1.4) */
+  font-size: var(--fs-h1);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -469,6 +468,10 @@ textarea.input:focus-visible,
     justify-content: center;
     padding: var(--space-3);
   }
+  /* Icon-only rail: the sign-out control hides too (spec §1.4) */
+  .user-card .user-card__signout {
+    display: none;
+  }
 }
 
 /* <768px: sidebar becomes a slide-over drawer */
@@ -519,6 +522,9 @@ textarea.input:focus-visible,
   .user-card {
     justify-content: flex-start;
     padding: var(--space-4) var(--space-5);
+  }
+  .user-card .user-card__signout {
+    display: grid;
   }
   .main {
     grid-column: 1;

@@ -19,8 +19,7 @@ import {
   loadingBlock,
   sectionHead,
 } from "../components/ui.js";
-import { confirmDialog } from "../components/modal.js";
-import { toastSuccess, toastError } from "../components/toast.js";
+import { toastError } from "../components/toast.js";
 
 function openPdfTab(kind, doc, label) {
   const w = window.open("", "_blank");
@@ -39,7 +38,8 @@ export function renderVesselCallDetail(ctx) {
         ctx.setTitle(call.vesselName);
         content.replaceChildren(view(call));
       })
-      .catch((err) =>
+      .catch((err) => {
+        toastError("Couldn't load vessel call", err.message);
         content.replaceChildren(
           emptyState({
             iconName: "alert-circle",
@@ -47,20 +47,15 @@ export function renderVesselCallDetail(ctx) {
             body: err.message,
             action: h("a.btn.btn--primary", { href: "#/vessel-calls" }, "Back to Vessel Calls"),
           })
-        )
-      );
+        );
+      });
   }
 
   function view(call) {
     const completed = call.inspections.find((i) => i.status === "completed");
 
-    const backLink = h(
-      "a.btn.btn--ghost.btn--sm",
-      { href: "#/vessel-calls", style: { marginBottom: "16px", paddingLeft: "6px" } },
-      icon("arrow-left", { size: 16 }),
-      "Vessel Calls"
-    );
-
+    // Header block per spec §1.6.3: vessel name (H1), reference + type +
+    // flag as the meta line, and the status badge — nothing else.
     const header = h(
       "div.page-head",
       h(
@@ -74,21 +69,10 @@ export function renderVesselCallDetail(ctx) {
           " · ",
           call.flag || "Unknown flag"
         )
-      ),
-      h(
-        "div.page-head__actions",
-        button({
-          label: "Add Inspection",
-          leadingIcon: "plus",
-          onClick: () => ctx.navigate(`/inspections/new?callId=${call.id}`),
-        }),
-        call.status !== "completed"
-          ? button({ label: "Cancel call", variant: "secondary", onClick: () => cancelCall(call) })
-          : null
       )
     );
 
-    return h("div", backLink, header, particulars(call), inspectionsSection(call), financials(call, completed));
+    return h("div", header, particulars(call), inspectionsSection(call), financials(call, completed));
   }
 
   /* ---- Vessel particulars ---- */
@@ -147,7 +131,7 @@ export function renderVesselCallDetail(ctx) {
               key: "reconciledTonnage",
               label: "Reconciled Tonnage",
               align: "num",
-              render: (r) => h("span.tnum", tons(r.reconciledTonnage)),
+              render: (r) => h("span.figure", tons(r.reconciledTonnage)),
             },
             { key: "status", label: "Status", render: (r) => badge(r.status) },
             {
@@ -238,11 +222,6 @@ export function renderVesselCallDetail(ctx) {
           )
         ),
         h(
-          "div.breakdown__row.breakdown__row--total",
-          h("span.breakdown__key", h("strong", "Total due")),
-          h("span.money.money--lg", money(c.harbourDues + c.commissionUSD))
-        ),
-        h(
           "div.result-card__pdf-actions",
           { style: { marginTop: "20px" } },
           button({
@@ -262,20 +241,6 @@ export function renderVesselCallDetail(ctx) {
     );
 
     return h("section.section", sectionHead("Financials"), breakdown);
-  }
-
-  function cancelCall(call) {
-    confirmDialog({
-      title: `Cancel ${call.ref}?`,
-      message: `This will cancel the vessel call for ${call.vesselName}. This action cannot be undone.`,
-      confirmLabel: "Cancel call",
-      danger: true,
-    }).then((ok) => {
-      if (!ok) return;
-      // Demo: no destructive backend call; acknowledge per spec §1.11.
-      toastSuccess("Call cancelled", `${call.ref} has been cancelled.`);
-      ctx.navigate("/vessel-calls");
-    });
   }
 
   load();

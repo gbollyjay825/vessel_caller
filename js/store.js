@@ -489,9 +489,20 @@ export const api = {
     const call = db.vesselCalls.find((c) => c.id === data.callId);
     if (!call) throw new Error("Linked vessel call not found");
 
+    // Resuming a draft replaces the existing record (same id + ref)
+    // instead of creating a duplicate.
+    let resumed = null;
+    if (data.draftId) {
+      const idx = db.inspections.findIndex(
+        (i) => i.id === data.draftId && i.status === "draft"
+      );
+      if (idx >= 0) resumed = db.inspections.splice(idx, 1)[0];
+    }
+
     const charges = computeCharges(data.reconciledTonnage, db.settings.charge);
-    const ref = `INS-2026-${String(db.counters.ins++).padStart(4, "0")}`;
-    const id = uid("insp");
+    const ref =
+      resumed?.ref || `INS-2026-${String(db.counters.ins++).padStart(4, "0")}`;
+    const id = resumed?.id || uid("insp");
     const isDraft = data.status === "draft";
 
     const invoiceFile = isDraft ? null : `invoice-${call.ref}.pdf`;
@@ -504,7 +515,9 @@ export const api = {
       callRef: call.ref,
       vesselName: call.vesselName,
       cargoCategory: data.cargoCategory,
-      cargoType: data.cargoType,
+      cargoType:
+        data.cargoType ||
+        (data.cargoCategory === "liquid" ? "Liquid cargo" : "Dry / bulk cargo"),
       reconciledTonnage: data.reconciledTonnage,
       date: new Date().toISOString(),
       status: isDraft ? "draft" : "completed",
@@ -661,8 +674,42 @@ export const api = {
     };
   },
 
+  /* ---- Analytics (port-level aggregates, last 12 months) ----
+     Static seeded aggregates that the dashboard chart, PMS highlight
+     card and Analytics screen read. In production this comes from an
+     analytics endpoint. Totals: 3.31M MT liquid · 1.90M MT dry; PMS is
+     1.82M MT (35% of all cargo) with $3.66M revenue. */
+  async getAnalytics() {
+    await delay(250);
+    const labels = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+    // thousands of MT per month (sum: liquid 3,310 · dry 1,900)
+    const liquid = [238, 244, 252, 281, 296, 288, 270, 262, 285, 294, 297, 303];
+    const dry = [148, 151, 144, 158, 160, 165, 152, 149, 162, 168, 170, 173];
+    const pmsTrend = [118, 124, 131, 146, 158, 151, 142, 139, 155, 163, 168, 175];
+    return {
+      labels,
+      liquid,
+      dry,
+      totals: { liquidMT: 3310000, dryMT: 1900000 },
+      pms: {
+        name: "Premium Motor Spirit",
+        abbr: "PMS",
+        volumeMT: 1820000,
+        sharePct: 35,
+        revenueUSD: 3660000,
+        trend: pmsTrend,
+      },
+      products: [
+        { abbr: "PMS", name: "Premium Motor Spirit", category: "liquid", volumeMT: 1820000, sharePct: 35, revenueUSD: 3660000 },
+        { abbr: "AGO", name: "Automotive Gas Oil", category: "liquid", volumeMT: 950000, sharePct: 18.2, revenueUSD: 1910000 },
+        { abbr: "DPK", name: "Dual Purpose Kerosene", category: "liquid", volumeMT: 540000, sharePct: 10.4, revenueUSD: 1080000 },
+        { abbr: "Dry", name: "Dry / bulk cargo", category: "dry", volumeMT: 1900000, sharePct: 36.4, revenueUSD: 2380000 },
+      ],
+    };
+  },
+
   /* ---- Current user (for the shell) ---- */
   getUser() {
-    return { name: "Adaeze Okon", role: "Port Agent" };
+    return { name: "Etim Okon", role: "Port Agent" };
   },
 };

@@ -9,7 +9,7 @@ import { icon } from "../icons.js";
 import { api } from "../store.js";
 import { num, pct } from "../format.js";
 import { field, button, card, badge, loadingBlock, emptyState } from "../components/ui.js";
-import { toastSuccess, toastError, toastInfo } from "../components/toast.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 
 const TABS = [
   ["charge", "Charge configuration"],
@@ -199,15 +199,25 @@ export function renderSettings(ctx) {
       })
     );
 
-    function testEmail() {
-      if (!smtp.connected) return toastError("Email not connected", "Save valid SMTP credentials first.");
-      toastInfo("Sending test…", "");
-      setTimeout(() => toastSuccess("Test email sent", `Delivered via ${smtp.host}.`), 700);
+    function testEmail(done) {
+      if (!smtp.connected) {
+        toastError("Email not connected", "Save valid SMTP credentials first.");
+        return done();
+      }
+      setTimeout(() => {
+        toastSuccess("Test email sent", `Delivered via ${smtp.host}.`);
+        done();
+      }, 700);
     }
-    function testSms() {
-      if (!sms.connected) return toastError("SMS not connected", "Add Twilio credentials and save to connect.");
-      toastInfo("Sending test…", "");
-      setTimeout(() => toastSuccess("Test SMS sent", `Sent from ${sms.fromNumber}.`), 700);
+    function testSms(done) {
+      if (!sms.connected) {
+        toastError("SMS not connected", "Add Twilio credentials and save to connect.");
+        return done();
+      }
+      setTimeout(() => {
+        toastSuccess("Test SMS sent", `Sent from ${sms.fromNumber}.`);
+        done();
+      }, 700);
     }
 
     const emailCard = card(
@@ -235,13 +245,30 @@ export function renderSettings(ctx) {
   }
 
   function connHeader(ic, label, connected, onTest) {
+    // Send test triggers async work: inline spinner + disable (§1.11)
+    const sendIcon = h("span", { style: { display: "inline-flex" } }, icon("send", { size: 20 }));
+    const sendBtn = h(
+      "button.btn.btn--secondary.btn--sm",
+      { type: "button" },
+      sendIcon,
+      h("span", "Send test")
+    );
+    sendBtn.addEventListener("click", () => {
+      sendBtn.disabled = true;
+      sendIcon.replaceChildren(h("span.spinner"));
+      onTest(() => {
+        sendBtn.disabled = false;
+        sendIcon.replaceChildren(icon("send", { size: 20 }));
+      });
+    });
+
     return h(
       "div.row",
       { style: { gap: "12px" } },
       h("span.segmented__icon", { style: { width: "36px", height: "36px" } }, icon(ic, { size: 18 })),
       h("div.conn-row__label", h("div", { style: { fontWeight: 600 } }, label), h("div.cell-sub", connected ? "Channel is configured" : "Not yet configured")),
       badge(connected ? "connected" : "not-connected", connected ? "Connected" : "Not connected"),
-      button({ label: "Send test", variant: "secondary", size: "sm", leadingIcon: "send", onClick: onTest })
+      sendBtn
     );
   }
 
@@ -374,7 +401,8 @@ export function renderSettings(ctx) {
         setDirty(false);
         render();
       })
-      .catch((err) =>
+      .catch((err) => {
+        toastError("Couldn't load settings", err.message);
         content.replaceChildren(
           emptyState({
             iconName: "alert-circle",
@@ -382,8 +410,8 @@ export function renderSettings(ctx) {
             body: err.message,
             action: button({ label: "Retry", onClick: load }),
           })
-        )
-      );
+        );
+      });
   }
 
   load();

@@ -9,6 +9,7 @@ import { api } from "../store.js";
 import { money, date } from "../format.js";
 import { dataTable } from "../components/table.js";
 import { badge, button, pdfActions, emptyState } from "../components/ui.js";
+import { toastError } from "../components/toast.js";
 import { openRegisterCall } from "./registerCall.js";
 
 const PER_PAGE = 25;
@@ -40,19 +41,24 @@ export function renderVesselCalls(ctx) {
   const segButtons = {};
   const seg = h(
     "div.seg-filter",
-    { role: "tablist", "aria-label": "Filter by status" },
+    { role: "group", "aria-label": "Filter by status" },
     STATUSES.map(([v, l]) => {
       const b = h(
         "button",
-        { type: "button", class: v === state.status ? "is-active" : "", role: "tab" },
+        {
+          type: "button",
+          class: v === state.status ? "is-active" : "",
+          "aria-pressed": String(v === state.status),
+        },
         l
       );
       b.addEventListener("click", () => {
         state.status = v;
         state.page = 1;
-        Object.entries(segButtons).forEach(([k, btn]) =>
-          btn.classList.toggle("is-active", k === v)
-        );
+        Object.entries(segButtons).forEach(([k, btn]) => {
+          btn.classList.toggle("is-active", k === v);
+          btn.setAttribute("aria-pressed", String(k === v));
+        });
         refresh();
       });
       segButtons[v] = b;
@@ -73,6 +79,7 @@ export function renderVesselCalls(ctx) {
 
   const filterBar = h(
     "div.filter-bar",
+    { role: "group", "aria-label": "Filter vessel calls" },
     h("div.search", icon("search", { size: 16 }), searchInput),
     seg,
     h(
@@ -199,6 +206,7 @@ export function renderVesselCalls(ctx) {
           body: "Try a different search term or clear the filters.",
         }),
         footer,
+        // (flashId is cleared below so the highlight only plays once)
         columns: [
           {
             key: "vesselName",
@@ -217,7 +225,7 @@ export function renderVesselCalls(ctx) {
           },
           {
             key: "eta",
-            label: "ETA / Berth",
+            label: "ETA/Berth",
             sortable: true,
             sortValue: (r) => (r.eta ? new Date(r.eta).getTime() : 0),
             render: (r) =>
@@ -247,14 +255,20 @@ export function renderVesselCalls(ctx) {
                     resolveReport: () => api.buildDoc({ callId: r.id }),
                   })
                 : h(
-                    "a.btn.btn--ghost.btn--sm",
-                    { href: `#/vessel-calls/${r.id}`, onClick: (e) => e.stopPropagation() },
+                    // A plain accent text link (spec §1.5)
+                    "a",
+                    {
+                      href: `#/vessel-calls/${r.id}`,
+                      style: { fontWeight: "500" },
+                      onClick: (e) => e.stopPropagation(),
+                    },
                     "Open"
                   ),
           },
         ],
       })
     );
+    flashId = null; // brief highlight: never replays on later re-renders
   }
 
   function skeleton() {
@@ -266,7 +280,7 @@ export function renderVesselCalls(ctx) {
         { key: "type", label: "Type" },
         { key: "flag", label: "Flag" },
         { key: "status", label: "Status" },
-        { key: "eta", label: "ETA / Berth" },
+        { key: "eta", label: "ETA/Berth" },
         { key: "dues", label: "Dues", align: "num" },
         { key: "actions", label: "Actions", isActions: true },
       ],
@@ -281,7 +295,8 @@ export function renderVesselCalls(ctx) {
         all = rows;
         refresh();
       })
-      .catch((err) =>
+      .catch((err) => {
+        toastError("Couldn't load vessel calls", err.message);
         tableSlot.replaceChildren(
           emptyState({
             iconName: "alert-circle",
@@ -289,8 +304,8 @@ export function renderVesselCalls(ctx) {
             body: err.message,
             action: button({ label: "Retry", onClick: load }),
           })
-        )
-      );
+        );
+      });
   }
 
   content.replaceChildren(page);

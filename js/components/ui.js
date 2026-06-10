@@ -42,7 +42,7 @@ export function button(opts = {}) {
     loading
       ? h("span.spinner")
       : leadingIcon
-      ? icon(leadingIcon, { size: size === "sm" ? 15 : 16 })
+      ? icon(leadingIcon, { size: 20 }) // button leading icons are 20px (spec §1.3)
       : null,
     label ? h("span", label) : null,
     trailingIcon ? icon(trailingIcon, { size: 16 }) : null,
@@ -91,12 +91,12 @@ export function pdfButton({ kind, available = true, resolve }) {
         title: "Not yet generated",
         "aria-label": `${label} — not yet generated`,
       },
-      icon("file", { size: 15 }),
+      icon("file", { size: 20 }),
       label
     );
   }
 
-  const iconSlot = h("span", { style: { display: "inline-flex" } }, icon("file", { size: 15 }));
+  const iconSlot = h("span", { style: { display: "inline-flex" } }, icon("file", { size: 20 }));
   const btn = h(
     "button.btn.btn--pdf",
     { type: "button", "aria-label": `Open ${label} PDF in a new tab` },
@@ -104,21 +104,20 @@ export function pdfButton({ kind, available = true, resolve }) {
     label
   );
 
-  let busy = false;
   btn.addEventListener("click", (e) => {
     e.stopPropagation(); // never trigger an underlying row click
-    if (busy) return;
-    busy = true;
+    if (btn.disabled) return;
     // Open the tab synchronously inside the gesture (pop-up safe),
     // then write once the "link resolves".
     const win = window.open("", "_blank");
+    btn.disabled = true; // async work: spinner AND disable (spec §1.11)
     iconSlot.replaceChildren(h("span.spinner", { style: { color: "var(--accent)" } }));
     btn.setAttribute("aria-busy", "true");
     setTimeout(() => {
       const ok = openPrintable(kind, resolve(), win);
-      iconSlot.replaceChildren(icon("file", { size: 15 }));
+      iconSlot.replaceChildren(icon("file", { size: 20 }));
       btn.removeAttribute("aria-busy");
-      busy = false;
+      btn.disabled = false;
       if (!ok)
         toastError("Pop-up blocked", `Allow pop-ups to open the ${label} PDF.`);
     }, 280);
@@ -139,6 +138,8 @@ export function pdfActions({ available = true, resolveInvoice, resolveReport }) 
 /* ---------------- Status & tags ---------------- */
 
 export function badge(status, labelOverride) {
+  // Leading dot per the approved dashboard design (status is still
+  // conveyed by the text label, satisfying §1.11).
   return h(
     `span.badge.badge--${status}`,
     { role: "status" },
@@ -225,7 +226,7 @@ export function kvGrid(pairs) {
 export function emptyState({ iconName = "ship", title, body, action }) {
   return h(
     "div.empty",
-    h("div.empty__icon", icon(iconName, { size: 26 })),
+    h("div.empty__icon", icon(iconName, { size: 20 })),
     h("div.empty__title", title),
     body ? h("p.empty__body", body) : null,
     action || null

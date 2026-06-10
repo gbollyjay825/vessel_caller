@@ -5,7 +5,10 @@
    via .is-responsive + data-label, styled in components.css §1.8).
 
    Column: { key, label, align?:'num', sortable?, isActions?,
+             mobile?:'title'|'sub'|'prominent'|'status',
              render?(row)->node|string, sortValue?(row)->any }
+   `mobile` marks the cell's role in the <768px stacked card
+   (title / subtitle / prominent figure / status, spec §1.8).
    ============================================================ */
 import { h } from "../dom.js";
 import { icon } from "../icons.js";
@@ -23,11 +26,12 @@ export function dataTable(opts = {}) {
     responsive = true,
     footer = null,
     skeletonRows = 6,
+    flush = false, // borderless: for tables embedded inside a card
   } = opts;
 
   let sort = initialSort;
 
-  const wrap = h("div.table-wrap");
+  const wrap = h("div.table-wrap" + (flush ? ".table-wrap--flush" : ""));
   const scroll = h("div.table-scroll");
   const table = h("table", { class: "table" + (responsive ? " is-responsive" : "") });
   const thead = h("thead");
@@ -151,7 +155,11 @@ export function dataTable(opts = {}) {
           const td = h(
             "td",
             {
-              class: [col.align === "num" ? "is-num" : "", col.isActions ? "is-actions" : ""]
+              class: [
+                col.align === "num" ? "is-num" : "",
+                col.isActions ? "is-actions" : "",
+                col.mobile ? `m-${col.mobile}` : "",
+              ]
                 .filter(Boolean)
                 .join(" "),
               "data-label": col.label,

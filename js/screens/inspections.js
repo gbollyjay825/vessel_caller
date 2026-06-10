@@ -1,51 +1,21 @@
 /* ============================================================
    inspections.js — Inspections list (spec §1.7.1).
-   Table with Liquid/Dry tags; Report on completed, Resume on drafts.
+   H1 + primary "+ New Inspection", then the table:
+   Reference · Vessel · Cargo Type · Reconciled Tonnage · Date ·
+   Status · Actions — Report (shared PDF button) on completed rows,
+   Resume on drafts (re-opens the draft itself).
    ============================================================ */
 import { h } from "../dom.js";
 import { icon } from "../icons.js";
 import { api } from "../store.js";
 import { tons, date } from "../format.js";
-import { openPrintable } from "../pdf.js";
 import { dataTable } from "../components/table.js";
-import { badge, button, cargoTag, emptyState } from "../components/ui.js";
+import { badge, button, cargoTag, emptyState, pdfButton } from "../components/ui.js";
 import { toastError } from "../components/toast.js";
 
 export function renderInspections(ctx) {
   const { content } = ctx;
-  let all = null;
-  const state = { q: "", status: "all" };
-
-  const searchInput = h("input.input", {
-    type: "search",
-    placeholder: "Search reference or vessel…",
-    "aria-label": "Search inspections",
-  });
-  searchInput.addEventListener("input", () => {
-    state.q = searchInput.value.trim().toLowerCase();
-    refresh();
-  });
-
-  const STATUSES = [
-    ["all", "All"],
-    ["completed", "Completed"],
-    ["draft", "Draft"],
-  ];
-  const segButtons = {};
-  const seg = h(
-    "div.seg-filter",
-    { role: "tablist", "aria-label": "Filter by status" },
-    STATUSES.map(([v, l]) => {
-      const b = h("button", { type: "button", class: v === state.status ? "is-active" : "", role: "tab" }, l);
-      b.addEventListener("click", () => {
-        state.status = v;
-        Object.entries(segButtons).forEach(([k, btn]) => btn.classList.toggle("is-active", k === v));
-        refresh();
-      });
-      segButtons[v] = b;
-      return b;
-    })
-  );
+  let flashId = ctx.query.flash || null; // brief highlight for a just-created row
 
   const tableSlot = h("div");
 
@@ -63,40 +33,20 @@ export function renderInspections(ctx) {
         button({ label: "New Inspection", leadingIcon: "plus", onClick: () => ctx.navigate("/inspections/new") })
       )
     ),
-    h("div.filter-bar", h("div.search", icon("search", { size: 16 }), searchInput), seg),
     tableSlot
   );
 
-  function openReport(insp) {
-    const w = window.open("", "_blank");
-    if (!openPrintable("report", api.buildDoc({ inspectionId: insp.id }), w))
-      toastError("Pop-up blocked", "Allow pop-ups to open the report.");
-  }
-
-  function filtered() {
-    return all.filter((i) => {
-      if (state.q && !(i.ref.toLowerCase().includes(state.q) || i.vesselName.toLowerCase().includes(state.q)))
-        return false;
-      if (state.status !== "all" && i.status !== state.status) return false;
-      return true;
-    });
-  }
-
-  function refresh() {
-    if (all === null) return;
-    const rows = filtered();
+  function renderTable(rows) {
     tableSlot.replaceChildren(
       dataTable({
         rows,
+        rowKey: (r) => r.id,
+        flashKey: flashId,
         empty: emptyState({
           iconName: "clipboard",
-          title: all.length ? "No matching inspections" : "No inspections yet",
-          body: all.length
-            ? "Try a different search or filter."
-            : "Start a new inspection to reconcile cargo tonnage.",
-          action: all.length
-            ? null
-            : button({ label: "New Inspection", leadingIcon: "plus", onClick: () => ctx.navigate("/inspections/new") }),
+          title: "No inspections yet",
+          body: "Start a new inspection to reconcile cargo tonnage.",
+          action: button({ label: "New Inspection", leadingIcon: "plus", onClick: () => ctx.navigate("/inspections/new") }),
         }),
         footer: rows.length
           ? h("div.table-foot", h("span", `${rows.length} inspection${rows.length === 1 ? "" : "s"}`))
@@ -114,7 +64,7 @@ export function renderInspections(ctx) {
             label: "Reconciled Tonnage",
             align: "num",
             sortable: true,
-            render: (r) => h("span.tnum", tons(r.reconciledTonnage)),
+            render: (r) => h("span.figure", tons(r.reconciledTonnage)),
           },
           {
             key: "date",
@@ -130,13 +80,13 @@ export function renderInspections(ctx) {
             isActions: true,
             render: (r) =>
               r.status === "completed"
-                ? h(
-                    "span.cell-actions",
-                    button({ label: "Report", variant: "pdf", leadingIcon: "file", onClick: () => openReport(r) })
-                  )
+                ? pdfButton({
+                    kind: "report",
+                    resolve: () => api.buildDoc({ inspectionId: r.id }),
+                  })
                 : h(
                     "a.btn.btn--ghost.btn--sm",
-                    { href: `#/inspections/new?callId=${r.callId}` },
+                    { href: `#/inspections/new?draftId=${r.id}` },
                     icon("edit", { size: 15 }),
                     "Resume"
                   ),
@@ -144,6 +94,7 @@ export function renderInspections(ctx) {
         ],
       })
     );
+    flashId = null; // brief highlight: plays once, never on re-render
   }
 
   function load() {
@@ -163,11 +114,9 @@ export function renderInspections(ctx) {
     );
     api
       .listInspections()
-      .then((rows) => {
-        all = rows;
-        refresh();
-      })
-      .catch((err) =>
+      .then(renderTable)
+      .catch((err) => {
+        toastError("Couldn't load inspections", err.message);
         tableSlot.replaceChildren(
           emptyState({
             iconName: "alert-circle",
@@ -175,8 +124,8 @@ export function renderInspections(ctx) {
             body: err.message,
             action: button({ label: "Retry", onClick: load }),
           })
-        )
-      );
+        );
+      });
   }
 
   content.replaceChildren(page);

@@ -40,10 +40,10 @@ export function toast({ title, message = "", variant = "info", duration = 4000 }
     setTimeout(() => el.remove(), 400);
   }
 
-  // Pause auto-dismiss on hover
+  // Pause auto-dismiss on hover; restart the full window on leave
   el.addEventListener("mouseenter", () => clearTimeout(timer));
   el.addEventListener("mouseleave", () => {
-    timer = setTimeout(dismiss, 1500);
+    if (duration) timer = setTimeout(dismiss, duration);
   });
 
   root().appendChild(el);
@@ -54,6 +54,6 @@ export function toast({ title, message = "", variant = "info", duration = 4000 }
 export const toastSuccess = (title, message) =>
   toast({ title, message, variant: "success" });
 export const toastError = (title, message) =>
-  toast({ title, message, variant: "error", duration: 6000 });
+  toast({ title, message, variant: "error" });
 export const toastInfo = (title, message) =>
   toast({ title, message, variant: "info" });

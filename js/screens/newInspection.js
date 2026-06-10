@@ -2,6 +2,8 @@
    newInspection.js — New Inspection flow (spec §1.7.2).
    3 steps: link & type → cargo measurement (live reconciled tonnage)
    → review (live charge preview) → success screen with both PDFs.
+   Resuming a draft (?draftId=) rehydrates the saved inspection and
+   replaces it on submit instead of duplicating it.
    ============================================================ */
 import { h } from "../dom.js";
 import { icon } from "../icons.js";
@@ -14,7 +16,6 @@ import {
   stepper,
   liveCalc,
   field,
-  badge,
   loadingBlock,
   emptyState,
   moneyFigure,
@@ -28,6 +29,7 @@ export function renderNewInspection(ctx) {
   ctx.setTitle("New Inspection");
 
   const model = {
+    draftId: null,
     callId: query.callId || null,
     call: null,
     cargoCategory: null,
@@ -41,40 +43,50 @@ export function renderNewInspection(ctx) {
 
   content.replaceChildren(loadingBlock("Preparing inspection…"));
 
-  api
-    .listVesselCalls()
-    .then((rows) => {
-      calls = rows;
-      if (model.callId) {
-        model.call = rows.find((c) => c.id === model.callId) || null;
-        if (!model.call) {
-          model.locked = false;
-          model.callId = null;
-        }
+  async function prepare() {
+    calls = await api.listVesselCalls();
+
+    if (query.draftId) {
+      // Resume: rehydrate the saved draft (spec §1.7.1 "Resume on drafts")
+      const draft = await api.getInspection(query.draftId);
+      if (draft && draft.status === "draft") {
+        model.draftId = draft.id;
+        model.callId = draft.callId;
+        model.cargoCategory = draft.cargoCategory;
+        model.cargoType = draft.cargoType || "";
+        model.measurement = { ...(draft.measurement || {}) };
+        model.reconciledTonnage = draft.reconciledTonnage || 0;
+        model.locked = true;
       }
-      render();
-    })
-    .catch((err) =>
-      content.replaceChildren(
-        emptyState({
-          iconName: "alert-circle",
-          title: "Couldn't start inspection",
-          body: err.message,
-          action: h("a.btn.btn--primary", { href: "#/inspections" }, "Back to Inspections"),
-        })
-      )
+    }
+    if (model.callId) {
+      model.call = calls.find((c) => c.id === model.callId) || null;
+      if (!model.call) {
+        model.locked = false;
+        model.callId = null;
+      }
+    }
+    // A resumed draft lands back on the measurement step
+    if (model.draftId && model.cargoCategory) step = 1;
+    render();
+  }
+
+  prepare().catch((err) => {
+    toastError("Couldn't start inspection", err.message);
+    content.replaceChildren(
+      emptyState({
+        iconName: "alert-circle",
+        title: "Couldn't start inspection",
+        body: err.message,
+        action: h("a.btn.btn--primary", { href: "#/inspections" }, "Back to Inspections"),
+      })
     );
+  });
 
   function render() {
     content.replaceChildren(
       h(
         "div",
-        h(
-          "a.btn.btn--ghost.btn--sm",
-          { href: "#/inspections", style: { marginBottom: "16px", paddingLeft: "6px" } },
-          icon("arrow-left", { size: 16 }),
-          "Inspections"
-        ),
         h(
           "div.page-head",
           h(
@@ -106,7 +118,7 @@ export function renderNewInspection(ctx) {
       label: "Cargo / commodity",
       placeholder: "e.g. Crude Oil, Iron Ore, Gasoil",
       value: model.cargoType,
-      required: true,
+      hint: "Optional — shown on reports and listings.",
       onInput: (e) => (model.cargoType = e.target.value),
     });
 
@@ -123,9 +135,9 @@ export function renderNewInspection(ctx) {
                 h("div", { style: { fontWeight: 600 } }, model.call.vesselName),
                 h("div.cell-sub", `${model.call.ref} · ${model.call.type}`)
               ),
-              h("span.badge.badge--info", { style: { marginLeft: "auto" } }, h("span.badge__dot"), "Linked")
+              h("span.badge.badge--info", { style: { marginLeft: "auto" } }, "Linked")
             ),
-            h("div.field__hint", "Pre-filled from the vessel call you opened.")
+            h("div.field__hint", model.draftId ? "Resumed from your saved draft." : "Pre-filled from the vessel call you opened.")
           )
         : comboField(callError);
 
@@ -136,10 +148,6 @@ export function renderNewInspection(ctx) {
         let ok = true;
         if (!model.callId) {
           callError.hidden = false;
-          ok = false;
-        }
-        if (!model.cargoType.trim()) {
-          commodity.setError("Enter the commodity");
           ok = false;
         }
         if (!model.cargoCategory) {
@@ -173,22 +181,52 @@ export function renderNewInspection(ctx) {
     );
   }
 
+  /* Searchable vessel-call combobox — fully keyboard operable (§1.11):
+     ArrowDown/Up move through options, Enter/click selects, Escape closes,
+     and the menu stays open while focus is anywhere inside the combo. */
   function comboField(callError) {
+    const listboxId = "combo-vessel-calls";
     const input = h("input.input", {
       type: "search",
       placeholder: "Search vessel name or reference…",
       "aria-label": "Vessel call",
       autocomplete: "off",
+      role: "combobox",
+      "aria-expanded": "false",
+      "aria-controls": listboxId,
+      "aria-autocomplete": "list",
     });
     if (model.call) input.value = `${model.call.vesselName} · ${model.call.ref}`;
 
-    const menu = h("div.combo-menu", { hidden: true, role: "listbox" });
+    const menu = h("div.combo-menu", { hidden: true, role: "listbox", id: listboxId });
+    const combo = h("div.combo", input, menu);
     const wrap = h(
       "div.field",
       h("label.field__label", "Vessel call", h("span.field__req", "*")),
-      h("div.combo", input, menu),
+      combo,
       h("div.field__hint", "Inspections must be linked to a registered vessel call.")
     );
+
+    let suppressOpenOnFocus = false;
+
+    function setOpen(open) {
+      menu.hidden = !open;
+      input.setAttribute("aria-expanded", String(open));
+    }
+
+    function options() {
+      return [...menu.querySelectorAll('[role="option"]')];
+    }
+
+    function select(c) {
+      model.callId = c.id;
+      model.call = c;
+      input.value = `${c.vesselName} · ${c.ref}`;
+      setOpen(false);
+      callError.hidden = true;
+      suppressOpenOnFocus = true; // refocusing must not reopen the menu
+      input.focus();
+    }
 
     function filter(q) {
       const ql = (q || "").toLowerCase();
@@ -211,13 +249,22 @@ export function renderNewInspection(ctx) {
               h("div.cell-sub", `${c.ref} · ${c.type} · ${c.flag}`)
             )
           );
-          it.addEventListener("mousedown", (e) => {
-            e.preventDefault();
-            model.callId = c.id;
-            model.call = c;
-            input.value = `${c.vesselName} · ${c.ref}`;
-            menu.hidden = true;
-            callError.hidden = true;
+          it.addEventListener("click", () => select(c));
+          it.addEventListener("keydown", (e) => {
+            const opts = options();
+            const i = opts.indexOf(it);
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              (opts[i + 1] || opts[0]).focus();
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              if (i === 0) input.focus();
+              else opts[i - 1].focus();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setOpen(false);
+              input.focus();
+            }
           });
           return it;
         })
@@ -225,16 +272,36 @@ export function renderNewInspection(ctx) {
     }
 
     input.addEventListener("focus", () => {
+      if (suppressOpenOnFocus) {
+        suppressOpenOnFocus = false;
+        return;
+      }
       filter(input.value);
-      menu.hidden = false;
+      setOpen(true);
     });
     input.addEventListener("input", () => {
       model.callId = null;
       model.call = null;
       filter(input.value);
-      menu.hidden = false;
+      setOpen(true);
     });
-    input.addEventListener("blur", () => setTimeout(() => (menu.hidden = true), 150));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (menu.hidden) {
+          filter(input.value);
+          setOpen(true);
+        }
+        const first = options()[0];
+        if (first) first.focus();
+      } else if (e.key === "Escape") {
+        setOpen(false);
+      }
+    });
+    // Keep the menu open while focus stays inside the combo (input OR options)
+    combo.addEventListener("focusout", (e) => {
+      if (!combo.contains(e.relatedTarget)) setOpen(false);
+    });
 
     return wrap;
   }
@@ -243,7 +310,7 @@ export function renderNewInspection(ctx) {
     const opt = (val, title, desc, ic) => {
       const el = h(
         "button",
-        { type: "button", class: "segmented__opt" + (model.cargoCategory === val ? " is-selected" : "") },
+        { type: "button", class: "segmented__opt" + (model.cargoCategory === val ? " is-selected" : ""), "aria-pressed": String(model.cargoCategory === val) },
         h("span.segmented__icon", icon(ic, { size: 22 })),
         h("div", h("div.segmented__title", title), h("div.segmented__desc", desc))
       );
@@ -268,7 +335,7 @@ export function renderNewInspection(ctx) {
     const calc = liveCalc({
       label: "Reconciled tonnage",
       value: fmtTonnage(model.reconciledTonnage),
-      unit: "MT",
+      unit: "MTS",
       hint: "Computed preview · finalised by the NPA tariff engine on submit.",
     });
 
@@ -280,22 +347,33 @@ export function renderNewInspection(ctx) {
       calc.set(fmtTonnage(model.reconciledTonnage), undefined);
     }
 
-    const bind = (key) => (e) => {
-      model.measurement[key] = e.target.value;
-      recompute();
-    };
-
     const m = model.measurement;
-    const numField = (key, label, opts = {}) =>
-      field({
+    const fieldRefs = []; // [{ f, key, required, label }]
+
+    const numField = (key, label, opts = {}) => {
+      const f = field({
         kind: "number",
         label,
         value: m[key] ?? "",
         inputmode: "decimal",
         step: "any",
-        onInput: bind(key),
+        onInput: (e) => {
+          model.measurement[key] = e.target.value;
+          if (opts.required && e.target.value) f.clearError();
+          recompute();
+        },
         ...opts,
       });
+      // Required fields validate on blur with inline errors (spec §1.11)
+      if (opts.required) {
+        f.input.addEventListener("blur", () => {
+          if (!f.value) f.setError(`${label} is required`);
+          else f.clearError();
+        });
+      }
+      fieldRefs.push({ f, key, required: !!opts.required, label });
+      return f;
+    };
 
     const fields =
       model.cargoCategory === "liquid"
@@ -350,9 +428,9 @@ export function renderNewInspection(ctx) {
           "div",
           h("div.kv__key", "Inspection"),
           h("div", { style: { fontWeight: 600, marginTop: "2px" } }, model.call?.vesselName || "—"),
-          h("div.cell-sub", `${model.call?.ref || ""} · ${model.cargoType || "—"}`)
+          h("div.cell-sub", `${model.call?.ref || ""} · ${model.cargoType || (model.cargoCategory === "liquid" ? "Liquid cargo" : "Dry / bulk cargo")}`)
         ),
-        { pad: true }
+        { pad: true, cls: "measure-rail__info" }
       )
     );
 
@@ -360,8 +438,20 @@ export function renderNewInspection(ctx) {
       label: "Review",
       trailingIcon: "chevron-right",
       onClick: () => {
+        // Required fields error inline beneath the field (spec §1.11)
+        let firstError = null;
+        for (const { f, required, label } of fieldRefs) {
+          if (required && !f.value) {
+            f.setError(`${label} is required`);
+            if (!firstError) firstError = f;
+          }
+        }
+        if (firstError) {
+          firstError.focus();
+          return;
+        }
         if (!(model.reconciledTonnage > 0)) {
-          toastError("Enter measurements", "Reconciled tonnage must be greater than zero to continue.");
+          toastError("Check the measurements", "Reconciled tonnage must be greater than zero to continue.");
           return;
         }
         step = 2;
@@ -402,11 +492,12 @@ export function renderNewInspection(ctx) {
         row("Call reference", h("span.tnum", model.call?.ref || "—")),
         row("Cargo", h("div.row", { style: { gap: "8px", justifyContent: "flex-end" } },
           h("span.tag", icon(model.cargoCategory === "liquid" ? "droplet" : "box", { size: 14 }), model.cargoCategory === "liquid" ? "Liquid" : "Dry"),
-          model.cargoType)),
-        row("Reconciled tonnage", h("span.tnum", tons(model.reconciledTonnage)))
+          model.cargoType || (model.cargoCategory === "liquid" ? "Liquid cargo" : "Dry / bulk cargo"))),
+        row("Reconciled tonnage", h("span.figure", tons(model.reconciledTonnage)))
       )
     );
 
+    // Live charge preview: harbour dues + commission USD/₦ (spec §1.7.2)
     const preview = card(
       h(
         "div",
@@ -431,38 +522,46 @@ export function renderNewInspection(ctx) {
             h("span.money.money--lg", money(charges.commissionUSD)),
             h("div.money__secondary", naira(charges.commissionNGN))
           )
-        ),
-        h(
-          "div.breakdown__row.breakdown__row--total",
-          h("span.breakdown__key", h("strong", "Total due")),
-          h("span.money.money--lg", money(charges.harbourDues + charges.commissionUSD))
         )
       )
     );
 
-    // submit + save draft buttons (manual to manage loading)
-    const submitIcon = h("span", { style: { display: "inline-flex" } }, icon("check", { size: 16 }));
+    // Primary Submit + secondary Save draft, each with its own inline
+    // spinner so loading shows on the button that was clicked (§1.11).
+    const submitIcon = h("span", { style: { display: "inline-flex" } }, icon("check", { size: 20 }));
     const submitBtn = h(
       "button.btn.btn--primary",
       { type: "button", onClick: () => submit("completed") },
       submitIcon,
       h("span", "Submit Inspection")
     );
-    const draftBtn = button({ label: "Save draft", variant: "secondary", onClick: () => submit("draft") });
+    const draftIcon = h("span", { style: { display: "inline-flex" } }, icon("file", { size: 20 }));
+    const draftBtn = h(
+      "button.btn.btn--secondary",
+      { type: "button", onClick: () => submit("draft") },
+      draftIcon,
+      h("span", "Save draft")
+    );
 
     let busy = false;
-    function setBusy(v) {
+    function setBusy(v, which) {
       busy = v;
       submitBtn.disabled = v;
       draftBtn.disabled = v;
-      submitIcon.replaceChildren(v ? h("span.spinner") : icon("check", { size: 16 }));
+      submitIcon.replaceChildren(
+        v && which === "completed" ? h("span.spinner") : icon("check", { size: 20 })
+      );
+      draftIcon.replaceChildren(
+        v && which === "draft" ? h("span.spinner") : icon("file", { size: 20 })
+      );
     }
 
     async function submit(status) {
       if (busy) return;
-      setBusy(true);
+      setBusy(true, status);
       try {
         const result = await api.createInspection({
+          draftId: model.draftId,
           callId: model.callId,
           cargoCategory: model.cargoCategory,
           cargoType: model.cargoType,
@@ -472,12 +571,13 @@ export function renderNewInspection(ctx) {
         });
         if (status === "draft") {
           toastSuccess("Draft saved", `${result.ref} saved as a draft.`);
-          ctx.navigate("/inspections");
+          // New row appears in the list with a brief highlight (§1.11)
+          ctx.navigate(`/inspections?flash=${result.id}`);
         } else {
           successView(result);
         }
       } catch (err) {
-        setBusy(false);
+        setBusy(false, status);
         toastError("Submission failed", err.message);
       }
     }
@@ -525,7 +625,7 @@ export function renderNewInspection(ctx) {
         card(
           h(
             "div.result-card",
-            h("div.summary-row", h("span.summary-row__key", "Reconciled tonnage"), h("span.summary-row__val.tnum", tons(result.reconciledTonnage))),
+            h("div.summary-row", h("span.summary-row__key", "Reconciled tonnage"), h("span.summary-row__val.figure", tons(result.reconciledTonnage))),
             h("div.summary-row", h("span.summary-row__key", "NPA harbour dues"), h("span.summary-row__val.money.money--lg", money(c.harbourDues))),
             h(
               "div.summary-row",

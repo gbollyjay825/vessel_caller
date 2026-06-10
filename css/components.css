@@ -98,7 +98,7 @@
   height: 30px;
   padding: 0 var(--space-3);
   font-size: var(--fs-meta);
-  border-radius: 5px;
+  border-radius: var(--radius-btn);
 }
 .btn--lg {
   height: 44px;
@@ -145,7 +145,7 @@
   padding: 0 10px;
   font-size: var(--fs-meta);
   font-weight: 500;
-  border-radius: 5px;
+  border-radius: var(--radius-btn);
   background: var(--surface);
   border-color: var(--border);
   color: var(--text);
@@ -230,13 +230,25 @@
 }
 
 /* ------------------------------------------------------------
-   Money figure (spec 1.10) — tabular, right-aligned, dual USD/₦
+   Money figure (spec 1.10) — tabular, right-aligned, dual USD/₦.
+   Numeric/monetary display sits at 16px — slightly larger than the
+   14px body, per the §1.3 numeric scale (16–20px).
    ------------------------------------------------------------ */
 .money {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
   font-weight: 600;
+  font-size: 16px;
   text-align: right;
+  white-space: nowrap;
+}
+
+/* Non-currency numeric display (tonnages etc.) — same §1.3 scale */
+.figure {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  font-weight: 600;
+  font-size: 16px;
   white-space: nowrap;
 }
 .money--lg {
@@ -300,6 +312,14 @@
   font-size: var(--fs-meta);
   color: var(--text-secondary);
 }
+/* Smaller raised currency symbol inside KPI values (design) */
+.stat-card__value .cur {
+  font-size: 0.58em;
+  font-weight: 600;
+  position: relative;
+  top: -0.34em;
+  margin-right: 2px;
+}
 .delta {
   display: inline-flex;
   align-items: center;
@@ -322,6 +342,141 @@
   .kpi-strip {
     grid-template-columns: 1fr;
   }
+}
+
+/* ------------------------------------------------------------
+   Dashboard charts row (design): throughput chart + PMS highlight
+   ------------------------------------------------------------ */
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--space-4);
+  margin-bottom: var(--section-gap);
+  align-items: stretch;
+}
+@media (max-width: 1023px) {
+  .chart-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.chart-card__titles {
+  flex: 1;
+  min-width: 0;
+}
+.chart-card__sub {
+  margin-top: 2px;
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+}
+.chart-card__sub strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+.chart-legend {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+  font-size: var(--fs-meta);
+  color: var(--text);
+}
+.chart-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.chart-legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.link-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  font-size: var(--fs-body);
+  white-space: nowrap;
+}
+
+/* PMS highlight card — solid accent (design) */
+.promo-card {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+}
+.promo-card__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+.promo-card__value {
+  margin-top: var(--space-3);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.promo-card__unit {
+  font-size: 18px;
+  font-weight: 600;
+  margin-left: 4px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.promo-card__desc {
+  margin-top: var(--space-3);
+  font-size: var(--fs-body);
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.45;
+}
+.promo-card__divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.28);
+  margin: var(--space-4) 0;
+}
+.promo-card__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--fs-body);
+  color: rgba(255, 255, 255, 0.85);
+}
+.promo-card__row .money {
+  color: #fff;
+  font-size: 20px;
+}
+.promo-card__spark {
+  margin: var(--space-4) calc(-1 * var(--space-5)) calc(-1 * var(--space-5));
+  margin-top: auto;
+  padding-top: var(--space-4);
+  line-height: 0;
+}
+
+/* Flush table inside a card (Recent Vessel Calls, design) */
+.table-wrap--flush {
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
 }
 
 /* ------------------------------------------------------------
@@ -393,12 +548,15 @@
 .table tbody tr:last-child td {
   border-bottom: none;
 }
-.table tbody tr.is-clickable {
-  cursor: pointer;
+/* Hover row tint is unconditional data-table behaviour (spec §1.10) */
+.table tbody tr {
   transition: background var(--t-fast);
 }
-.table tbody tr.is-clickable:hover {
+.table tbody tr:hover {
   background: var(--surface-muted);
+}
+.table tbody tr.is-clickable {
+  cursor: pointer;
 }
 .table tbody tr.row-flash {
   animation: row-flash 2.4s ease;
@@ -516,7 +674,7 @@
   border: none;
   background: transparent;
   padding: 6px 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-btn);
   font-size: var(--fs-meta);
   font-weight: 500;
   color: var(--text-secondary);
@@ -811,7 +969,7 @@ textarea.input:focus {
 .live-calc__value {
   margin-top: var(--space-2);
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -844,12 +1002,25 @@ textarea.input:focus {
   flex-direction: column;
   gap: var(--space-4);
 }
+/* Below the two-column breakpoint the live tonnage stays persistent as a
+   sticky bar above the form (spec §1.7.2: "persistent right-rail or sticky
+   footer ... so the inspector always sees the number forming"). */
 @media (max-width: 900px) {
   .measure-layout {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
   }
   .measure-rail {
-    position: static;
+    order: -1;
+    position: sticky;
+    top: 8px;
+    z-index: 5;
+  }
+  .measure-rail .measure-rail__info {
+    display: none;
+  }
+  .live-calc {
+    box-shadow: var(--shadow);
   }
 }
 
@@ -1329,6 +1500,8 @@ textarea.input:focus {
     width: 100%;
   }
   .table.is-responsive tbody tr {
+    display: flex;
+    flex-direction: column;
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
     padding: var(--space-2) var(--space-4) var(--space-3);
@@ -1376,14 +1549,48 @@ textarea.input:focus {
     flex: 1;
     height: 38px;
   }
-  .table.is-responsive tbody tr.is-clickable::after {
-    content: "View details →";
+  /* Composed card anatomy (spec §1.8 mobile): cells marked with
+     col.mobile options stack as title / subtitle / prominent figure /
+     status at the top; remaining labelled rows follow; actions last. */
+  .table.is-responsive tbody td.m-title,
+  .table.is-responsive tbody td.m-sub,
+  .table.is-responsive tbody td.m-prominent,
+  .table.is-responsive tbody td.m-status {
     display: block;
-    margin-top: var(--space-2);
-    font-size: var(--fs-meta);
-    color: var(--accent);
-    font-weight: 500;
+    border-bottom: none;
     text-align: left;
+  }
+  .table.is-responsive tbody td.m-title::before,
+  .table.is-responsive tbody td.m-sub::before,
+  .table.is-responsive tbody td.m-prominent::before,
+  .table.is-responsive tbody td.m-status::before {
+    display: none;
+    content: none;
+  }
+  .table.is-responsive tbody td.m-title {
+    order: -4;
+    padding: var(--space-2) 0 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .table.is-responsive tbody td.m-sub {
+    order: -3;
+    padding: 0 0 var(--space-2);
+    font-size: var(--fs-meta);
+    color: var(--text-secondary);
+  }
+  .table.is-responsive tbody td.m-prominent {
+    order: -2;
+    padding: var(--space-2) 0;
+  }
+  .table.is-responsive tbody td.m-prominent .money {
+    font-size: 20px;
+    text-align: left;
+  }
+  .table.is-responsive tbody td.m-status {
+    order: -1;
+    padding: 0 0 var(--space-2);
+    border-bottom: 1px solid var(--border);
   }
 }
 

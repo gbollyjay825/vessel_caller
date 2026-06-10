@@ -16,6 +16,7 @@ import { renderVesselCallDetail } from "./screens/vesselCallDetail.js";
 import { renderInspections } from "./screens/inspections.js";
 import { renderNewInspection } from "./screens/newInspection.js";
 import { renderInvoices } from "./screens/invoices.js";
+import { renderAnalytics } from "./screens/analytics.js";
 import { renderSettings } from "./screens/settings.js";
 
 const NAV = [
@@ -23,6 +24,7 @@ const NAV = [
   { key: "vessel-calls", label: "Vessel Calls", icon: "ship", path: "/vessel-calls" },
   { key: "inspections", label: "Inspections", icon: "clipboard", path: "/inspections" },
   { key: "invoices", label: "Invoices", icon: "invoice", path: "/invoices" },
+  { key: "analytics", label: "Analytics", icon: "gauge", path: "/analytics" },
   { key: "settings", label: "Settings", icon: "settings", path: "/settings" },
 ];
 
@@ -70,18 +72,19 @@ let currentPort = "Port of Calabar";
 function buildSidebar(navLinks) {
   const brand = h(
     "a.brand",
-    { href: "#/dashboard", "aria-label": "Calabar Port — home" },
+    { href: "#/dashboard", "aria-label": "Vessel Caller — home" },
     h("span.brand__glyph", icon("anchor", { size: 20 })),
     h(
       "span.brand__text",
-      h("span.brand__name", "Calabar Port"),
-      h("span.brand__sub", "Inspection Platform")
+      h("span.brand__name", "Vessel Caller"),
+      h("span.brand__sub", "Calabar Port · Inspection")
     )
   );
 
   const nav = h(
     "nav.nav",
     { "aria-label": "Primary" },
+    h("div.nav__section-label", "Operations"),
     NAV.map((item) => {
       const link = h(
         "a.nav-item",
@@ -90,13 +93,7 @@ function buildSidebar(navLinks) {
         h("span.nav-item__label", item.label)
       );
       navLinks[item.key] = link;
-      link.addEventListener("click", (e) => {
-        if (tryNavGuard(link.getAttribute("href"))) {
-          e.preventDefault();
-          return;
-        }
-        closeDrawer();
-      });
+      link.addEventListener("click", closeDrawer);
       return link;
     })
   );
@@ -110,9 +107,15 @@ function buildSidebar(navLinks) {
       h("div.user-card__role", user.role)
     ),
     h(
-      "button.link-quiet",
-      { type: "button", onClick: signOut, "aria-label": "Sign out" },
-      "Sign out"
+      "button.icon-btn.user-card__signout",
+      {
+        type: "button",
+        onClick: signOut,
+        "aria-label": "Sign out",
+        title: "Sign out",
+        style: { width: "32px", height: "32px" },
+      },
+      icon("log-out", { size: 18 })
     )
   );
 
@@ -129,7 +132,7 @@ function buildTopbar(titleEl) {
   const portBtn = h(
     "button.port-select",
     { type: "button", "aria-haspopup": "true" },
-    icon("map-pin", { size: 18 }),
+    icon("anchor", { size: 18 }),
     h("span", currentPort),
     icon("chevron-down", { size: 16 })
   );
@@ -275,9 +278,10 @@ function signOut() {
 
 /* ---------------- Unsaved-changes nav guard (spec §1.9) ----------------
    A screen (e.g. Settings) sets window.__navGuard = () => isDirty.
-   It is consulted before any sidebar navigation and reset on each
-   dispatch so it never leaks across screens. */
-function tryNavGuard(targetHref) {
+   The guard is centralised in the router's beforeNavigate hook, so EVERY
+   hash navigation path is covered: sidebar links, the brand link, row
+   "Open" links, programmatic navigate(), and browser back/forward. */
+router.setBeforeNavigate((targetHash) => {
   if (typeof window.__navGuard === "function" && window.__navGuard()) {
     confirmDialog({
       title: "Discard unsaved changes?",
@@ -287,13 +291,13 @@ function tryNavGuard(targetHref) {
     }).then((ok) => {
       if (ok) {
         window.__navGuard = null;
-        window.location.hash = targetHref.replace(/^#/, "");
+        router.navigate(targetHash.replace(/^#/, ""));
       }
     });
-    return true;
+    return false; // block now; re-navigate above if confirmed
   }
-  return false;
-}
+  return true;
+});
 
 /* ---------------- Mobile drawer ---------------- */
 
@@ -367,6 +371,7 @@ function boot() {
   router.register("/inspections/new", screen("inspections", renderNewInspection));
   router.register("/inspections", screen("inspections", renderInspections));
   router.register("/invoices", screen("invoices", renderInvoices));
+  router.register("/analytics", screen("analytics", renderAnalytics));
   router.register("/settings", screen("settings", renderSettings));
 
   router.setNotFound((r) => {

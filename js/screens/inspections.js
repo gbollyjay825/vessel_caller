@@ -87,7 +87,7 @@ export function renderInspections(ctx) {
                 : h(
                     "a.btn.btn--ghost.btn--sm",
                     { href: `#/inspections/new?draftId=${r.id}` },
-                    icon("edit", { size: 15 }),
+                    icon("edit", { size: 20 }),
                     "Resume"
                   ),
           },

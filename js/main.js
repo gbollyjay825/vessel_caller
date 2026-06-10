@@ -49,18 +49,44 @@ function openPopover(anchor, contentNode) {
   const close = () => {
     pop.remove();
     document.removeEventListener("mousedown", onDoc, true);
-    document.removeEventListener("keydown", onEsc, true);
+    document.removeEventListener("keydown", onKey, true);
     window.removeEventListener("resize", close);
     window.removeEventListener("scroll", close, true);
+    // Keyboard users land back where they opened the menu from
+    if (anchor && typeof anchor.focus === "function") anchor.focus();
   };
   const onDoc = (e) => {
     if (!pop.contains(e.target) && !anchor.contains(e.target)) close();
   };
-  const onEsc = (e) => e.key === "Escape" && close();
+  const focusables = () =>
+    [...pop.querySelectorAll("button, a[href], input, [tabindex]")].filter(
+      (n) => !n.disabled
+    );
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const items = focusables();
+      if (!items.length) return;
+      e.preventDefault();
+      const i = items.indexOf(document.activeElement);
+      const next =
+        e.key === "ArrowDown"
+          ? items[(i + 1) % items.length]
+          : items[(i - 1 + items.length) % items.length];
+      next.focus();
+    }
+  };
   setTimeout(() => document.addEventListener("mousedown", onDoc, true), 0);
-  document.addEventListener("keydown", onEsc, true);
+  document.addEventListener("keydown", onKey, true);
   window.addEventListener("resize", close);
   window.addEventListener("scroll", close, true);
+  // Move focus into the menu so keyboard users can operate it
+  requestAnimationFrame(() => {
+    const first = focusables()[0];
+    if (first) first.focus();
+  });
   pop._close = close;
   return { close, el: pop };
 }
@@ -380,7 +406,7 @@ function boot() {
       h(
         "div.empty",
         { style: { paddingTop: "80px" } },
-        h("div.empty__icon", icon("alert-circle", { size: 26 })),
+        h("div.empty__icon", icon("alert-circle", { size: 20 })),
         h("div.empty__title", "Page not found"),
         h("p.empty__body", `No screen matches “${r.path}”.`),
         h("a.btn.btn--primary", { href: "#/dashboard" }, "Back to dashboard")

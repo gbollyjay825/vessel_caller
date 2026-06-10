@@ -151,8 +151,10 @@ export function renderVesselCallDetail(ctx) {
                       })
                     )
                   : h(
+                      // Resume re-opens the saved draft itself (not a new
+                      // inspection) — mirrors inspections.js
                       "a.btn.btn--ghost.btn--sm",
-                      { href: `#/inspections/new?callId=${call.id}` },
+                      { href: `#/inspections/new?draftId=${r.id}` },
                       "Resume"
                     ),
             },

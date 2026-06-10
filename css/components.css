@@ -1541,12 +1541,15 @@ textarea.input:focus {
   .table.is-responsive tbody td.is-actions::before {
     display: none;
   }
+  /* The two PDF buttons stack full-width at the bottom (spec §1.8) */
   .table.is-responsive td.is-actions .cell-actions {
+    display: flex;
+    flex-direction: column;
     width: 100%;
-    justify-content: stretch;
+    gap: var(--space-2);
   }
   .table.is-responsive td.is-actions .cell-actions .btn {
-    flex: 1;
+    width: 100%;
     height: 38px;
   }
   /* Composed card anatomy (spec §1.8 mobile): cells marked with

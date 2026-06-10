@@ -78,8 +78,10 @@ export function openRegisterCall({ onCreated } = {}) {
     if (!v) {
       refOk = false;
       fRef.setStatus(null);
+      fRef.setError("Reference is required"); // required: validate on blur
       return;
     }
+    fRef.clearError();
     if (!REF_RE.test(v)) {
       fRef.setStatus("taken", "Use the format ROT-YYYY-NNNN");
       refOk = false;
@@ -116,7 +118,7 @@ export function openRegisterCall({ onCreated } = {}) {
   });
 
   /* ---- submit ---- */
-  const submitIcon = h("span", { style: { display: "inline-flex" } }, icon("check", { size: 16 }));
+  const submitIcon = h("span", { style: { display: "inline-flex" } }, icon("check", { size: 20 }));
   const submitBtn = h(
     "button.btn.btn--primary",
     { type: "button", onClick: submit },
@@ -125,7 +127,7 @@ export function openRegisterCall({ onCreated } = {}) {
   );
   const setLoading = (v) => {
     submitBtn.disabled = v;
-    submitIcon.replaceChildren(v ? h("span.spinner") : icon("check", { size: 16 }));
+    submitIcon.replaceChildren(v ? h("span.spinner") : icon("check", { size: 20 }));
   };
 
   async function submit() {

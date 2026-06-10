@@ -212,7 +212,7 @@ textarea.input:focus-visible,
   gap: var(--space-3);
   padding: 10px var(--space-3);
   margin-bottom: 2px;
-  border-radius: var(--radius-btn);
+  border-radius: var(--radius-card);
   border-left: 3px solid transparent;
   color: var(--text-secondary);
   font-size: var(--fs-body);
@@ -433,6 +433,9 @@ textarea.input:focus-visible,
   }
   .nav {
     padding: var(--space-3) var(--space-2);
+    /* Tooltips are absolutely positioned outside the 64px rail; any
+       overflow clipping here would swallow them (labels on hover). */
+    overflow: visible;
   }
   .nav-item {
     justify-content: center;
@@ -541,7 +544,8 @@ textarea.input:focus-visible,
     animation: fade-in var(--t-base) forwards;
   }
   .content__inner {
-    padding: var(--space-5) var(--space-4) var(--space-8);
+    /* 32px horizontal padding holds at every breakpoint (spec §1.4) */
+    padding: var(--space-5) var(--content-pad-x) var(--space-8);
   }
   .topbar {
     padding: 0 var(--space-4);

@@ -173,7 +173,10 @@ export function dataTable(opts = {}) {
           tr.setAttribute("tabindex", "0");
           tr.setAttribute("role", "button");
           tr.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
+            // Only when the row itself is focused — never hijack Enter/
+            // Space aimed at nested controls (PDF buttons, links).
+            if (e.target !== tr) return;
+            if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               onRowClick(row);
             }

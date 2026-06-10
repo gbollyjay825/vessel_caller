@@ -170,7 +170,8 @@ export function renderNewInspection(ctx) {
           commodity.el,
           h("div.field__label", { style: { marginTop: "8px" } }, "Cargo category", h("span.field__req", "*")),
           h("p.field__hint", { style: { marginTop: "0", marginBottom: "12px" } }, "This determines the measurement method in the next step."),
-          categorySelector(catError)
+          categorySelector(catError),
+          catError
         )
       ),
       h(
@@ -298,9 +299,14 @@ export function renderNewInspection(ctx) {
         setOpen(false);
       }
     });
-    // Keep the menu open while focus stays inside the combo (input OR options)
+    // Keep the menu open while focus stays inside the combo (input OR
+    // options); when focus leaves with nothing chosen, the required-field
+    // error shows inline (validate on blur, spec §1.11).
     combo.addEventListener("focusout", (e) => {
-      if (!combo.contains(e.relatedTarget)) setOpen(false);
+      if (!combo.contains(e.relatedTarget)) {
+        setOpen(false);
+        if (!model.callId) callError.hidden = false;
+      }
     });
 
     return wrap;

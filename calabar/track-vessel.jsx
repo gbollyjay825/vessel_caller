@@ -169,7 +169,6 @@ function TrackVessel({ call }) {
             <div className="ais-row"><span className="k">MMSI</span><span className="v tnum">{voyage.mmsi}</span></div>
             <div className="ais-row"><span className="k">IMO</span><span className="v tnum">{voyage.imo}</span></div>
             <div className="ais-row"><span className="k">Call sign</span><span className="v">{voyage.callSign}</span></div>
-            <div className="ais-row"><span className="k">Flag</span><span className="v">{call.flag}</span></div>
             <div className="ais-row"><span className="k">Route distance</span><span className="v tnum">{fmtNum(live.totalNm)} nm</span></div>
           </div>
         </div>

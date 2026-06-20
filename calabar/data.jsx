@@ -8,7 +8,10 @@
 const DEFAULT_SETTINGS = {
   commissionRate: 3.5,        // %
   exchangeRate: 1600,         // USD -> NGN
-  duesRatePerTon: 0.94,       // USD per NRT ton (NPA harbour dues basis)
+  // Harbour-dues rates (USD per net-tonnage ton). Liquid cargo varies by
+  // jetty classification; dry/bulk is a single flat rate. (Surveyor tariff.)
+  liquidDuesRates: { government: 1.68, private: 2.88, international: 4.23 },
+  dryDuesRate: 2.17,
   portName: 'Port of Calabar',
   terminals: ['Calabar New Port — Berth 3', 'Calabar Old Port — Berth 1', 'Intels Calabar Terminal', 'Calabar Bulk Terminal', 'UNICEM Jetty'],
   smtp: { host: 'smtp.calabarport.ng', port: '587', user: 'noreply@calabarport.ng', from: 'Calabar Port <noreply@calabarport.ng>', connected: true },
@@ -16,18 +19,31 @@ const DEFAULT_SETTINGS = {
 };
 
 // ---- Calc (mirrors the server-side maths) ----
-function calcDues(nrt, settings) {
-  return Math.round(nrt * settings.duesRatePerTon * 100) / 100;
+// Harbour dues = net tonnage × the applicable rate. The rate for liquid
+// cargo is set by jetty classification (government / private / international);
+// dry/bulk uses the flat dry rate.
+function rateForInspection(insp, settings) {
+  if (!insp) return null;
+  if (insp.cargoType === 'Dry') return settings.dryDuesRate;
+  const j = insp.jetty || {};
+  if (j.type === 'International') return settings.liquidDuesRates.international;
+  if (j.type === 'Local' && j.category === 'Government') return settings.liquidDuesRates.government;
+  if (j.type === 'Local' && j.category === 'Private') return settings.liquidDuesRates.private;
+  return null;
+}
+function calcDues(netTonnage, rate) {
+  if (!rate || rate <= 0) return 0;
+  return Math.round((Number(netTonnage) || 0) * rate * 100) / 100;
 }
 function calcCommission(dues, settings) {
   const usd = Math.round(dues * (settings.commissionRate / 100) * 100) / 100;
   const ngn = Math.round(usd * settings.exchangeRate);
   return { usd, ngn };
 }
-function calcPreview(nrt, settings) {
-  const dues = calcDues(nrt, settings);
+function calcPreview(netTonnage, rate, settings) {
+  const dues = calcDues(netTonnage, rate);
   const c = calcCommission(dues, settings);
-  return { dues, commissionUsd: c.usd, commissionNgn: c.ngn };
+  return { dues, rate, commissionUsd: c.usd, commissionNgn: c.ngn };
 }
 
 // ---- Formatters ----
@@ -62,29 +78,32 @@ function fmtDateTime(iso) {
 // ---- Seed vessel calls ----
 // status: pending | in-progress | completed
 const SEED_CALLS = [
-  { id: 'vc-001', vesselName: 'MT Sea Eagle',     reference: 'ROT-2026-0438', type: 'Tanker',        flag: 'Liberia',          nrt: 57137, eta: '2026-06-02T06:30', berth: 'UNICEM Jetty',                 berthDate: '2026-06-02', status: 'completed',   registered: '2026-05-29T10:12', notes: 'AGO cargo discharge. Pilot booked.' },
-  { id: 'vc-002', vesselName: 'MV Calabar Pride',  reference: 'ROT-2026-0437', type: 'Bulk Carrier',  flag: 'Panama',           nrt: 42180, eta: '2026-06-01T14:00', berth: 'Calabar Bulk Terminal',        berthDate: '2026-06-01', status: 'completed',   registered: '2026-05-28T08:40', notes: 'Wheat in bulk, draft survey required.' },
-  { id: 'vc-003', vesselName: 'MT Qua Iboe',       reference: 'ROT-2026-0436', type: 'Tanker',        flag: 'Liberia',          nrt: 49870, eta: '2026-05-30T22:15', berth: 'UNICEM Jetty',                 berthDate: '2026-05-31', status: 'completed',   registered: '2026-05-27T16:05', notes: '' },
-  { id: 'vc-004', vesselName: 'MV Atlantic Dawn',  reference: 'ROT-2026-0435', type: 'Container',     flag: 'Singapore',        nrt: 61340, eta: '2026-05-29T09:00', berth: 'Calabar New Port — Berth 3',   berthDate: '2026-05-29', status: 'completed',   registered: '2026-05-26T11:22', notes: '' },
-  { id: 'vc-005', vesselName: 'MT Niger Trader',   reference: 'ROT-2026-0439', type: 'Tanker',        flag: 'Marshall Islands', nrt: 38420, eta: '2026-06-07T05:45', berth: 'UNICEM Jetty',                 berthDate: '2026-06-07', status: 'in-progress', registered: '2026-06-04T09:30', notes: 'Ullage survey scheduled 08:00.' },
-  { id: 'vc-006', vesselName: 'MV Cross River',    reference: 'ROT-2026-0440', type: 'Bulk Carrier',  flag: 'Nigeria',          nrt: 33500, eta: '2026-06-08T11:30', berth: 'Calabar Bulk Terminal',        berthDate: '2026-06-08', status: 'in-progress', registered: '2026-06-05T13:10', notes: 'Bagged fertiliser. Draft survey underway.' },
-  { id: 'vc-007', vesselName: 'MT Bonny Spirit',   reference: 'ROT-2026-0441', type: 'Tanker',        flag: 'Nigeria',          nrt: 29760, eta: '2026-06-10T16:00', berth: 'Calabar Old Port — Berth 1',   berthDate: null,         status: 'pending',     registered: '2026-06-06T07:48', notes: '' },
-  { id: 'vc-008', vesselName: 'MV Gulf Carrier',   reference: 'ROT-2026-0442', type: 'General Cargo', flag: 'Malta',            nrt: 18950, eta: '2026-06-11T08:20', berth: 'Calabar New Port — Berth 3',   berthDate: null,         status: 'pending',     registered: '2026-06-06T15:33', notes: 'Project cargo — heavy lift.' },
+  { id: 'vc-001', vesselName: 'MT Sea Eagle',     reference: 'ROT-2026-0438', type: 'Tanker',        flag: 'Liberia',          nrt: 57137, eta: '2026-06-02T06:30', sailingEta: '2026-06-04T18:00', berth: 'UNICEM Jetty',                 berthDate: '2026-06-02', status: 'completed',   registered: '2026-05-29T10:12', notes: 'AGO cargo discharge. Pilot booked.' },
+  { id: 'vc-002', vesselName: 'MV Calabar Pride',  reference: 'ROT-2026-0437', type: 'Bulk Carrier',  flag: 'Panama',           nrt: 42180, eta: '2026-06-01T14:00', sailingEta: '2026-06-03T20:00', berth: 'Calabar Bulk Terminal',        berthDate: '2026-06-01', status: 'completed',   registered: '2026-05-28T08:40', notes: 'Wheat in bulk, draft survey required.' },
+  { id: 'vc-003', vesselName: 'MT Qua Iboe',       reference: 'ROT-2026-0436', type: 'Tanker',        flag: 'Liberia',          nrt: 49870, eta: '2026-05-30T22:15', sailingEta: '2026-06-01T12:00', berth: 'UNICEM Jetty',                 berthDate: '2026-05-31', status: 'completed',   registered: '2026-05-27T16:05', notes: '' },
+  { id: 'vc-004', vesselName: 'MV Atlantic Dawn',  reference: 'ROT-2026-0435', type: 'Container',     flag: 'Singapore',        nrt: 61340, eta: '2026-05-29T09:00', sailingEta: '2026-05-31T10:00', berth: 'Calabar New Port — Berth 3',   berthDate: '2026-05-29', status: 'completed',   registered: '2026-05-26T11:22', notes: '' },
+  { id: 'vc-005', vesselName: 'MT Niger Trader',   reference: 'ROT-2026-0439', type: 'Tanker',        flag: 'Marshall Islands', nrt: 38420, eta: '2026-06-07T05:45', sailingEta: '2026-06-09T16:00', berth: 'UNICEM Jetty',                 berthDate: '2026-06-07', status: 'in-progress', registered: '2026-06-04T09:30', notes: 'Ullage survey scheduled 08:00.' },
+  { id: 'vc-006', vesselName: 'MV Cross River',    reference: 'ROT-2026-0440', type: 'Bulk Carrier',  flag: 'Nigeria',          nrt: 33500, eta: '2026-06-08T11:30', sailingEta: '2026-06-10T22:00', berth: 'Calabar Bulk Terminal',        berthDate: '2026-06-08', status: 'in-progress', registered: '2026-06-05T13:10', notes: 'Bagged fertiliser. Draft survey underway.' },
+  { id: 'vc-007', vesselName: 'MT Bonny Spirit',   reference: 'ROT-2026-0441', type: 'Tanker',        flag: 'Nigeria',          nrt: 29760, eta: '2026-06-10T16:00', sailingEta: '2026-06-12T18:00', berth: 'Calabar Old Port — Berth 1',   berthDate: null,         status: 'pending',     registered: '2026-06-06T07:48', notes: '' },
+  { id: 'vc-008', vesselName: 'MV Gulf Carrier',   reference: 'ROT-2026-0442', type: 'General Cargo', flag: 'Malta',            nrt: 18950, eta: '2026-06-11T08:20', sailingEta: '2026-06-13T14:00', berth: 'Calabar New Port — Berth 3',   berthDate: null,         status: 'pending',     registered: '2026-06-06T15:33', notes: 'Project cargo — heavy lift.' },
 ];
 
 // ---- Seed inspections ----
 // cargoType: Liquid | Dry  · status: draft | completed
 const SEED_INSPECTIONS = [
   { id: 'in-001', reference: 'INS-2026-0312', callId: 'vc-001', vesselName: 'MT Sea Eagle',    cargoType: 'Liquid', reconciledTonnage: 48920.40, date: '2026-06-02T13:40', status: 'completed',
-    liquid: { ullage: 1.82, observedVol: 49210.0, temp: 31.4, density: 0.8412, bl: 49050.0, outturn: 48920.4 } },
+    jetty: { type: 'International', category: null, name: 'UNICEM Jetty' },
+    liquid: { ullage: 1.82, observedVol: 49210.0, temp: 31.4, surveyorTonnage: 48920.40, bl: 49050.0, outturn: 48920.4 } },
   { id: 'in-002', reference: 'INS-2026-0311', callId: 'vc-002', vesselName: 'MV Calabar Pride', cargoType: 'Dry',    reconciledTonnage: 38470.00, date: '2026-06-01T18:05', status: 'completed',
     dry: { displBefore: 51230, displAfter: 12180, deductibles: 580, constant: 0 } },
   { id: 'in-003', reference: 'INS-2026-0310', callId: 'vc-003', vesselName: 'MT Qua Iboe',      cargoType: 'Liquid', reconciledTonnage: 41260.75, date: '2026-05-31T09:50', status: 'completed',
-    liquid: { ullage: 2.10, observedVol: 41500.0, temp: 29.8, density: 0.8390, bl: 41390.0, outturn: 41260.75 } },
+    jetty: { type: 'Local', category: 'Government', name: 'UNICEM Jetty' },
+    liquid: { ullage: 2.10, observedVol: 41500.0, temp: 29.8, surveyorTonnage: 41260.75, bl: 41390.0, outturn: 41260.75 } },
   { id: 'in-004', reference: 'INS-2026-0309', callId: 'vc-004', vesselName: 'MV Atlantic Dawn', cargoType: 'Dry',    reconciledTonnage: 52310.00, date: '2026-05-29T20:15', status: 'completed',
     dry: { displBefore: 67400, displAfter: 14510, deductibles: 580, constant: 0 } },
   { id: 'in-005', reference: 'INS-2026-0313', callId: 'vc-005', vesselName: 'MT Niger Trader',  cargoType: 'Liquid', reconciledTonnage: 0, date: '2026-06-07T08:30', status: 'draft',
-    liquid: { ullage: 1.55, observedVol: 0, temp: 30.2, density: 0.8400, bl: 33100.0, outturn: 0 } },
+    jetty: { type: 'Local', category: 'Private', name: '' },
+    liquid: { ullage: 1.55, observedVol: 0, temp: 30.2, surveyorTonnage: 0, bl: 33100.0, outturn: 0 } },
 ];
 
 // ---- Seed invoices ----
@@ -165,6 +184,6 @@ const CURRENT_USER = { name: 'Etim Okon', role: 'Port Agent', initials: 'EO' };
 Object.assign(window, {
   DEFAULT_SETTINGS, SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, VESSEL_TYPES, CURRENT_USER,
   PORT, VOYAGES, bezierAt, haversineNm, bearing, fmtLatLon,
-  calcDues, calcCommission, calcPreview,
+  calcDues, calcCommission, calcPreview, rateForInspection,
   fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, fmtDateTime,
 });

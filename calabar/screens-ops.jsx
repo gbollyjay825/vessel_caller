@@ -33,8 +33,8 @@ function Dashboard({ store }) {
 
   const columns = [
     { key: 'vesselName', label: 'Vessel Name', sortable: true,
-      render: (r) => (<div><div className="cell-primary">{r.vesselName}</div><div className="cell-sub">{r.flag}</div></div>) },
-    { key: 'reference', label: 'Call Reference', render: (r) => <span className="mono-ref">{r.reference}</span> },
+      render: (r) => <div className="cell-primary">{r.vesselName}</div> },
+    { key: 'reference', label: 'Rotation Number', render: (r) => <span className="mono-ref">{r.reference}</span> },
     { key: 'type', label: 'Type', sortable: true, render: (r) => <span className="muted">{r.type}</span> },
     { key: 'status', label: 'Status', sortable: true, sortVal: (r) => r.status, render: (r) => <StatusBadge status={r.status} /> },
     { key: 'berthDate', label: 'Berth Date', sortable: true, sortVal: (r) => r.berthDate || '', render: (r) => <span className="tnum muted">{r.berthDate ? fmtDate(r.berthDate) : '—'}</span> },
@@ -136,14 +136,17 @@ function pdfRecord(store, call) {
   const f = store.financialsForCall(call);
   const insp = store.inspectionsForCall(call.id).find((i) => i.status === 'completed');
   const inv = store.invoiceForCall(call.id);
+  const jetty = insp?.jetty || null;
+  const jettyLabel = jetty ? (jetty.type === 'International' ? 'International Jetty' : `${jetty.category || ''} Jetty (Local)`.trim()) : '';
   return {
-    vessel: call.vesselName, callRef: call.reference, type: call.type, flag: call.flag,
+    vessel: call.vesselName, callRef: call.reference, type: call.type,
     nrt: String(call.nrt), berth: call.berth || '', date: insp?.date || call.berthDate || '',
     invoiceNo: inv?.invoiceNo || '—', dueDate: inv?.due || '',
     cargoType: insp?.cargoType || '—', tonnage: insp ? String(insp.reconciledTonnage) : '0',
-    dues: String(f?.dues || 0), commRate: String(store.settings.commissionRate),
+    dues: String(f?.dues || 0), duesRate: String(f?.rate || 0), commRate: String(store.settings.commissionRate),
     commUsd: String(f?.commissionUsd || 0), commNgn: String(f?.commissionNgn || 0),
     fx: String(store.settings.exchangeRate), port: store.settings.portName,
+    jettyType: jettyLabel, jettyName: jetty?.name || '',
   };
 }
 
@@ -165,17 +168,16 @@ function VesselCalls({ store }) {
         return c.vesselName.toLowerCase().includes(q) || c.reference.toLowerCase().includes(q);
       }
       return true;
-    }).sort((a, b) => new Date(b.registered) - new Date(a.registered));
+    }).sort((a, b) => new Date(b.registered) - new Date(a.registered)); // rotation no. searchable
   }, [store.calls, query, statusFilter]);
 
   const columns = [
     { key: 'vesselName', label: 'Vessel Name', sortable: true,
       render: (r) => <div className="cell-primary">{r.vesselName}</div> },
-    { key: 'reference', label: 'Reference', render: (r) => <span className="mono-ref">{r.reference}</span> },
+    { key: 'reference', label: 'Rotation Number', render: (r) => <span className="mono-ref">{r.reference}</span> },
     { key: 'type', label: 'Type', sortable: true, render: (r) => <span className="muted">{r.type}</span> },
-    { key: 'flag', label: 'Flag', render: (r) => <span className="muted">{r.flag}</span> },
     { key: 'status', label: 'Status', sortable: true, render: (r) => <StatusBadge status={r.status} /> },
-    { key: 'eta', label: 'ETA / Berth', sortable: true, sortVal: (r) => r.eta,
+    { key: 'eta', label: 'Arrival / Berth', sortable: true, sortVal: (r) => r.eta,
       render: (r) => (<div><div className="tnum">{fmtDate(r.eta)}</div><div className="cell-sub tnum">{r.berthDate ? 'Berthed ' + fmtDate(r.berthDate) : 'ETA ' + new Date(r.eta).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div></div>) },
     { key: 'dues', label: 'Dues', num: true, sortable: true, sortVal: (r) => store.financialsForCall(r)?.dues || 0,
       render: (r) => { const f = store.financialsForCall(r); return f ? <span className="money tnum"><span className="usd">{fmtUSD(f.dues)}</span></span> : <span className="muted">—</span>; } },
@@ -199,7 +201,7 @@ function VesselCalls({ store }) {
       <div className="filter-bar">
         <div className="search-input">
           <Icon name="search" size={17} />
-          <input type="text" placeholder="Search vessel name or reference…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search vessel calls" />
+          <input type="text" placeholder="Search vessel name or rotation no.…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search vessel calls" />
         </div>
         <div className="seg" role="tablist" aria-label="Filter by status">
           {STATUSES.map(([k, l]) => (
@@ -229,7 +231,7 @@ function RegisterCall({ store, onClose, lockedCallId }) {
     return `ROT-2026-${next}`;
   }, []);
 
-  const [form, setForm] = useStateOps({ vesselName: '', reference: nextRef, type: 'Tanker', flag: '', nrt: '', eta: '', berth: store.settings.terminals[0], notes: '' });
+  const [form, setForm] = useStateOps({ vesselName: '', reference: nextRef, type: 'Tanker', nrt: '', eta: '', sailingEta: '', berth: store.settings.terminals[0], notes: '' });
   const [errors, setErrors] = useStateOps({});
   const [refStatus, setRefStatus] = useStateOps('idle'); // idle | checking | ok | taken
   const [submitting, setSubmitting] = useStateOps(false);
@@ -251,9 +253,9 @@ function RegisterCall({ store, onClose, lockedCallId }) {
   const validate = () => {
     const e = {};
     if (!form.vesselName.trim()) e.vesselName = 'Vessel name is required.';
-    if (!form.reference.trim()) e.reference = 'Call reference is required.';
-    else if (refStatus === 'taken') e.reference = 'This reference is already in use.';
-    if (!form.nrt || Number(form.nrt) <= 0) e.nrt = 'Net registered tonnage is required.';
+    if (!form.reference.trim()) e.reference = 'Rotation number is required.';
+    else if (refStatus === 'taken') e.reference = 'This rotation number is already in use.';
+    if (!form.nrt || Number(form.nrt) <= 0) e.nrt = 'Net tonnage is required.';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -264,8 +266,8 @@ function RegisterCall({ store, onClose, lockedCallId }) {
     setTimeout(() => {
       const id = store.addCall({
         vesselName: form.vesselName.trim(), reference: form.reference.trim(), type: form.type,
-        flag: form.flag.trim() || '—', nrt: Number(form.nrt), eta: form.eta || new Date().toISOString().slice(0, 16),
-        berth: form.berth, status: 'pending', notes: form.notes.trim(),
+        nrt: Number(form.nrt), eta: form.eta || new Date().toISOString().slice(0, 16),
+        sailingEta: form.sailingEta || null, berth: form.berth, status: 'pending', notes: form.notes.trim(),
       });
       store.toast(`Vessel call ${form.reference.trim()} registered`, 'success');
       setSubmitting(false);
@@ -290,9 +292,9 @@ function RegisterCall({ store, onClose, lockedCallId }) {
           onBlur={() => !form.vesselName.trim() && setErrors((x) => ({ ...x, vesselName: 'Vessel name is required.' }))} />
       </Field>
 
-      <Field label="Call reference" required hint="Auto-suggested. Editable; must be unique."
-        error={errors.reference || (refStatus === 'taken' ? 'This reference is already in use.' : null)}
-        ok={refStatus === 'ok' && !errors.reference ? 'Reference is available.' : null}
+      <Field label="Rotation number" required hint="Auto-suggested. Editable; must be unique."
+        error={errors.reference || (refStatus === 'taken' ? 'This rotation number is already in use.' : null)}
+        ok={refStatus === 'ok' && !errors.reference ? 'Rotation number is available.' : null}
         checking={refStatus === 'checking' ? 'Checking availability…' : null}>
         <input type="text" className={(errors.reference || refStatus === 'taken') ? 'invalid' : ''} value={form.reference}
           onChange={(e) => set('reference', e.target.value.toUpperCase())} />
@@ -304,26 +306,26 @@ function RegisterCall({ store, onClose, lockedCallId }) {
             {VESSEL_TYPES.map((t) => <option key={t}>{t}</option>)}
           </select>
         </Field>
-        <Field label="Flag / registry">
-          <input type="text" value={form.flag} placeholder="e.g. Liberia" onChange={(e) => set('flag', e.target.value)} />
+        <Field label="Net tonnage" required hint="Drives the harbour-dues calculation." error={errors.nrt}>
+          <input type="number" className={errors.nrt ? 'invalid' : ''} value={form.nrt} placeholder="e.g. 57137"
+            onChange={(e) => set('nrt', e.target.value)} min="0" />
         </Field>
       </div>
-
-      <Field label="Net registered tonnage" required hint="Drives the NPA harbour-dues calculation." error={errors.nrt}>
-        <input type="number" className={errors.nrt ? 'invalid' : ''} value={form.nrt} placeholder="e.g. 57137"
-          onChange={(e) => set('nrt', e.target.value)} min="0" />
-      </Field>
 
       <div className="field-row">
-        <Field label="ETA">
+        <Field label="Arrival ETA">
           <input type="datetime-local" value={form.eta} onChange={(e) => set('eta', e.target.value)} />
         </Field>
-        <Field label="Berth / terminal">
-          <select value={form.berth} onChange={(e) => set('berth', e.target.value)}>
-            {store.settings.terminals.map((t) => <option key={t}>{t}</option>)}
-          </select>
+        <Field label="Sailing ETA">
+          <input type="datetime-local" value={form.sailingEta} onChange={(e) => set('sailingEta', e.target.value)} />
         </Field>
       </div>
+
+      <Field label="Berth terminal">
+        <select value={form.berth} onChange={(e) => set('berth', e.target.value)}>
+          {store.settings.terminals.map((t) => <option key={t}>{t}</option>)}
+        </select>
+      </Field>
 
       <Field label="Notes" hint="Optional. Pilotage, cargo notes, special handling.">
         <textarea value={form.notes} placeholder="Anything the berth team should know…" onChange={(e) => set('notes', e.target.value)} />
@@ -366,7 +368,7 @@ function VesselCallDetail({ store }) {
             <StatusBadge status={call.status} />
           </div>
           <p className="desc" style={{ marginTop: 6 }}>
-            <span className="mono-ref">{call.reference}</span> &nbsp;·&nbsp; {call.type} &nbsp;·&nbsp; {call.flag}
+            <span className="mono-ref">{call.reference}</span> &nbsp;·&nbsp; {call.type}
           </p>
         </div>
         <div className="flex gap-2">
@@ -384,11 +386,11 @@ function VesselCallDetail({ store }) {
       <div className="card card-pad section-gap">
         <div className="card-title" style={{ marginBottom: 20 }}>Vessel particulars</div>
         <div className="kv-grid">
-          <div className="kv"><div className="k">Net registered tonnage</div><div className="v tnum">{fmtNum(call.nrt)} NRT</div></div>
-          <div className="kv"><div className="k">Flag / registry</div><div className="v">{call.flag}</div></div>
+          <div className="kv"><div className="k">Net tonnage</div><div className="v tnum">{fmtNum(call.nrt)} NT</div></div>
           <div className="kv"><div className="k">Vessel type</div><div className="v">{call.type}</div></div>
-          <div className="kv"><div className="k">Berth / terminal</div><div className="v">{call.berth || '—'}</div></div>
-          <div className="kv"><div className="k">ETA</div><div className="v tnum">{fmtDateTime(call.eta)}</div></div>
+          <div className="kv"><div className="k">Berth terminal</div><div className="v">{call.berth || '—'}</div></div>
+          <div className="kv"><div className="k">Arrival ETA</div><div className="v tnum">{fmtDateTime(call.eta)}</div></div>
+          <div className="kv"><div className="k">Sailing ETA</div><div className="v tnum">{call.sailingEta ? fmtDateTime(call.sailingEta) : '—'}</div></div>
           <div className="kv"><div className="k">Berth date</div><div className="v tnum">{call.berthDate ? fmtDate(call.berthDate) : 'Not yet berthed'}</div></div>
           <div className="kv"><div className="k">Registered</div><div className="v tnum">{fmtDateTime(call.registered)}</div></div>
         </div>
@@ -420,7 +422,7 @@ function VesselCallDetail({ store }) {
           <div className="card-title" style={{ marginBottom: 18 }}>Financials</div>
           <div style={{ maxWidth: 480 }}>
             <div className="fin-row">
-              <div className="fl">NPA harbour dues<span className="basis">{fmtNum(call.nrt)} NRT × {fmtUSD(store.settings.duesRatePerTon)}/ton</span></div>
+              <div className="fl">NPA harbour dues<span className="basis">{fmtNum(call.nrt)} NT × {fmtUSD(f.rate)}/ton · {completedInsp.cargoType === 'Liquid' ? (completedInsp.jetty ? (completedInsp.jetty.type === 'International' ? 'International jetty' : `${completedInsp.jetty.category} jetty`) : 'liquid') : 'dry cargo'}</span></div>
               <div className="fv">{fmtUSD(f.dues)}</div>
             </div>
             <div className="fin-row">
@@ -472,7 +474,7 @@ function Invoices({ store }) {
       const call = store.calls.find((c) => c.id === iv.callId);
       const insp = store.inspections.find((i) => i.id === iv.inspectionId);
       const f = store.financialsForCall(call);
-      return { ...iv, call, cargoType: insp?.cargoType || null, dues: f?.dues || 0, commissionUsd: f?.commissionUsd || 0, commissionNgn: f?.commissionNgn || 0 };
+      return { ...iv, call, cargoType: insp?.cargoType || null, dues: f?.dues || 0, rate: f?.rate || 0, commissionUsd: f?.commissionUsd || 0, commissionNgn: f?.commissionNgn || 0 };
     }).filter((r) => {
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
       if (query) { const q = query.toLowerCase(); return r.invoiceNo.toLowerCase().includes(q) || r.vesselName.toLowerCase().includes(q); }
@@ -483,7 +485,7 @@ function Invoices({ store }) {
   const columns = [
     { key: 'invoiceNo', label: 'Invoice No.', sortable: true, render: (r) => <span className="cell-primary mono-ref" style={{ color: 'var(--ink)', fontWeight: 600 }}>{r.invoiceNo}</span> },
     { key: 'vesselName', label: 'Vessel', sortable: true, render: (r) => r.vesselName },
-    { key: 'callRef', label: 'Call Reference', render: (r) => <span className="mono-ref">{r.callRef}</span> },
+    { key: 'callRef', label: 'Rotation Number', render: (r) => <span className="mono-ref">{r.callRef}</span> },
     { key: 'cargoType', label: 'Cargo', render: (r) => r.cargoType ? <CargoTag type={r.cargoType} /> : <span className="muted">—</span> },
     { key: 'dues', label: 'Amount (USD)', num: true, sortable: true, render: (r) => <span className="money tnum"><span className="usd">{fmtUSD(r.dues)}</span></span> },
     { key: 'commissionUsd', label: 'Commission', num: true, render: (r) => <span className="money tnum"><span className="usd">{fmtUSD(r.commissionUsd)}</span><span className="ngn">{fmtNGN(r.commissionNgn)}</span></span> },
@@ -558,8 +560,8 @@ function InvoiceDetail({ store, row, onClose }) {
       </div>
       <div className="card-title" style={{ marginBottom: 14 }}>Line-item breakdown</div>
       <div className="fin-row"><div className="fl">Cargo / product type</div><div className="fv">{row.cargoType ? <CargoTag type={row.cargoType} /> : '—'}</div></div>
-      <div className="fin-row"><div className="fl">Net registered tonnage<span className="basis">dues basis</span></div><div className="fv tnum">{fmtNum(call.nrt)} NRT</div></div>
-      <div className="fin-row"><div className="fl">Dues rate</div><div className="fv tnum">{fmtUSD(store.settings.duesRatePerTon)} / ton</div></div>
+      <div className="fin-row"><div className="fl">Net tonnage<span className="basis">dues basis</span></div><div className="fv tnum">{fmtNum(call.nrt)} NT</div></div>
+      <div className="fin-row"><div className="fl">Dues rate<span className="basis">{row.cargoType === 'Liquid' ? 'jetty tariff' : 'dry cargo'}</span></div><div className="fv tnum">{fmtUSD(row.rate)} / ton</div></div>
       <div className="fin-row"><div className="fl">NPA harbour dues</div><div className="fv tnum">{fmtUSD(row.dues)}</div></div>
       <div className="fin-row"><div className="fl">Agency commission<span className="basis">{store.settings.commissionRate}% · ₦{fmtNum(store.settings.exchangeRate)}/USD</span></div><div className="fv tnum">{fmtUSD(row.commissionUsd)} · {fmtNGN(row.commissionNgn)}</div></div>
       <div className="fin-total"><div className="fl">Invoice total</div><div className="fv tnum">{fmtUSD(row.dues)}<span className="ngn">{fmtNGN(row.dues * store.settings.exchangeRate)}</span></div></div>

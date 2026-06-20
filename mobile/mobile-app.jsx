@@ -1,12 +1,12 @@
-/* global React, ReactDOM, Icon, IOSDevice, SEED_CALLS, SEED_INSPECTIONS, DEFAULT_SETTINGS, calcPreview, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, CURRENT_USER */
+/* global React, ReactDOM, Icon, IOSDevice, SEED_CALLS, SEED_INSPECTIONS, DEFAULT_SETTINGS, calcPreview, rateForInspection, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, CURRENT_USER */
 const { useState, useEffect, useRef, useMemo } = React;
 
 // reconciled-tonnage maths (mirrors the desktop / server)
 function vcf(t) { return 1 - ((Number(t) || 15) - 15) * 0.00065; }
 function reconcile(cargo, m) {
   if (cargo === 'Liquid') {
-    const w = (Number(m.observedVol) || 0) * vcf(m.temp) * (Number(m.density) || 0) * 0.99885;
-    return Math.round(w * 100) / 100;
+    // Reconciled by the surveyor and entered directly.
+    return Math.round((Number(m.surveyorTonnage) || 0) * 100) / 100;
   }
   return Math.round(((Number(m.displBefore) || 0) - (Number(m.displAfter) || 0) - (Number(m.deductibles) || 0) + (Number(m.constant) || 0)) * 100) / 100;
 }
@@ -126,14 +126,16 @@ function TaskCard({ call, onStart }) {
 function CaptureFlow({ call, onClose, onSubmit }) {
   const [step, setStep] = useState(0);
   const [cargo, setCargo] = useState('');
-  const [liquid, setLiquid] = useState({ ullage: '', observedVol: '', temp: '', density: '', blQty: '' });
+  const [liquid, setLiquid] = useState({ ullage: '', observedVol: '', temp: '', blQty: '', surveyorTonnage: '', jettyType: '', jettyCategory: '', jettyName: '' });
   const [dry, setDry] = useState({ displBefore: '', displAfter: '', deductibles: '', constant: '0' });
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
 
   const m = cargo === 'Liquid' ? liquid : dry;
   const tonnage = useMemo(() => reconcile(cargo, m), [cargo, liquid, dry]);
-  const preview = call ? calcPreview(call.nrt, DEFAULT_SETTINGS) : null;
+  const previewRate = rateForInspection({ cargoType: cargo, jetty: { type: liquid.jettyType, category: liquid.jettyType === 'Local' ? liquid.jettyCategory : null } }, DEFAULT_SETTINGS);
+  const preview = call ? calcPreview(call.nrt, previewRate, DEFAULT_SETTINGS) : null;
+  const jettyOk = cargo !== 'Liquid' || liquid.jettyType === 'International' || (liquid.jettyType === 'Local' && liquid.jettyCategory);
   const numRef = useRef(null);
   useEffect(() => { const el = numRef.current; if (!el) return; el.classList.remove('rb-flash'); void el.offsetWidth; el.classList.add('rb-flash'); }, [tonnage]);
 
@@ -186,7 +188,7 @@ function CaptureFlow({ call, onClose, onSubmit }) {
       <>
         <div className="cap-vessel">
           <div className="cv-ic"><Icon name="ship" size={22} /></div>
-          <div><div className="cv-name">{call.vesselName}</div><div className="cv-ref">{call.reference} · {call.flag}</div></div>
+          <div><div className="cv-name">{call.vesselName}</div><div className="cv-ref">{call.reference} · {call.type}</div></div>
         </div>
         <div className="cap-label">Cargo category</div>
         <div className="cargo-pick">
@@ -217,7 +219,12 @@ function CaptureFlow({ call, onClose, onSubmit }) {
               <div className="mfield"><label>Temp <span className="opt">(°C)</span></label><input type="number" inputMode="decimal" value={liquid.temp} placeholder="15.0" onChange={(e) => setLiquid({ ...liquid, temp: e.target.value })} /></div>
             </div>
             <div className="mfield"><label>Observed volume <span className="opt">(m³)</span></label><input type="number" inputMode="decimal" value={liquid.observedVol} placeholder="0.0" onChange={(e) => setLiquid({ ...liquid, observedVol: e.target.value })} /></div>
-            <div className="mfield"><label>Density @ 15°C</label><input type="number" inputMode="decimal" value={liquid.density} placeholder="0.8400" onChange={(e) => setLiquid({ ...liquid, density: e.target.value })} /><div className="unit">kg/L — e.g. PMS ≈ 0.74, AGO ≈ 0.84</div></div>
+            <div className="mfield"><label>Reconciled surveyor's tonnage <span className="opt">(MT)</span></label><input type="number" inputMode="decimal" value={liquid.surveyorTonnage} placeholder="0.00" onChange={(e) => setLiquid({ ...liquid, surveyorTonnage: e.target.value })} /></div>
+            <div className="mfield"><label>Jetty type</label><select value={liquid.jettyType} onChange={(e) => setLiquid({ ...liquid, jettyType: e.target.value, jettyCategory: e.target.value === 'Local' ? liquid.jettyCategory : '' })}><option value="">Select…</option><option value="Local">Local Jetty</option><option value="International">International Jetty</option></select></div>
+            {liquid.jettyType === 'Local' && (
+              <div className="mfield"><label>Jetty category</label><select value={liquid.jettyCategory} onChange={(e) => setLiquid({ ...liquid, jettyCategory: e.target.value })}><option value="">Select…</option><option value="Government">Government Jetty</option><option value="Private">Private Jetty</option></select></div>
+            )}
+            <div className="mfield"><label>Jetty name</label><input type="text" value={liquid.jettyName} placeholder="e.g. UNICEM Jetty" onChange={(e) => setLiquid({ ...liquid, jettyName: e.target.value })} /></div>
             <div className="mfield"><label>Bill of Lading qty <span className="opt">(MT)</span></label><input type="number" inputMode="decimal" value={liquid.blQty} placeholder="0.00" onChange={(e) => setLiquid({ ...liquid, blQty: e.target.value })} /></div>
           </>
         ) : (
@@ -237,9 +244,9 @@ function CaptureFlow({ call, onClose, onSubmit }) {
             <span className="rb-l"><Icon name="gauge" size={14} strokeWidth={2} /> Reconciled tonnage</span>
           </div>
           <div className="rb-n tnum" ref={numRef}>{fmtNum(tonnage, 2)}<span className="u">MTS</span></div>
-          <div className="rb-foot">{cargo === 'Liquid' ? (liquid.blQty ? `Variance vs B/L: ${(tonnage - Number(liquid.blQty)).toFixed(2)} MT` : 'Enter observed volume & density') : 'Before − after − deductibles + constant'}</div>
+          <div className="rb-foot">{cargo === 'Liquid' ? (liquid.blQty ? `Variance vs B/L: ${(tonnage - Number(liquid.blQty)).toFixed(2)} MT` : "Enter the surveyor's reconciled tonnage") : 'Before − after − deductibles + constant'}</div>
         </div>
-        <div className="mob-cta"><button className="mbtn mbtn-primary" disabled={tonnage <= 0} onClick={() => setStep(2)}>Review</button></div>
+        <div className="mob-cta"><button className="mbtn mbtn-primary" disabled={tonnage <= 0 || !jettyOk} onClick={() => setStep(2)}>Review</button></div>
       </>
     );
   }
@@ -249,8 +256,9 @@ function CaptureFlow({ call, onClose, onSubmit }) {
     <>
       <div className="rev-card">
         <div className="rev-row"><span className="rk">Vessel</span><span className="rv">{call.vesselName}</span></div>
-        <div className="rev-row"><span className="rk">Reference</span><span className="rv">{call.reference}</span></div>
+        <div className="rev-row"><span className="rk">Rotation</span><span className="rv">{call.reference}</span></div>
         <div className="rev-row"><span className="rk">Cargo</span><span className="rv"><MTag type={cargo} /></span></div>
+        {cargo === 'Liquid' && <div className="rev-row"><span className="rk">Jetty</span><span className="rv">{liquid.jettyType === 'International' ? 'International' : `${liquid.jettyCategory} · Local`}</span></div>}
         <div className="rev-row"><span className="rk">Reconciled tonnage</span><span className="rv">{fmtTons(tonnage)}</span></div>
       </div>
 

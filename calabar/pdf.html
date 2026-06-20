@@ -130,7 +130,7 @@
     <div class="meta-grid">
       <div class="meta-block">
         <div class="h">Billed for</div>
-        <div class="v"><span class="strong">${g('vessel')}</span><br/>${g('type')} · ${g('flag')}<br/>Call ${g('callRef')}<br/><span style="color:var(--accent);font-weight:600">${g('cargoType')} cargo</span></div>
+        <div class="v"><span class="strong">${g('vessel')}</span><br/>${g('type')}<br/>Rotation ${g('callRef')}<br/><span style="color:var(--accent);font-weight:600">${g('cargoType')} cargo</span></div>
       </div>
       <div class="meta-block" style="text-align:right">
         <div class="h">Payment</div>
@@ -143,9 +143,9 @@
       <thead><tr><th>Description</th><th class="num">Basis</th><th class="num">Rate</th><th class="num">Amount (USD)</th></tr></thead>
       <tbody>
         <tr>
-          <td>NPA harbour dues<div class="desc">Net registered tonnage charge</div></td>
-          <td class="num">${nf(g('nrt'))} NRT</td>
-          <td class="num">${usd(num(dues)/ (num(g('nrt'))||1),2)}/t</td>
+          <td>NPA harbour dues<div class="desc">Net tonnage × applicable rate${g('jettyType') ? ' · ' + g('jettyType') : ''}</div></td>
+          <td class="num">${nf(g('nrt'))} NT</td>
+          <td class="num">${usd(num(g('duesRate')),2)}/t</td>
           <td class="num">${usd(dues)}</td>
         </tr>
         <tr>
@@ -163,7 +163,7 @@
     </div>
     <div class="note">
       <div class="nh">Payment instructions</div>
-      Remit to Nigerian Ports Authority — Calabar, within 7 days of issue. Quote invoice number ${g('invoiceNo')} and call reference ${g('callRef')} on all transfers. Harbour dues are computed server-side from the vessel's net registered tonnage and the prevailing NPA rate basis.
+      Remit to Nigerian Ports Authority — Calabar, within 7 days of issue. Quote invoice number ${g('invoiceNo')} and rotation number ${g('callRef')} on all transfers. Harbour dues are computed from the vessel's net tonnage and the applicable jetty / cargo dues rate.
     </div>
     <div class="foot"><span>Calabar Port Vessel & Cargo Inspection Platform</span><span>${g('invoiceNo')} · Page 1 of 1</span></div>`;
   } else {
@@ -171,11 +171,11 @@
     <div class="meta-grid">
       <div class="meta-block">
         <div class="h">Vessel</div>
-        <div class="v"><span class="strong">${g('vessel')}</span><br/>${g('type')} · ${g('flag')}</div>
+        <div class="v"><span class="strong">${g('vessel')}</span><br/>${g('type')}</div>
       </div>
       <div class="meta-block" style="text-align:right">
         <div class="h">Call & berth</div>
-        <div class="kvline"><span class="k">Call reference</span><span class="val">${g('callRef')}</span></div>
+        <div class="kvline"><span class="k">Rotation number</span><span class="val">${g('callRef')}</span></div>
         <div class="kvline"><span class="k">Berth / terminal</span><span class="val">${g('berth')}</span></div>
         <div class="kvline"><span class="k">Inspection date</span><span class="val">${fmtDate(g('date'))}</span></div>
       </div>
@@ -186,8 +186,9 @@
       <thead><tr><th>Item</th><th class="num">Value</th></tr></thead>
       <tbody>
         <tr><td>Cargo category</td><td class="num">${g('cargoType')}</td></tr>
-        <tr><td>Net registered tonnage</td><td class="num">${nf(g('nrt'))} NRT</td></tr>
-        <tr><td>Reconciled cargo tonnage</td><td class="num"><strong>${nf(g('tonnage'),2)} MTS</strong></td></tr>
+        ${g('cargoType') === 'Liquid' && g('jettyType') ? `<tr><td>Jetty</td><td class="num">${g('jettyType')}${g('jettyName') ? ' · ' + g('jettyName') : ''}</td></tr>` : ''}
+        <tr><td>Net tonnage</td><td class="num">${nf(g('nrt'))} NT</td></tr>
+        <tr><td>Reconciled surveyor's tonnage</td><td class="num"><strong>${nf(g('tonnage'),2)} MTS</strong></td></tr>
       </tbody>
     </table>
 
@@ -195,7 +196,7 @@
     <table>
       <thead><tr><th>Charge</th><th class="num">Basis</th><th class="num">Amount</th></tr></thead>
       <tbody>
-        <tr><td>NPA harbour dues</td><td class="num">${nf(g('nrt'))} NRT</td><td class="num">${usd(dues)}</td></tr>
+        <tr><td>NPA harbour dues</td><td class="num">${nf(g('nrt'))} NT × ${usd(num(g('duesRate')),2)}/t</td><td class="num">${usd(dues)}</td></tr>
         <tr><td>Agency commission (${g('commRate')}%)</td><td class="num">₦${nf(fx)}/USD</td><td class="num">${usd(commUsd)} · ${ngn(commNgn)}</td></tr>
       </tbody>
     </table>
@@ -203,8 +204,8 @@
     <div class="note">
       <div class="nh">Methodology</div>
       ${g('cargoType')==='Liquid'
-        ? 'Liquid cargo quantity established by ullage survey, volume-corrected to 15°C and converted to weight in air using observed density. Outturn reconciled against the Bill of Lading quantity.'
-        : 'Dry / bulk cargo quantity established by draft survey — initial and final displacement readings less deductibles (ballast, fuel, fresh water and stores) plus the vessel constant.'}
+        ? "Liquid cargo quantity reconciled by the marine surveyor (reconciled surveyor's tonnage) following ullage / sounding survey. Harbour dues are assessed on the vessel's net tonnage at the applicable jetty rate."
+        : "Dry / bulk cargo quantity established by draft survey — initial and final displacement readings less deductibles (ballast, fuel, fresh water and stores) plus the vessel constant. Harbour dues are assessed on the vessel's net tonnage at the dry-cargo rate."}
     </div>
 
     <div class="sign-grid">

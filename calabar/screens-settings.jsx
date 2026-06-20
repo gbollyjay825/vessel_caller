@@ -51,14 +51,26 @@ function Settings({ store }) {
               <input type="number" step="1" value={form.exchangeRate} onChange={(e) => set('exchangeRate', Number(e.target.value))} />
             </Field>
           </div>
-          <Field label="NPA dues rate basis (USD per NRT ton)" hint="Harbour dues = net registered tonnage × this rate.">
-            <input type="number" step="0.01" value={form.duesRatePerTon} onChange={(e) => set('duesRatePerTon', Number(e.target.value))} />
+          <div className="card-title" style={{ fontSize: 14, margin: '8px 0 4px' }}>Liquid cargo — harbour dues by jetty</div>
+          <p className="muted" style={{ fontSize: 13, margin: '0 0 14px' }}>USD per net-tonnage ton. The rate is selected by the jetty recorded during inspection.</p>
+          <div className="field-row">
+            <Field label="Government jetty"><input type="number" step="0.01" value={form.liquidDuesRates.government} onChange={(e) => set('liquidDuesRates.government', Number(e.target.value))} /></Field>
+            <Field label="Private jetty"><input type="number" step="0.01" value={form.liquidDuesRates.private} onChange={(e) => set('liquidDuesRates.private', Number(e.target.value))} /></Field>
+          </div>
+          <Field label="International jetty"><input type="number" step="0.01" value={form.liquidDuesRates.international} onChange={(e) => set('liquidDuesRates.international', Number(e.target.value))} /></Field>
+
+          <div className="card-title" style={{ fontSize: 14, margin: '20px 0 4px' }}>Dry / bulk cargo — harbour dues</div>
+          <Field label="Dry cargo rate (USD per NT ton)" hint="Flat rate applied to all dry / bulk cargo.">
+            <input type="number" step="0.01" value={form.dryDuesRate} onChange={(e) => set('dryDuesRate', Number(e.target.value))} />
           </Field>
+
           <div className="live-calc" style={{ marginTop: 8 }}>
-            <div className="lc-label"><Icon name="gauge" size={14} strokeWidth={2} /> Worked example · 50,000 NRT vessel</div>
+            <div className="lc-label"><Icon name="gauge" size={14} strokeWidth={2} /> Worked example · 50,000 NT vessel</div>
             <div style={{ marginTop: 10, fontSize: 14 }}>
-              <div className="fin-row"><div className="fl">Harbour dues</div><div className="fv tnum">${fmtNum(50000 * form.duesRatePerTon, 2)}</div></div>
-              <div className="fin-row"><div className="fl">Commission · {form.commissionRate}%</div><div className="fv tnum">${fmtNum(50000 * form.duesRatePerTon * form.commissionRate / 100, 2)} · ₦{fmtNum(50000 * form.duesRatePerTon * form.commissionRate / 100 * form.exchangeRate)}</div></div>
+              <div className="fin-row"><div className="fl">Liquid · Government jetty</div><div className="fv tnum">${fmtNum(50000 * form.liquidDuesRates.government, 2)}</div></div>
+              <div className="fin-row"><div className="fl">Liquid · Private jetty</div><div className="fv tnum">${fmtNum(50000 * form.liquidDuesRates.private, 2)}</div></div>
+              <div className="fin-row"><div className="fl">Liquid · International jetty</div><div className="fv tnum">${fmtNum(50000 * form.liquidDuesRates.international, 2)}</div></div>
+              <div className="fin-row"><div className="fl">Dry / bulk</div><div className="fv tnum">${fmtNum(50000 * form.dryDuesRate, 2)}</div></div>
             </div>
           </div>
         </div>

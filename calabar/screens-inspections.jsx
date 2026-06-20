@@ -1,14 +1,12 @@
-/* global React, Icon, StatusBadge, CargoTag, Money, PdfButton, DataTable, EmptyState, Stepper, Field, LiveCalc, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, calcDues, calcCommission, calcPreview, pdfRecord, openPdf */
+/* global React, Icon, StatusBadge, CargoTag, Money, PdfButton, DataTable, EmptyState, Stepper, Field, LiveCalc, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, calcDues, calcCommission, calcPreview, rateForInspection, pdfRecord, openPdf */
 const { useState: useStateIns, useMemo: useMemoIns, useRef: useRefIns } = React;
 
 // ---- reconciled-tonnage maths (mirrors server) ----
 function vcf(temp) { return 1 - ((Number(temp) || 15) - 15) * 0.00065; } // volume correction to 15°C
 function computeReconciled(cargoType, m) {
   if (cargoType === 'Liquid') {
-    const gov = Number(m.observedVol) || 0;
-    const dens = Number(m.density) || 0;
-    const w = gov * vcf(m.temp) * dens * 0.99885;
-    return Math.round(w * 100) / 100;
+    // Liquid cargo is reconciled by the surveyor and entered directly.
+    return Math.round((Number(m.surveyorTonnage) || 0) * 100) / 100;
   }
   const before = Number(m.displBefore) || 0, after = Number(m.displAfter) || 0;
   const ded = Number(m.deductibles) || 0, con = Number(m.constant) || 0;
@@ -87,7 +85,7 @@ function NewInspection({ store }) {
   const [step, setStep] = useStateIns(0);
   const [callId, setCallId] = useStateIns(lockedCallId || '');
   const [cargoType, setCargoType] = useStateIns(lockedCallId ? '' : '');
-  const [liquid, setLiquid] = useStateIns({ ullage: '', observedVol: '', temp: '', density: '', blQty: '' });
+  const [liquid, setLiquid] = useStateIns({ ullage: '', observedVol: '', temp: '', blQty: '', surveyorTonnage: '', jettyType: '', jettyCategory: '', jettyName: '' });
   const [dry, setDry] = useStateIns({ displBefore: '', displAfter: '', deductibles: '', constant: '0' });
   const [submitted, setSubmitted] = useStateIns(null); // {inspection, invoice, call}
   const [submitting, setSubmitting] = useStateIns(false);
@@ -95,10 +93,15 @@ function NewInspection({ store }) {
   const call = store.calls.find((c) => c.id === callId);
   const measure = cargoType === 'Liquid' ? liquid : dry;
   const reconciled = useMemoIns(() => computeReconciled(cargoType, measure), [cargoType, liquid, dry]);
-  const preview = call ? calcPreview(call.nrt, store.settings) : null;
+  const previewRate = rateForInspection(
+    { cargoType, jetty: { type: liquid.jettyType, category: liquid.jettyType === 'Local' ? liquid.jettyCategory : null } },
+    store.settings
+  );
+  const preview = call ? calcPreview(call.nrt, previewRate, store.settings) : null;
 
+  const jettyOk = cargoType !== 'Liquid' || liquid.jettyType === 'International' || (liquid.jettyType === 'Local' && liquid.jettyCategory);
   const canNext0 = callId && cargoType;
-  const canNext1 = reconciled > 0;
+  const canNext1 = reconciled > 0 && jettyOk;
 
   // ---- success screen ----
   if (submitted) {
@@ -136,6 +139,9 @@ function NewInspection({ store }) {
         status: asDraft ? 'draft' : 'completed',
         liquid: cargoType === 'Liquid' ? liquid : undefined,
         dry: cargoType === 'Dry' ? dry : undefined,
+        jetty: cargoType === 'Liquid'
+          ? { type: liquid.jettyType, category: liquid.jettyType === 'Local' ? liquid.jettyCategory : null, name: liquid.jettyName.trim() }
+          : null,
       });
       setSubmitting(false);
       if (asDraft) {
@@ -180,7 +186,7 @@ function NewInspection({ store }) {
               <div className="big-seg">
                 <button className={cargoType === 'Liquid' ? 'on' : ''} onClick={() => setCargoType('Liquid')}>
                   <div className="bs-ic"><Icon name="droplet" size={22} strokeWidth={1.8} /></div>
-                  <div><div className="bs-t">Liquid cargo</div><div className="bs-d">Ullage / sounding, observed volume, density &amp; outturn reconciliation.</div></div>
+                  <div><div className="bs-t">Liquid cargo</div><div className="bs-d">Ullage / sounding, observed volume &amp; the surveyor's reconciled tonnage, with jetty-based dues.</div></div>
                 </button>
                 <button className={cargoType === 'Dry' ? 'on' : ''} onClick={() => setCargoType('Dry')}>
                   <div className="bs-ic"><Icon name="package" size={22} strokeWidth={1.8} /></div>
@@ -207,13 +213,36 @@ function NewInspection({ store }) {
                 <>
                   <div className="field-row">
                     <Field label="Ullage / sounding (m)"><input type="number" step="0.01" value={liquid.ullage} placeholder="0.00" onChange={(e) => setLiquid({ ...liquid, ullage: e.target.value })} /></Field>
-                    <Field label="Observed volume (m³)" required><input type="number" step="0.1" value={liquid.observedVol} placeholder="0.0" onChange={(e) => setLiquid({ ...liquid, observedVol: e.target.value })} /></Field>
+                    <Field label="Observed volume (m³)"><input type="number" step="0.1" value={liquid.observedVol} placeholder="0.0" onChange={(e) => setLiquid({ ...liquid, observedVol: e.target.value })} /></Field>
                   </div>
                   <div className="field-row">
                     <Field label="Temperature (°C)"><input type="number" step="0.1" value={liquid.temp} placeholder="15.0" onChange={(e) => setLiquid({ ...liquid, temp: e.target.value })} /></Field>
-                    <Field label="Density @ 15°C" required hint="kg/L (e.g. 0.8412)"><input type="number" step="0.0001" value={liquid.density} placeholder="0.0000" onChange={(e) => setLiquid({ ...liquid, density: e.target.value })} /></Field>
+                    <Field label="Bill of Lading quantity (MT)" hint="For variance against the surveyor's figure."><input type="number" step="0.01" value={liquid.blQty} placeholder="0.00" onChange={(e) => setLiquid({ ...liquid, blQty: e.target.value })} /></Field>
                   </div>
-                  <Field label="Bill of Lading quantity (MT)" hint="Used to reconcile against the computed outturn."><input type="number" step="0.01" value={liquid.blQty} placeholder="0.00" onChange={(e) => setLiquid({ ...liquid, blQty: e.target.value })} /></Field>
+                  <Field label="Reconciled Surveyor's Tonnage (MT)" required hint="The surveyor's reconciled cargo quantity — the dues basis of record.">
+                    <input type="number" step="0.01" value={liquid.surveyorTonnage} placeholder="0.00" onChange={(e) => setLiquid({ ...liquid, surveyorTonnage: e.target.value })} />
+                  </Field>
+                  <div className="field-row">
+                    <Field label="Jetty type" required>
+                      <select value={liquid.jettyType} onChange={(e) => setLiquid({ ...liquid, jettyType: e.target.value, jettyCategory: e.target.value === 'Local' ? liquid.jettyCategory : '' })}>
+                        <option value="">Select jetty type…</option>
+                        <option value="Local">Local Jetty</option>
+                        <option value="International">International Jetty</option>
+                      </select>
+                    </Field>
+                    {liquid.jettyType === 'Local' && (
+                      <Field label="Jetty category" required>
+                        <select value={liquid.jettyCategory} onChange={(e) => setLiquid({ ...liquid, jettyCategory: e.target.value })}>
+                          <option value="">Select category…</option>
+                          <option value="Government">Government Jetty</option>
+                          <option value="Private">Private Jetty</option>
+                        </select>
+                      </Field>
+                    )}
+                  </div>
+                  <Field label="Jetty name" hint="The specific jetty / berth the vessel worked.">
+                    <input type="text" value={liquid.jettyName} placeholder="e.g. UNICEM Jetty" onChange={(e) => setLiquid({ ...liquid, jettyName: e.target.value })} />
+                  </Field>
                 </>
               ) : (
                 <>
@@ -241,15 +270,18 @@ function NewInspection({ store }) {
               <div className="card-title" style={{ marginBottom: 18 }}>Review &amp; submit</div>
               <div className="kv-grid" style={{ marginBottom: 22 }}>
                 <div className="kv"><div className="k">Vessel</div><div className="v">{call.vesselName}</div></div>
-                <div className="kv"><div className="k">Call reference</div><div className="v mono-ref" style={{ color: 'var(--ink)' }}>{call.reference}</div></div>
+                <div className="kv"><div className="k">Rotation number</div><div className="v mono-ref" style={{ color: 'var(--ink)' }}>{call.reference}</div></div>
                 <div className="kv"><div className="k">Cargo type</div><div className="v"><CargoTag type={cargoType} /></div></div>
                 <div className="kv"><div className="k">Reconciled tonnage</div><div className="v tnum">{fmtTons(reconciled)}</div></div>
+                {cargoType === 'Liquid' && (
+                  <div className="kv"><div className="k">Jetty</div><div className="v">{liquid.jettyType === 'International' ? 'International Jetty' : `${liquid.jettyCategory} Jetty · Local`}{liquid.jettyName ? ` — ${liquid.jettyName}` : ''}</div></div>
+                )}
               </div>
 
               <div className="live-calc" style={{ marginBottom: 8 }}>
                 <div className="lc-label"><Icon name="gauge" size={14} strokeWidth={2} /> Calculated charges — preview</div>
                 <div style={{ marginTop: 12 }}>
-                  <div className="fin-row"><div className="fl">NPA harbour dues<span className="basis">{fmtNum(call.nrt)} NRT × {fmtUSD(store.settings.duesRatePerTon)}/ton</span></div><div className="fv tnum">{fmtUSD(preview.dues)}</div></div>
+                  <div className="fin-row"><div className="fl">NPA harbour dues<span className="basis">{fmtNum(call.nrt)} NT × {fmtUSD(previewRate)}/ton · {cargoType === 'Liquid' ? `${liquid.jettyType === 'International' ? 'International' : liquid.jettyCategory} jetty` : 'dry rate'}</span></div><div className="fv tnum">{fmtUSD(preview.dues)}</div></div>
                   <div className="fin-row"><div className="fl">Commission · {store.settings.commissionRate}%</div><div className="fv tnum">{fmtUSD(preview.commissionUsd)} · {fmtNGN(preview.commissionNgn)}</div></div>
                 </div>
                 <div className="lc-foot">These figures are confirmed before submission. The server is the single source of truth on submit.</div>
@@ -273,16 +305,18 @@ function NewInspection({ store }) {
           <div style={{ position: 'sticky', top: 24 }}>
             <LiveCalc label="Reconciled tonnage" value={fmtNum(reconciled, 2)} unit="MTS" flashKey={reconciled}
               foot={cargoType === 'Liquid'
-                ? (liquid.blQty ? `Variance vs B/L: ${(reconciled - Number(liquid.blQty)).toFixed(2)} MT` : 'Enter observed volume & density.')
+                ? (liquid.blQty ? `Variance vs B/L: ${(reconciled - Number(liquid.blQty)).toFixed(2)} MT` : "Enter the surveyor's reconciled tonnage.")
                 : 'Displacement before − after − deductibles + constant.'} />
             {cargoType === 'Liquid' && (
               <div className="card card-pad mt-4" style={{ fontSize: 13 }}>
-                <div className="kv" style={{ marginBottom: 10 }}><div className="k">VCF @ {liquid.temp || '15'}°C</div><div className="v tnum">{vcf(liquid.temp).toFixed(5)}</div></div>
+                <div className="kv" style={{ marginBottom: 10 }}><div className="k">Jetty</div><div className="v">{liquid.jettyType ? (liquid.jettyType === 'International' ? 'International' : (liquid.jettyCategory ? `${liquid.jettyCategory} · Local` : 'Local — select category')) : '—'}</div></div>
+                <div className="kv" style={{ marginBottom: 10 }}><div className="k">Applicable dues rate</div><div className="v tnum">{previewRate ? `${fmtUSD(previewRate)}/ton` : '—'}</div></div>
                 <div className="kv"><div className="k">B/L quantity</div><div className="v tnum">{liquid.blQty ? fmtTons(Number(liquid.blQty)) : '—'}</div></div>
               </div>
             )}
             {cargoType === 'Dry' && (
               <div className="card card-pad mt-4" style={{ fontSize: 13 }}>
+                <div className="kv" style={{ marginBottom: 10 }}><div className="k">Applicable dues rate</div><div className="v tnum">{fmtUSD(store.settings.dryDuesRate)}/ton</div></div>
                 <div className="kv" style={{ marginBottom: 10 }}><div className="k">Gross displacement Δ</div><div className="v tnum">{fmtNum((Number(dry.displBefore) || 0) - (Number(dry.displAfter) || 0))} MT</div></div>
                 <div className="kv"><div className="k">Total deductibles</div><div className="v tnum">{fmtNum(Number(dry.deductibles) || 0)} MT</div></div>
               </div>

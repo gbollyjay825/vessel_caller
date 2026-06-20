@@ -1,4 +1,4 @@
-/* global React, ReactDOM, Sidebar, TopBar, ToastHost, Dashboard, VesselCalls, VesselCallDetail, Inspections, NewInspection, Invoices, Settings, SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, DEFAULT_SETTINGS, calcDues, calcCommission */
+/* global React, ReactDOM, Sidebar, TopBar, ToastHost, Dashboard, VesselCalls, VesselCallDetail, Inspections, NewInspection, Invoices, Settings, Analytics, SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, DEFAULT_SETTINGS, calcDues, calcCommission, rateForInspection */
 const { useState: useStateApp, useCallback: useCallbackApp, useEffect: useEffectApp } = React;
 
 const TITLES = {
@@ -36,11 +36,15 @@ function App() {
 
   const financialsForCall = useCallbackApp((call) => {
     if (!call) return null;
+    // Dues require a completed inspection — the applicable rate depends on
+    // the cargo type and (for liquid) the jetty recorded during inspection.
     const insp = inspections.find((i) => i.callId === call.id && i.status === 'completed');
-    if (!insp && call.status !== 'completed') return null;
-    const dues = calcDues(call.nrt, settings);
+    if (!insp) return null;
+    const rate = rateForInspection(insp, settings);
+    if (!rate) return null;
+    const dues = calcDues(call.nrt, rate);
     const c = calcCommission(dues, settings);
-    return { dues, commissionUsd: c.usd, commissionNgn: c.ngn, inspection: insp };
+    return { dues, rate, commissionUsd: c.usd, commissionNgn: c.ngn, inspection: insp };
   }, [inspections, settings]);
 
   const addCall = useCallbackApp((data) => {
@@ -64,7 +68,7 @@ function App() {
       callId: data.callId, vesselName: (calls.find((c) => c.id === data.callId) || {}).vesselName || '—',
       cargoType: data.cargoType, reconciledTonnage: data.reconciledTonnage,
       date: new Date().toISOString().slice(0, 16), status: data.status,
-      liquid: data.liquid, dry: data.dry,
+      liquid: data.liquid, dry: data.dry, jetty: data.jetty || null,
     };
     setInspections((is) => [inspection, ...is]);
 

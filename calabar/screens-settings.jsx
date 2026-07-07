@@ -1,11 +1,17 @@
 /* global React, Icon, Field, fmtNum, apiResetData, apiActive */
-const { useState: useStateSet } = React;
+const { useState: useStateSet, useEffect: useEffectSet } = React;
 
 function Settings({ store }) {
   const [tab, setTab] = useStateSet('charges');
   const [form, setForm] = useStateSet(() => JSON.parse(JSON.stringify(store.settings)));
   const [dirty, setDirty] = useStateSet(false);
   const [saving, setSaving] = useStateSet(false);
+
+  // Keep a clean form in step with settings saved elsewhere (another tab,
+  // the backend poll) so a stale snapshot can't silently revert newer rates.
+  useEffectSet(() => {
+    if (!dirty) setForm(JSON.parse(JSON.stringify(store.settings)));
+  }, [store.settings, dirty]);
 
   const set = (path, val) => {
     setForm((f) => {

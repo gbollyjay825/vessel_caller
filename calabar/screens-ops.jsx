@@ -452,7 +452,15 @@ function VesselCallDetail({ store }) {
         <ConfirmModal title="Cancel this vessel call?"
           body={`This will remove ${call.vesselName} (${call.reference}) and any linked draft inspections. This cannot be undone.`}
           confirmLabel="Cancel call" danger
-          onConfirm={() => { store.deleteCall(call.id); store.toast(`${call.reference} cancelled`, 'info'); store.navigate('vessel-calls'); }}
+          onConfirm={async () => {
+            try {
+              await store.deleteCall(call.id);
+              store.toast(`${call.reference} cancelled`, 'info');
+              store.navigate('vessel-calls');
+            } catch (e) {
+              store.toast(e.message || 'Could not cancel the call', 'error');
+            }
+          }}
           onClose={() => setConfirmDel(false)} />
       )}
     </div>

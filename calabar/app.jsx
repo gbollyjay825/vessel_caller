@@ -36,6 +36,13 @@ function PortApp({ boot }) {
     setCalls(d.calls); setInspections(d.inspections); setInvoices(d.invoices); setSettings(d.settings);
   }, []);
 
+  // Advance the poll cursor ONLY when the mutation's rev is contiguous.
+  // A gap means another client wrote in between — leave the cursor behind
+  // so the next poll pulls the full state (never skip unseen revisions).
+  const advanceRev = useCallbackApp((rev) => {
+    if (rev && rev === revRef.current + 1) revRef.current = rev;
+  }, []);
+
   // Fallback mode only: write-through persistence to localStorage
   // (in backend mode the server owns the data — savePortData no-ops)
   useEffectApp(() => {
@@ -97,35 +104,35 @@ function PortApp({ boot }) {
 
   const addCall = useCallbackApp(async (data) => {
     const res = await apiCreateCall(data); // POST /api/vessel-calls (or local)
-    if (res.rev) revRef.current = res.rev;
+    advanceRev(res.rev);
     setCalls((cs) => [res.call, ...cs]);
     return res.call.id;
-  }, []);
+  }, [advanceRev]);
 
   const deleteCall = useCallbackApp(async (id) => {
     const res = await apiDeleteCall(id); // DELETE /api/vessel-calls/:id (or local)
-    if (res.rev) revRef.current = res.rev;
+    advanceRev(res.rev);
     setCalls((cs) => cs.filter((c) => c.id !== id));
     setInspections((is) => is.filter((i) => i.callId !== id));
     setInvoices((iv) => iv.filter((v) => v.callId !== id));
-  }, []);
+  }, [advanceRev]);
 
   const addInspection = useCallbackApp(async (data) => {
     // POST /api/inspections — the server (or the local fallback engine)
     // numbers the inspection, completes the call and issues the invoice.
     const res = await apiCreateInspection({ calls, inspections, invoices, settings }, data);
-    if (res.rev) revRef.current = res.rev;
+    advanceRev(res.rev);
     setInspections((is) => [res.inspection, ...is]);
     if (res.call) setCalls((cs) => cs.map((c) => (c.id === res.call.id ? res.call : c)));
     if (res.invoice) setInvoices((iv) => [res.invoice, ...iv]);
     return { inspection: res.inspection, invoice: res.invoice, call: res.call };
-  }, [calls, inspections, invoices, settings]);
+  }, [calls, inspections, invoices, settings, advanceRev]);
 
   const updateSettings = useCallbackApp(async (s) => {
     const res = await apiUpdateSettings(s); // PUT /api/settings (or local)
-    if (res.rev) revRef.current = res.rev;
+    advanceRev(res.rev);
     setSettings(s);
-  }, []);
+  }, [advanceRev]);
 
   const store = {
     route, navigate, calls, inspections, invoices, settings, flashId,

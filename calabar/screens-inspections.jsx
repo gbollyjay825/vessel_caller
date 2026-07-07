@@ -105,8 +105,9 @@ function NewInspection({ store }) {
 
   // ---- success screen ----
   if (submitted) {
-    const { inspection, call: sc } = submitted;
-    const f = store.financialsForCall(sc);
+    // Financials are snapshotted at submit time so a cross-tab write can
+    // never null them out from under this screen.
+    const { inspection, call: sc, financials: f } = submitted;
     const rec = pdfRecord(store, sc);
     return (
       <div className="content-inner">
@@ -147,7 +148,11 @@ function NewInspection({ store }) {
         store.toast(`Draft inspection ${result.inspection.reference} saved`, 'info');
         store.navigate('inspections', { flash: result.inspection.id });
       } else {
-        setSubmitted(result);
+        // snapshot the confirmed figures (same ones shown in the preview)
+        setSubmitted({
+          ...result,
+          financials: { dues: preview.dues, commissionUsd: preview.commissionUsd, commissionNgn: preview.commissionNgn },
+        });
       }
     } catch (e) {
       store.toast(e.message || 'Could not submit the inspection', 'error');

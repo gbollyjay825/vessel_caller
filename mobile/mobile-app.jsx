@@ -46,11 +46,20 @@ function MobileMain({ boot }) {
   const awaiting = calls.filter((c) => c.status !== 'completed');
   const pendingSync = syncingIds.length;
 
+  // If the call being captured vanishes from the synced store (cancelled
+  // on the desktop, or a data reset), close the capture flow instead of
+  // stranding the surveyor on a dead screen.
+  useEffect(() => {
+    if (capture && !data.calls.some((c) => c.id === capture.callId)) setCapture(null);
+  }, [data, capture]);
+
   // Capture writes through the shared API (Python backend when present,
   // localStorage fallback otherwise) — the desktop app sees it live.
   const onSubmit = async (payload) => {
     const res = await apiCreateInspection(data, payload);
-    if (res.rev) revRef.current = res.rev;
+    // advance the poll cursor only when contiguous — a gap means another
+    // client wrote in between; the next poll must pull the full state
+    if (res.rev && res.rev === revRef.current + 1) revRef.current = res.rev;
     setData((d) => {
       const next = {
         ...d,
@@ -186,7 +195,22 @@ function CaptureFlow({ call, settings, onClose, onSubmit }) {
   const numRef = useRef(null);
   useEffect(() => { const el = numRef.current; if (!el) return; el.classList.remove('rb-flash'); void el.offsetWidth; el.classList.add('rb-flash'); }, [tonnage]);
 
-  if (!call) return null;
+  if (!call) {
+    // The call disappeared mid-capture (cancelled / data reset) — give the
+    // surveyor a way out instead of a blank frame.
+    return (
+      <div className="mob-app">
+        <div className="mob-body">
+          <div className="empty-tab" style={{ paddingTop: 80 }}>
+            <div className="ei"><Icon name="info" size={26} /></div>
+            <h3>Vessel call unavailable</h3>
+            <p>This vessel call is no longer on the platform. Any unsent measurements were discarded.</p>
+          </div>
+        </div>
+        <div className="mob-cta"><button className="mbtn mbtn-primary" onClick={onClose}>Back to tasks</button></div>
+      </div>
+    );
+  }
 
   const submit = async () => {
     setSubmitting(true);

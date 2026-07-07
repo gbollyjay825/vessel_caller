@@ -1,11 +1,11 @@
-/* global React, Icon, Field, fmtNum, apiResetData, apiActive, OrganizationSection, TeamSection */
+/* global React, Icon, Field, fmtNum, apiResetData, apiActive, OrganizationSection, TeamSection, normalizeOrg */
 const { useState: useStateSet, useEffect: useEffectSet } = React;
 
 function Settings({ store }) {
   const [tab, setTab] = useStateSet('organization');
   const [form, setForm] = useStateSet(() => JSON.parse(JSON.stringify(store.settings)));
   const [dirty, setDirty] = useStateSet(false);
-  const [orgForm, setOrgForm] = useStateSet(() => JSON.parse(JSON.stringify(store.org)));
+  const [orgForm, setOrgForm] = useStateSet(() => normalizeOrg(JSON.parse(JSON.stringify(store.org))));
   const [orgDirty, setOrgDirty] = useStateSet(false);
   const [saving, setSaving] = useStateSet(false);
 
@@ -17,7 +17,7 @@ function Settings({ store }) {
     if (!dirty) setForm(JSON.parse(JSON.stringify(store.settings)));
   }, [store.settings, dirty]);
   useEffectSet(() => {
-    if (!orgDirty) setOrgForm(JSON.parse(JSON.stringify(store.org)));
+    if (!orgDirty) setOrgForm(normalizeOrg(JSON.parse(JSON.stringify(store.org))));
   }, [store.org, orgDirty]);
 
   const set = (path, val) => {
@@ -43,7 +43,12 @@ function Settings({ store }) {
     setSaving(true);
     try {
       if (dirty) { await store.updateSettings(form); setDirty(false); }
-      if (orgDirty) { await store.updateOrganization(orgForm); setOrgDirty(false); }
+      if (orgDirty) {
+        const nextOrg = normalizeOrg(orgForm);
+        await store.updateOrganization(nextOrg);
+        setOrgForm(nextOrg);
+        setOrgDirty(false);
+      }
       store.toast('Settings saved', 'success');
     } catch (e) {
       store.toast(e.message || 'Could not save settings', 'error');
@@ -162,7 +167,7 @@ function Settings({ store }) {
         <div className="card card-pad" style={{ maxWidth: 640 }}>
           <div className="card-title" style={{ marginBottom: 20 }}>Port profile</div>
           <p className="muted" style={{ fontSize: 13, margin: '-8px 0 18px' }}>
-            The designated port is set on the <button className="link-btn" onClick={() => setTab('organization')}>Organization</button> tab — currently <strong>{store.org.designatedPort}</strong>.
+            Operating ports are set on the <button className="link-btn" onClick={() => setTab('organization')}>Organization</button> tab — currently <strong>{store.portLabel}</strong>.
           </p>
           <fieldset disabled={!canEdit} style={{ border: 'none', padding: 0, margin: 0 }}>
           <Field label="Default terminals" hint="One per line. Offered when registering a vessel call.">
@@ -193,7 +198,7 @@ function Settings({ store }) {
         <span className="unsaved">{anyDirty ? <><Icon name="alert" size={14} strokeWidth={2} /> You have unsaved changes</> : <span className="muted">All changes saved</span>}</span>
         <div className="flex gap-3">
           <button className="btn btn-secondary" disabled={!anyDirty || saving}
-            onClick={() => { setForm(JSON.parse(JSON.stringify(store.settings))); setDirty(false); setOrgForm(JSON.parse(JSON.stringify(store.org))); setOrgDirty(false); }}>Discard</button>
+            onClick={() => { setForm(JSON.parse(JSON.stringify(store.settings))); setDirty(false); setOrgForm(normalizeOrg(JSON.parse(JSON.stringify(store.org)))); setOrgDirty(false); }}>Discard</button>
           <button className="btn btn-primary" disabled={!anyDirty || saving || !canEdit} onClick={save}>{saving ? <><Icon name="spinner" size={16} className="spin" strokeWidth={2} /> Saving…</> : 'Save changes'}</button>
         </div>
       </div>

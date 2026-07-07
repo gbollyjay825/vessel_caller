@@ -1,4 +1,4 @@
-/* global React, ReactDOM, Icon, IOSDevice, calcPreview, rateForInspection, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, CURRENT_USER, PORT_STORE_KEY, apiActive, bootPortData, savePortData, apiCreateInspection, fetchStateIfChanged */
+/* global React, ReactDOM, Icon, IOSDevice, calcPreview, rateForInspection, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, CURRENT_USER, PORT_STORE_KEY, apiActive, bootPortData, savePortData, apiCreateInspection, fetchStateIfChanged, orgPortsLabel */
 const { useState, useEffect, useRef, useMemo } = React;
 
 // reconciled-tonnage maths (mirrors the desktop / server)
@@ -45,6 +45,7 @@ function MobileMain({ boot }) {
 
   const awaiting = calls.filter((c) => c.status !== 'completed');
   const pendingSync = syncingIds.length;
+  const portLabel = data.org ? orgPortsLabel(data.org, 'Port of Calabar') : 'Port of Calabar';
 
   // If the call being captured vanishes from the synced store (cancelled
   // on the desktop, or a data reset), close the capture flow instead of
@@ -106,9 +107,9 @@ function MobileMain({ boot }) {
           ) : (
             <div className="mob-app">
               <div className="mob-body">
-                {tab === 'tasks' && <TasksTab awaiting={awaiting} pendingSync={pendingSync} port={(data.org && data.org.designatedPort) || 'Port of Calabar'} onStart={(id) => setCapture({ callId: id })} />}
+                {tab === 'tasks' && <TasksTab awaiting={awaiting} pendingSync={pendingSync} port={portLabel} onStart={(id) => setCapture({ callId: id })} />}
                 {tab === 'captured' && <CapturedTab captured={captured} calls={calls} />}
-                {tab === 'account' && <AccountTab pendingSync={pendingSync} port={(data.org && data.org.designatedPort) || 'Port of Calabar'} />}
+                {tab === 'account' && <AccountTab pendingSync={pendingSync} port={portLabel} />}
               </div>
               <TabBar tab={tab} setTab={setTab} badge={pendingSync} />
             </div>

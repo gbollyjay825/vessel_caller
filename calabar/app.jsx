@@ -1,4 +1,4 @@
-/* global React, ReactDOM, Sidebar, TopBar, ToastHost, Dashboard, VesselCalls, VesselCallDetail, Inspections, NewInspection, Invoices, Settings, Analytics, Onboarding, calcDues, calcCommission, rateForInspection, PORT_STORE_KEY, apiActive, bootPortData, savePortData, applyInspection, apiCreateCall, apiCreateInspection, apiDeleteCall, apiUpdateSettings, apiUpdateOrganization, apiUpdateInvoice, fetchStateIfChanged, canUser, SEED_ORG */
+/* global React, ReactDOM, Sidebar, TopBar, ToastHost, Dashboard, VesselCalls, VesselCallDetail, Inspections, NewInspection, Invoices, Settings, Analytics, Onboarding, calcDues, calcCommission, rateForInspection, PORT_STORE_KEY, apiActive, bootPortData, savePortData, applyInspection, apiCreateCall, apiCreateInspection, apiDeleteCall, apiUpdateSettings, apiUpdateOrganization, apiUpdateInvoice, fetchStateIfChanged, canUser, SEED_ORG, normalizeOrg, orgPorts, primaryOrgPort, orgPortsLabel */
 const { useState: useStateApp, useCallback: useCallbackApp, useEffect: useEffectApp, useRef: useRefApp } = React;
 
 // ---- Boot: probe the Python backend, fall back to localStorage ----
@@ -28,7 +28,7 @@ function PortApp({ boot }) {
   const [inspections, setInspections] = useStateApp(boot.inspections);
   const [invoices, setInvoices] = useStateApp(boot.invoices);
   const [settings, setSettings] = useStateApp(boot.settings);
-  const [org, setOrg] = useStateApp(boot.org || SEED_ORG);
+  const [org, setOrg] = useStateApp(() => normalizeOrg(boot.org || SEED_ORG));
   const [toasts, setToasts] = useStateApp([]);
   const [flashId, setFlashId] = useStateApp(null);
   const [mobileNav, setMobileNav] = useStateApp(false);
@@ -53,7 +53,7 @@ function PortApp({ boot }) {
   const applyServerState = useCallbackApp((d) => {
     revRef.current = d.rev || 0;
     setCalls(d.calls); setInspections(d.inspections); setInvoices(d.invoices); setSettings(d.settings);
-    if (d.org) setOrg(d.org);
+    if (d.org) setOrg(normalizeOrg(d.org));
   }, []);
 
   // Advance the poll cursor ONLY when the mutation's rev is contiguous.
@@ -85,7 +85,7 @@ function PortApp({ boot }) {
         const d = JSON.parse(e.newValue);
         if (!d || !Array.isArray(d.calls)) return;
         setCalls(d.calls); setInspections(d.inspections); setInvoices(d.invoices); setSettings(d.settings);
-        if (d.org) setOrg(d.org);
+        if (d.org) setOrg(normalizeOrg(d.org));
       } catch (err) { /* ignore malformed writes */ }
     };
     window.addEventListener('storage', onStorage);
@@ -162,9 +162,10 @@ function PortApp({ boot }) {
   const updateOrganization = useCallbackApp(async (o) => {
     // allowed unauthenticated ONLY while onboarding an unregistered org
     if (org.registered && !can('manageSettings')) throw new Error('Only Admins can change the organization profile');
-    const res = await apiUpdateOrganization(o); // PUT /api/organization (or local)
+    const nextOrg = normalizeOrg(o);
+    const res = await apiUpdateOrganization(nextOrg); // PUT /api/organization (or local)
     advanceRev(res.rev);
-    setOrg(o);
+    setOrg(nextOrg);
   }, [advanceRev, can, org.registered]);
 
   // Payment tracking: record / clear a payment on an invoice
@@ -176,11 +177,14 @@ function PortApp({ boot }) {
     return res.invoice;
   }, [invoices, advanceRev, can]);
 
+  const primaryPort = primaryOrgPort(org, settings.portName);
+  const portLabel = orgPortsLabel(org, settings.portName);
   const store = {
     route, navigate, calls, inspections, invoices, settings, flashId,
     toast, addCall, deleteCall, addInspection, updateSettings,
     financialsForCall, inspectionsForCall, invoiceForCall,
     org, updateOrganization, updateInvoice,
+    orgPorts: orgPorts(org), primaryPort, portLabel,
     currentUser, setCurrentUser, can,
   };
 
@@ -222,7 +226,7 @@ function PortApp({ boot }) {
       <Sidebar active={navActive} navigate={navigate} mobileOpen={mobileNav} closeMobile={() => setMobileNav(false)} org={org} currentUser={currentUser} />
       <div className={'drawer-backdrop-mobile ' + (mobileNav ? 'open' : '')} onClick={() => setMobileNav(false)} />
       <div className="main">
-        <TopBar title={TITLES[route.screen] || 'Calabar Port'} portName={org.designatedPort || settings.portName}
+        <TopBar title={TITLES[route.screen] || 'Calabar Port'} portName={portLabel}
           onHamburger={() => setMobileNav(true)} org={org} currentUser={currentUser} setCurrentUser={setCurrentUser} />
         <main className="content scroll-host">
           {Screen}

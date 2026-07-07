@@ -1,4 +1,4 @@
-/* global React, Icon, userInitials */
+/* global React, Icon, userInitials, orgPortsLabel */
 const { useState: useStateShell } = React;
 const NAV_ITEMS = [
   { key: 'dashboard',   label: 'Dashboard',    icon: 'dashboard' },
@@ -11,7 +11,7 @@ const NAV_ITEMS = [
 
 function Sidebar({ active, navigate, mobileOpen, closeMobile, org, currentUser }) {
   const orgName = (org && org.name) || 'Vessel Caller';
-  const portLine = ((org && org.designatedPort) || 'Port of Calabar') + ' · Inspection';
+  const portLine = orgPortsLabel(org, 'Port of Calabar') + ' · Inspection';
   return (
     <nav className={'sidebar ' + (mobileOpen ? 'open' : '')} aria-label="Primary">
       <div className="sb-brand">

@@ -1,4 +1,4 @@
-/* global React, Icon, Field, Stepper, NPA_PORTS, ROLES, DEMO_ORG_PROFILE, userInitials */
+/* global React, Icon, Field, Stepper, NPA_PORTS, ROLES, DEMO_ORG_PROFILE, userInitials, normalizeOrg */
 const { useState: useStateOrg, useRef: useRefOrg } = React;
 
 // =========================================================
@@ -63,14 +63,49 @@ function LogoUploader({ logo, onChange, toast }) {
   );
 }
 
+function PortPicker({ ports, primary, onChange, disabled }) {
+  const normalized = normalizeOrg({ ports, designatedPort: primary });
+  const selected = normalized.ports;
+  const primaryPort = normalized.designatedPort;
+  const togglePort = (port) => {
+    const isSelected = selected.indexOf(port) !== -1;
+    if (isSelected && selected.length === 1) return;
+    const nextPorts = isSelected ? selected.filter((p) => p !== port) : [...selected, port];
+    const nextPrimary = nextPorts.indexOf(primaryPort) !== -1 ? primaryPort : nextPorts[0];
+    onChange(nextPorts, nextPrimary);
+  };
+  return (
+    <>
+      <div className="port-picker" aria-label="Operating ports">
+        {NPA_PORTS.map((port) => {
+          const checked = selected.indexOf(port) !== -1;
+          const locked = checked && selected.length === 1;
+          return (
+            <label key={port} className={'port-option ' + (checked ? 'on' : '')}>
+              <input type="checkbox" checked={checked} disabled={disabled || locked} onChange={() => togglePort(port)} />
+              <span>{port}</span>
+              {primaryPort === port && <span className="tag">Primary</span>}
+            </label>
+          );
+        })}
+      </div>
+      <Field label="Primary port" hint="Used as the default on dashboards, documents and mobile capture.">
+        <select value={primaryPort} disabled={disabled} onChange={(e) => onChange(selected, e.target.value)}>
+          {selected.map((p) => <option key={p}>{p}</option>)}
+        </select>
+      </Field>
+    </>
+  );
+}
+
 // =========================================================
 // Onboarding — Register Organization (3 steps)
 // =========================================================
-const OB_STEPS = ['Organization', 'Designated port', 'Administrator'];
+const OB_STEPS = ['Organization', 'Operating ports', 'Administrator'];
 
 function Onboarding({ onComplete, toast }) {
   const [step, setStep] = useStateOrg(0);
-  const [org, setOrg] = useStateOrg({ name: '', rcNumber: '', email: '', phone: '', address: '', designatedPort: NPA_PORTS[0], logo: null });
+  const [org, setOrg] = useStateOrg({ name: '', rcNumber: '', email: '', phone: '', address: '', designatedPort: NPA_PORTS[0], ports: [NPA_PORTS[0]], logo: null });
   const [admin, setAdmin] = useStateOrg({ name: '', email: '' });
   const [errors, setErrors] = useStateOrg({});
   const [saving, setSaving] = useStateOrg(false);
@@ -83,6 +118,7 @@ function Onboarding({ onComplete, toast }) {
       if (!org.name.trim()) e.name = 'Organization name is required.';
       if (!org.email.trim()) e.email = 'A contact email is required.';
     }
+    if (step === 1 && (!org.ports || org.ports.length === 0)) e.ports = 'Select at least one operating port.';
     setErrors(e);
     if (Object.keys(e).length === 0) setStep(step + 1);
   };
@@ -95,12 +131,13 @@ function Onboarding({ onComplete, toast }) {
     if (Object.keys(e).length) return;
     setSaving(true);
     const adminId = 'u-' + Date.now();
+    const cleanOrg = normalizeOrg(org);
     try {
       await onComplete({
         registered: true,
-        name: org.name.trim(), rcNumber: org.rcNumber.trim(), email: org.email.trim(),
-        phone: org.phone.trim(), address: org.address.trim(),
-        designatedPort: org.designatedPort, logo: org.logo,
+        name: cleanOrg.name.trim(), rcNumber: cleanOrg.rcNumber.trim(), email: cleanOrg.email.trim(),
+        phone: cleanOrg.phone.trim(), address: cleanOrg.address.trim(),
+        designatedPort: cleanOrg.designatedPort, ports: cleanOrg.ports, logo: cleanOrg.logo,
         members: [{ id: adminId, name: admin.name.trim(), email: admin.email.trim(), role: 'Admin' }],
       }, adminId);
     } catch (err) {
@@ -159,10 +196,9 @@ function Onboarding({ onComplete, toast }) {
 
             {step === 1 && (
               <>
-                <Field label="Designated port" required hint="The NPA port this organization operates at. Shown across the app and on all documents.">
-                  <select value={org.designatedPort} onChange={(e) => set('designatedPort', e.target.value)}>
-                    {NPA_PORTS.map((p) => <option key={p}>{p}</option>)}
-                  </select>
+                <Field label="Operating ports" required error={errors.ports} hint="Choose every NPA port this organization operates at.">
+                  <PortPicker ports={org.ports} primary={org.designatedPort}
+                    onChange={(ports, primary) => setOrg((o) => normalizeOrg({ ...o, ports, designatedPort: primary }))} />
                 </Field>
                 <div style={{ marginTop: 18 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Organization logo <span style={{ color: 'var(--slate)', fontWeight: 400 }}>· optional</span></div>
@@ -207,14 +243,15 @@ function Onboarding({ onComplete, toast }) {
 }
 
 // =========================================================
-// Settings → Organization (profile, designated port, logo)
+// Settings → Organization (profile, operating ports, logo)
 // =========================================================
 function OrganizationSection({ form, set, canEdit, toast }) {
+  const normalized = normalizeOrg(form);
   return (
     <div className="card card-pad" style={{ maxWidth: 640 }}>
       <div className="card-title">Organization</div>
       <p className="muted" style={{ fontSize: 13, margin: '6px 0 20px' }}>
-        The registered agency profile. The designated port and logo appear across the app and on invoices &amp; inspection reports.
+        The registered agency profile. Operating ports and logo appear across the app and on invoices &amp; inspection reports.
       </p>
       <fieldset disabled={!canEdit} style={{ border: 'none', padding: 0, margin: 0 }}>
         <Field label="Organization name" required>
@@ -226,10 +263,9 @@ function OrganizationSection({ form, set, canEdit, toast }) {
         </div>
         <Field label="Contact email"><input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} /></Field>
         <Field label="Address"><input type="text" value={form.address} onChange={(e) => set('address', e.target.value)} /></Field>
-        <Field label="Designated port" hint="The NPA port this organization operates at.">
-          <select value={form.designatedPort} onChange={(e) => set('designatedPort', e.target.value)}>
-            {NPA_PORTS.map((p) => <option key={p}>{p}</option>)}
-          </select>
+        <Field label="Operating ports" hint="Select every NPA port this organization can work from.">
+          <PortPicker ports={normalized.ports} primary={normalized.designatedPort} disabled={!canEdit}
+            onChange={(ports, primary) => { set('ports', ports); set('designatedPort', primary); }} />
         </Field>
       </fieldset>
       <div style={{ marginTop: 6 }}>
@@ -322,4 +358,4 @@ function TeamSection({ form, set, canEdit, currentUser, toast }) {
   );
 }
 
-Object.assign(window, { Onboarding, OrganizationSection, TeamSection, LogoUploader });
+Object.assign(window, { Onboarding, OrganizationSection, TeamSection, LogoUploader, PortPicker });

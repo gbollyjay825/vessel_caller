@@ -48,7 +48,7 @@ function Dashboard({ store }) {
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Dashboard</h1>
-          <p className="desc">What's happening at {store.org.designatedPort} right now.</p>
+          <p className="desc">What's happening across {store.portLabel} right now.</p>
         </div>
         <button className="btn btn-primary" disabled={!store.can('registerCall')}
           title={store.can('registerCall') ? undefined : 'Requires the Admin or Operations role'}
@@ -91,7 +91,7 @@ function Dashboard({ store }) {
             <div className="spotlight">
               <div className="sl-eyebrow"><Icon name="droplet" size={14} strokeWidth={2} /> PMS · Premium Motor Spirit</div>
               <div className="sl-num tnum">{fmtCompactMT(pms.tonnage)}<span className="sl-unit">MT</span></div>
-              <div className="sl-sub">{pmsPct}% of all cargo through {store.org.designatedPort || store.settings.portName} · last 12 months</div>
+              <div className="sl-sub">{pmsPct}% of all cargo across {store.portLabel} · last 12 months</div>
               <div className="sl-divide" />
               <div className="sl-row"><span className="l">Revenue from PMS</span><span className="v tnum">{fmtCompactUSD(pms.revenue)}</span></div>
               <div className="sl-spark"><MiniSpark values={pmsMonthly} color="#FFFFFF" w={260} h={42} /></div>
@@ -147,7 +147,7 @@ function pdfRecord(store, call) {
     cargoType: insp?.cargoType || '—', tonnage: insp ? String(insp.reconciledTonnage) : '0',
     dues: String(f?.dues || 0), duesRate: String(f?.rate || 0), commRate: String(store.settings.commissionRate),
     commUsd: String(f?.commissionUsd || 0), commNgn: String(f?.commissionNgn || 0),
-    fx: String(store.settings.exchangeRate), port: (store.org && store.org.designatedPort) || store.settings.portName,
+    fx: String(store.settings.exchangeRate), port: store.primaryPort || store.settings.portName,
     jettyType: jettyLabel, jettyName: jetty?.name || '',
     invStatus: inv ? effectiveInvoiceStatus(inv) : '',
     paidOn: inv?.payment?.paidOn || '', payRef: inv?.payment?.reference || '', payMethod: inv?.payment?.method || '',
@@ -195,7 +195,7 @@ function VesselCalls({ store }) {
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Vessel Calls</h1>
-          <p className="desc">Every incoming vessel call at {store.org.designatedPort || store.settings.portName}.</p>
+          <p className="desc">Every incoming vessel call across {store.portLabel}.</p>
         </div>
         <button className="btn btn-primary" disabled={!store.can('registerCall')}
           title={store.can('registerCall') ? undefined : 'Requires the Admin or Operations role'}
@@ -394,7 +394,7 @@ function VesselCallDetail({ store }) {
         </div>
       </div>
 
-      <TrackVessel call={call} portName={store.org.designatedPort || store.settings.portName} />
+      <TrackVessel call={call} portName={store.primaryPort || store.settings.portName} />
 
       <div className="card card-pad section-gap">
         <div className="card-title" style={{ marginBottom: 20 }}>Vessel particulars</div>

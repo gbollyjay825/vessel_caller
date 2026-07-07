@@ -29,7 +29,7 @@ function Analytics({ store }) {
   const callsSeries = series.map((d) => d.calls);
   const liqPct = (totals.liquidT / totals.throughput) * 100;
   const periodLabel = period === 12 ? 'Last 12 months' : `Last ${period} months`;
-  const portName = (store.org && store.org.designatedPort) || store.settings.portName;
+  const portName = store.portLabel || store.settings.portName;
 
   return (
     <div className={'content-inner' + (shown ? ' charts-in' : '')}>
@@ -114,7 +114,7 @@ function Analytics({ store }) {
         <div className="spotlight">
           <div className="sl-eyebrow"><Icon name="droplet" size={14} strokeWidth={2} /> PMS · Premium Motor Spirit</div>
           <div className="sl-num tnum">{fmtCompactMT(pms.tonnage)}<span className="sl-unit">MT discharged</span></div>
-          <div className="sl-sub">{(pms.tonnage / totals.throughput * 100).toFixed(0)}% of all cargo through {portName} · {periodLabel.toLowerCase()}</div>
+          <div className="sl-sub">{(pms.tonnage / totals.throughput * 100).toFixed(0)}% of all cargo across {portName} · {periodLabel.toLowerCase()}</div>
           <div className="sl-divide" />
           <div className="sl-row"><span className="l">Revenue from PMS</span><span className="v tnum">{fmtCompactUSD(pms.revenue)}</span></div>
           <div className="sl-spark"><MiniSpark values={series.map((d) => Math.round(d.liquidT * pms.share))} color="#FFFFFF" w={260} h={40} /></div>

@@ -1,4 +1,4 @@
-/* global SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, DEFAULT_SETTINGS, SEED_ORG */
+/* global SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, DEFAULT_SETTINGS, SEED_ORG, normalizeOrg */
 // ============================================================
 // api.jsx — the application wiring seam (backend client).
 //
@@ -41,6 +41,7 @@ async function bootPortData() {
       const state = await res.json();
       if (state && Array.isArray(state.calls)) {
         API_ON = true;
+        if (state.org) state.org = normalizeOrg(state.org);
         return state; // { rev, calls, inspections, invoices, settings }
       }
     }
@@ -58,6 +59,7 @@ function loadLocalData() {
       if (d && Array.isArray(d.calls) && Array.isArray(d.inspections) && Array.isArray(d.invoices) && d.settings) {
         // migrate stores saved before the organization feature
         if (!d.org) d.org = SEED_ORG;
+        d.org = normalizeOrg(d.org);
         return d;
       }
     }
@@ -67,7 +69,7 @@ function loadLocalData() {
     inspections: SEED_INSPECTIONS,
     invoices: SEED_INVOICES,
     settings: DEFAULT_SETTINGS,
-    org: SEED_ORG,
+    org: normalizeOrg(SEED_ORG),
   };
 }
 
@@ -111,6 +113,7 @@ async function apiUpdateSettings(settings) {
 }
 
 async function apiUpdateOrganization(org) {
+  org = normalizeOrg(org);
   if (API_ON) return apiFetch('/api/organization', { method: 'PUT', body: JSON.stringify(org) });
   return { org, rev: 0 };
 }

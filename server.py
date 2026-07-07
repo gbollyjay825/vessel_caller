@@ -115,6 +115,7 @@ SEED_ORG = {
     'registered': False,
     'name': '', 'rcNumber': '', 'email': '', 'phone': '', 'address': '',
     'designatedPort': 'Port of Calabar',
+    'ports': ['Port of Calabar'],
     'logo': None,
     'members': [],
 }
@@ -186,7 +187,7 @@ def full_state(con):
         'inspections': col_docs(con, 'inspections'),
         'invoices': col_docs(con, 'invoices'),
         'settings': json.loads(con.execute("SELECT v FROM meta WHERE k='settings'").fetchone()[0]),
-        'org': json.loads(org_row[0]) if org_row else SEED_ORG,
+        'org': normalize_org(json.loads(org_row[0]) if org_row else SEED_ORG),
     }
 
 
@@ -293,8 +294,29 @@ def save_settings(con, settings):
 
 def save_org(con, org):
     # upsert: databases created before the org feature lack the row
+    org = normalize_org(org)
     con.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('org', ?)", (json.dumps(org),))
     return bump_rev(con)
+
+
+def normalize_org(org):
+    base = dict(SEED_ORG)
+    if isinstance(org, dict):
+        base.update(org)
+    raw_ports = base.get('ports') if isinstance(base.get('ports'), list) else []
+    if not raw_ports:
+        raw_ports = [base.get('designatedPort') or 'Port of Calabar']
+    ports = []
+    for raw in raw_ports:
+        port = str(raw or '').strip()
+        if port and port not in ports:
+            ports.append(port)
+    if not ports:
+        ports = ['Port of Calabar']
+    designated = base.get('designatedPort') if base.get('designatedPort') in ports else ports[0]
+    base['ports'] = ports
+    base['designatedPort'] = designated
+    return base
 
 
 def update_invoice(con, invoice_id, patch):

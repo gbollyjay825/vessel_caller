@@ -218,6 +218,7 @@ const SEED_ORG = {
   registered: false,
   name: '', rcNumber: '', email: '', phone: '', address: '',
   designatedPort: 'Port of Calabar',
+  ports: ['Port of Calabar'],
   logo: null, // data-URL image set via Upload logo
   members: [],
 };
@@ -227,6 +228,7 @@ const DEMO_ORG_PROFILE = {
   email: 'ops@vesselcaller.ng', phone: '+234 901 122 3344',
   address: '14 Marina Road, Calabar, Cross River',
   designatedPort: 'Port of Calabar',
+  ports: ['Port of Calabar', 'Onne Port, Rivers'],
   logo: null,
   members: [
     { id: 'u-001', name: 'Etim Okon',      email: 'etim@vesselcaller.ng',   role: 'Admin' },
@@ -235,6 +237,33 @@ const DEMO_ORG_PROFILE = {
     { id: 'u-004', name: 'Ngozi Kalu',     email: 'ngozi@vesselcaller.ng',  role: 'Viewer' },
   ],
 };
+
+function uniquePorts(ports) {
+  const out = [];
+  (Array.isArray(ports) ? ports : []).forEach((p) => {
+    const port = String(p || '').trim();
+    if (port && out.indexOf(port) === -1) out.push(port);
+  });
+  return out;
+}
+function normalizeOrg(org) {
+  const base = { ...SEED_ORG, ...(org || {}) };
+  let ports = uniquePorts(base.ports);
+  if (!ports.length) ports = uniquePorts([base.designatedPort || NPA_PORTS[0]]);
+  const designatedPort = ports.indexOf(base.designatedPort) !== -1 ? base.designatedPort : ports[0];
+  return { ...base, ports, designatedPort };
+}
+function orgPorts(org) {
+  return normalizeOrg(org).ports;
+}
+function primaryOrgPort(org, fallback = 'Port of Calabar') {
+  return normalizeOrg(org).designatedPort || fallback;
+}
+function orgPortsLabel(org, fallback = 'Port of Calabar') {
+  const ports = orgPorts(org);
+  if (ports.length <= 1) return ports[0] || fallback;
+  return `${ports[0]} + ${ports.length - 1} more`;
+}
 
 // ---- Invoice payment tracking ----
 // Stored status is paid | unpaid; "overdue" is DERIVED from the due date so
@@ -248,7 +277,8 @@ function effectiveInvoiceStatus(inv) {
 
 Object.assign(window, {
   DEFAULT_SETTINGS, SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, VESSEL_TYPES, CURRENT_USER,
-  SEED_ORG, DEMO_ORG_PROFILE, NPA_PORTS, ROLES, PERMS, canUser, userInitials, effectiveInvoiceStatus,
+  SEED_ORG, DEMO_ORG_PROFILE, NPA_PORTS, ROLES, PERMS, canUser, userInitials,
+  normalizeOrg, orgPorts, primaryOrgPort, orgPortsLabel, effectiveInvoiceStatus,
   PORT, VOYAGES, bezierAt, haversineNm, bearing, fmtLatLon,
   calcDues, calcCommission, calcPreview, rateForInspection,
   fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, fmtDateTime,

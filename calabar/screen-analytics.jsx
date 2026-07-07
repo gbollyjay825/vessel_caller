@@ -29,13 +29,14 @@ function Analytics({ store }) {
   const callsSeries = series.map((d) => d.calls);
   const liqPct = (totals.liquidT / totals.throughput) * 100;
   const periodLabel = period === 12 ? 'Last 12 months' : `Last ${period} months`;
+  const portName = (store.org && store.org.designatedPort) || store.settings.portName;
 
   return (
     <div className={'content-inner' + (shown ? ' charts-in' : '')}>
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Analytics</h1>
-          <p className="desc">Cargo throughput and revenue across the Port of Calabar — petroleum (PMS, AGO, DPK) against dry &amp; bulk cargo.</p>
+          <p className="desc">Cargo throughput and revenue across {portName} — petroleum (PMS, AGO, DPK) against dry &amp; bulk cargo.</p>
         </div>
         <div className="seg" role="tablist" aria-label="Period">
           {[[3, '3M'], [6, '6M'], [12, '12M']].map(([k, l]) => (
@@ -113,7 +114,7 @@ function Analytics({ store }) {
         <div className="spotlight">
           <div className="sl-eyebrow"><Icon name="droplet" size={14} strokeWidth={2} /> PMS · Premium Motor Spirit</div>
           <div className="sl-num tnum">{fmtCompactMT(pms.tonnage)}<span className="sl-unit">MT discharged</span></div>
-          <div className="sl-sub">{(pms.tonnage / totals.throughput * 100).toFixed(0)}% of all cargo through Calabar · {periodLabel.toLowerCase()}</div>
+          <div className="sl-sub">{(pms.tonnage / totals.throughput * 100).toFixed(0)}% of all cargo through {portName} · {periodLabel.toLowerCase()}</div>
           <div className="sl-divide" />
           <div className="sl-row"><span className="l">Revenue from PMS</span><span className="v tnum">{fmtCompactUSD(pms.revenue)}</span></div>
           <div className="sl-spark"><MiniSpark values={series.map((d) => Math.round(d.liquidT * pms.share))} color="#FFFFFF" w={260} h={40} /></div>

@@ -1,8 +1,9 @@
-# Vessel Caller — Calabar Port Inspection
+# Vessel Caller — Port Inspection
 
 The **Vessel Caller** platform for managing maritime vessel calls and cargo
-inspections at the Port of Calabar — vessel registration, liquid/dry cargo
-inspections with jetty-based harbour dues, agency commission, invoices,
+inspections for a designated port — organization registration, logo branding,
+role-based access, vessel registration, liquid/dry cargo inspections with
+jetty-based harbour dues, agency commission, invoice/payment tracking,
 analytics, printable invoice/report documents, and a mobile quayside
 data-capture app.
 
@@ -42,6 +43,8 @@ server `rev` counter every 5 s — it works across devices and browsers).
 | `POST /api/vessel-calls` | Register a call (validates rotation-number uniqueness) |
 | `DELETE /api/vessel-calls/:id` | Cancel a call, cascading its inspections and invoices |
 | `POST /api/inspections` | Submit an inspection — the server numbers it and, when completed, marks the call completed and issues the next invoice |
+| `PUT /api/organization` | Save registered organization profile, designated port, logo, members and roles |
+| `PUT /api/invoices/:id` | Record or clear invoice payment status and audit details |
 | `PUT /api/settings` | Save charge rates / notifications / port profile |
 | `POST /api/reset` | Restore the demo seed data |
 
@@ -73,10 +76,11 @@ calabar/
   icons.jsx / ui.jsx        icon set + shared components
   charts.jsx                chart components
   shell.jsx / app.jsx       sidebar + topbar shell, root app + store
-  screens-ops.jsx           dashboard + vessel calls
+  screens-org.jsx           organization onboarding, logo upload, team roles
+  screens-ops.jsx           dashboard + vessel calls + invoice tracking
   screens-inspections.jsx   inspections + 3-step wizard
   screen-analytics.jsx      analytics
-  screens-settings.jsx      settings (charge rates, channels, port, data store)
+  screens-settings.jsx      settings (organization, team, rates, channels, port, data store)
   track-vessel.jsx          live voyage tracker
   pdf.html                  printable invoice/report template
 mobile/                     mobile app modules (ios-frame, mobile-app, css)

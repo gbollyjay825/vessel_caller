@@ -10,6 +10,8 @@ Serves the static frontend AND the REST API with SQLite persistence:
   POST   /api/inspections        submit an inspection; when completed the server
                                  marks the call completed and issues the invoice
                                  -> { inspection, invoice, call, rev }
+  PUT    /api/organization       save organization profile, port, logo and roles
+  PUT    /api/invoices/<id>      record / clear payment tracking details
   PUT    /api/settings           save charge/notification/port settings
   POST   /api/reset              wipe the database back to the demo seeds
 
@@ -99,11 +101,23 @@ SEED_INSPECTIONS = [
 ]
 
 SEED_INVOICES = [
-    {'id': 'iv-001', 'invoiceNo': 'INV-2026-0288', 'callId': 'vc-001', 'inspectionId': 'in-001', 'vesselName': 'MT Sea Eagle',    'callRef': 'ROT-2026-0438', 'status': 'paid',    'issued': '2026-06-02T14:10', 'due': '2026-06-09'},
-    {'id': 'iv-002', 'invoiceNo': 'INV-2026-0287', 'callId': 'vc-002', 'inspectionId': 'in-002', 'vesselName': 'MV Calabar Pride', 'callRef': 'ROT-2026-0437', 'status': 'unpaid',  'issued': '2026-06-01T18:30', 'due': '2026-06-08'},
-    {'id': 'iv-003', 'invoiceNo': 'INV-2026-0286', 'callId': 'vc-003', 'inspectionId': 'in-003', 'vesselName': 'MT Qua Iboe',      'callRef': 'ROT-2026-0436', 'status': 'paid',    'issued': '2026-05-31T10:20', 'due': '2026-06-07'},
-    {'id': 'iv-004', 'invoiceNo': 'INV-2026-0285', 'callId': 'vc-004', 'inspectionId': 'in-004', 'vesselName': 'MV Atlantic Dawn', 'callRef': 'ROT-2026-0435', 'status': 'overdue', 'issued': '2026-05-29T20:40', 'due': '2026-06-05'},
+    {'id': 'iv-001', 'invoiceNo': 'INV-2026-0288', 'callId': 'vc-001', 'inspectionId': 'in-001', 'vesselName': 'MT Sea Eagle',    'callRef': 'ROT-2026-0438', 'status': 'paid',   'issued': '2026-06-02T14:10', 'due': '2026-06-09',
+     'payment': {'paidOn': '2026-06-05', 'method': 'Bank transfer', 'reference': 'NPA-TRF-88213', 'recordedBy': 'Bassey Effiong'}},
+    {'id': 'iv-002', 'invoiceNo': 'INV-2026-0287', 'callId': 'vc-002', 'inspectionId': 'in-002', 'vesselName': 'MV Calabar Pride', 'callRef': 'ROT-2026-0437', 'status': 'unpaid', 'issued': '2026-06-01T18:30', 'due': '2026-07-15', 'payment': None},
+    {'id': 'iv-003', 'invoiceNo': 'INV-2026-0286', 'callId': 'vc-003', 'inspectionId': 'in-003', 'vesselName': 'MT Qua Iboe',      'callRef': 'ROT-2026-0436', 'status': 'paid',   'issued': '2026-05-31T10:20', 'due': '2026-06-07',
+     'payment': {'paidOn': '2026-06-02', 'method': 'Bank transfer', 'reference': 'NPA-TRF-88102', 'recordedBy': 'Bassey Effiong'}},
+    {'id': 'iv-004', 'invoiceNo': 'INV-2026-0285', 'callId': 'vc-004', 'inspectionId': 'in-004', 'vesselName': 'MV Atlantic Dawn', 'callRef': 'ROT-2026-0435', 'status': 'unpaid', 'issued': '2026-05-29T20:40', 'due': '2026-06-05', 'payment': None},
 ]
+
+# Organization profile — fresh installs run the Register Organization
+# onboarding in the frontend (registered: False).
+SEED_ORG = {
+    'registered': False,
+    'name': '', 'rcNumber': '', 'email': '', 'phone': '', 'address': '',
+    'designatedPort': 'Port of Calabar',
+    'logo': None,
+    'members': [],
+}
 
 
 # ------------------------------------------------------------------
@@ -136,6 +150,7 @@ def seed(con):
     for inv in reversed(SEED_INVOICES):
         con.execute("INSERT INTO docs (col, id, data) VALUES ('invoices', ?, ?)", (inv['id'], json.dumps(inv)))
     con.execute("INSERT INTO meta (k, v) VALUES ('settings', ?)", (json.dumps(SEED_SETTINGS),))
+    con.execute("INSERT INTO meta (k, v) VALUES ('org', ?)", (json.dumps(SEED_ORG),))
     con.execute("INSERT INTO meta (k, v) VALUES ('rev', '1')")
 
 
@@ -164,12 +179,14 @@ def put_doc(con, col, doc):
 
 
 def full_state(con):
+    org_row = con.execute("SELECT v FROM meta WHERE k='org'").fetchone()
     return {
         'rev': get_rev(con),
         'calls': col_docs(con, 'calls'),
         'inspections': col_docs(con, 'inspections'),
         'invoices': col_docs(con, 'invoices'),
         'settings': json.loads(con.execute("SELECT v FROM meta WHERE k='settings'").fetchone()[0]),
+        'org': json.loads(org_row[0]) if org_row else SEED_ORG,
     }
 
 
@@ -274,6 +291,28 @@ def save_settings(con, settings):
     return bump_rev(con)
 
 
+def save_org(con, org):
+    # upsert: databases created before the org feature lack the row
+    con.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('org', ?)", (json.dumps(org),))
+    return bump_rev(con)
+
+
+def update_invoice(con, invoice_id, patch):
+    """Payment tracking: merge {status, payment} into an invoice."""
+    inv = get_doc(con, 'invoices', invoice_id)
+    if inv is None:
+        raise ValueError('Unknown invoice')
+    if 'status' in patch:
+        if patch['status'] not in ('paid', 'unpaid'):
+            raise ValueError('status must be paid or unpaid')
+        inv['status'] = patch['status']
+    if 'payment' in patch:
+        inv['payment'] = patch['payment']
+    put_doc(con, 'invoices', inv)
+    rev = bump_rev(con)
+    return inv, rev
+
+
 # ------------------------------------------------------------------
 # HTTP layer — /api/* routed here, everything else served statically
 # ------------------------------------------------------------------
@@ -365,6 +404,22 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({'error': 'Invalid JSON'}, 400)
             rev = self.with_db(lambda con: save_settings(con, data))
             return self.send_json({'settings': data, 'rev': rev})
+        if url.path == '/api/organization':
+            data = self.read_json()
+            if not isinstance(data, dict):
+                return self.send_json({'error': 'Invalid JSON'}, 400)
+            rev = self.with_db(lambda con: save_org(con, data))
+            return self.send_json({'org': data, 'rev': rev})
+        if url.path.startswith('/api/invoices/'):
+            data = self.read_json()
+            if not isinstance(data, dict):
+                return self.send_json({'error': 'Invalid JSON'}, 400)
+            invoice_id = url.path.rsplit('/', 1)[1]
+            try:
+                inv, rev = self.with_db(lambda con: update_invoice(con, invoice_id, data))
+                return self.send_json({'invoice': inv, 'rev': rev})
+            except ValueError as e:
+                return self.send_json({'error': str(e)}, 400)
         return self.send_json({'error': 'Not found'}, 404)
 
     def do_DELETE(self):

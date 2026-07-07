@@ -1,4 +1,4 @@
-/* global SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, DEFAULT_SETTINGS */
+/* global SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, DEFAULT_SETTINGS, SEED_ORG */
 // ============================================================
 // api.jsx — the application wiring seam (backend client).
 //
@@ -56,6 +56,8 @@ function loadLocalData() {
     if (raw) {
       const d = JSON.parse(raw);
       if (d && Array.isArray(d.calls) && Array.isArray(d.inspections) && Array.isArray(d.invoices) && d.settings) {
+        // migrate stores saved before the organization feature
+        if (!d.org) d.org = SEED_ORG;
         return d;
       }
     }
@@ -65,6 +67,7 @@ function loadLocalData() {
     inspections: SEED_INSPECTIONS,
     invoices: SEED_INVOICES,
     settings: DEFAULT_SETTINGS,
+    org: SEED_ORG,
   };
 }
 
@@ -105,6 +108,20 @@ async function apiDeleteCall(callId) {
 async function apiUpdateSettings(settings) {
   if (API_ON) return apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(settings) });
   return { settings, rev: 0 };
+}
+
+async function apiUpdateOrganization(org) {
+  if (API_ON) return apiFetch('/api/organization', { method: 'PUT', body: JSON.stringify(org) });
+  return { org, rev: 0 };
+}
+
+/** Payment tracking: patch = { status, payment } -> { invoice, rev } */
+async function apiUpdateInvoice(state, invoiceId, patch) {
+  if (API_ON) return apiFetch('/api/invoices/' + encodeURIComponent(invoiceId), { method: 'PUT', body: JSON.stringify(patch) });
+  const current = state.invoices.find((v) => v.id === invoiceId);
+  if (!current) throw new Error('Unknown invoice');
+  const invoice = { ...current, ...('status' in patch ? { status: patch.status } : {}), ...('payment' in patch ? { payment: patch.payment } : {}) };
+  return { invoice, rev: 0 };
 }
 
 async function apiResetData() {
@@ -185,4 +202,5 @@ function applyInspection(state, data) {
 Object.assign(window, {
   PORT_STORE_KEY, apiActive, bootPortData, savePortData, applyInspection,
   apiCreateCall, apiCreateInspection, apiDeleteCall, apiUpdateSettings, apiResetData, fetchStateIfChanged,
+  apiUpdateOrganization, apiUpdateInvoice,
 });

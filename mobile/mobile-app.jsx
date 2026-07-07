@@ -106,9 +106,9 @@ function MobileMain({ boot }) {
           ) : (
             <div className="mob-app">
               <div className="mob-body">
-                {tab === 'tasks' && <TasksTab awaiting={awaiting} pendingSync={pendingSync} onStart={(id) => setCapture({ callId: id })} />}
+                {tab === 'tasks' && <TasksTab awaiting={awaiting} pendingSync={pendingSync} port={(data.org && data.org.designatedPort) || 'Port of Calabar'} onStart={(id) => setCapture({ callId: id })} />}
                 {tab === 'captured' && <CapturedTab captured={captured} calls={calls} />}
-                {tab === 'account' && <AccountTab pendingSync={pendingSync} />}
+                {tab === 'account' && <AccountTab pendingSync={pendingSync} port={(data.org && data.org.designatedPort) || 'Port of Calabar'} />}
               </div>
               <TabBar tab={tab} setTab={setTab} badge={pendingSync} />
             </div>
@@ -122,7 +122,7 @@ function MobileMain({ boot }) {
 // =========================================================
 // Tasks
 // =========================================================
-function TasksTab({ awaiting, pendingSync, onStart }) {
+function TasksTab({ awaiting, pendingSync, port, onStart }) {
   const ready = awaiting.filter((c) => c.status === 'in-progress');
   const upcoming = awaiting.filter((c) => c.status === 'pending');
   return (
@@ -130,7 +130,7 @@ function TasksTab({ awaiting, pendingSync, onStart }) {
       <div className="mob-head">
         <div className="row">
           <div>
-            <div className="eyebrow">Port of Calabar</div>
+            <div className="eyebrow">{port}</div>
             <h1>Inspections</h1>
           </div>
           <span className={'sync-chip ' + (pendingSync ? 'pending' : '')}>
@@ -400,16 +400,16 @@ function CapturedTab({ captured, calls }) {
 // =========================================================
 // Account
 // =========================================================
-function AccountTab({ pendingSync }) {
+function AccountTab({ pendingSync, port }) {
   return (
     <>
       <div className="mob-head"><h1>Account</h1></div>
       <div className="acct-profile">
         <div className="ap-av">{CURRENT_USER.initials}</div>
-        <div><div className="ap-name">{CURRENT_USER.name}</div><div className="ap-role">{CURRENT_USER.role} · Calabar</div></div>
+        <div><div className="ap-name">{CURRENT_USER.name}</div><div className="ap-role">{CURRENT_USER.role} · {port}</div></div>
       </div>
       <div className="acct-list">
-        <div className="acct-row"><div className="ar-ic"><Icon name="anchor" size={17} strokeWidth={2} /></div> Port<span className="ar-detail">Port of Calabar</span></div>
+        <div className="acct-row"><div className="ar-ic"><Icon name="anchor" size={17} strokeWidth={2} /></div> Port<span className="ar-detail">{port}</span></div>
         <div className="acct-row"><div className="ar-ic"><Icon name="download" size={17} strokeWidth={2} /></div> Pending sync<span className="ar-detail">{pendingSync} item{pendingSync === 1 ? '' : 's'}</span></div>
         <div className="acct-row"><div className="ar-ic"><Icon name="gauge" size={17} strokeWidth={2} /></div> Units<span className="ar-detail">Metric (MT)</span></div>
       </div>

@@ -1,17 +1,24 @@
-/* global React, Icon, Field, fmtNum, apiResetData, apiActive */
+/* global React, Icon, Field, fmtNum, apiResetData, apiActive, OrganizationSection, TeamSection */
 const { useState: useStateSet, useEffect: useEffectSet } = React;
 
 function Settings({ store }) {
-  const [tab, setTab] = useStateSet('charges');
+  const [tab, setTab] = useStateSet('organization');
   const [form, setForm] = useStateSet(() => JSON.parse(JSON.stringify(store.settings)));
   const [dirty, setDirty] = useStateSet(false);
+  const [orgForm, setOrgForm] = useStateSet(() => JSON.parse(JSON.stringify(store.org)));
+  const [orgDirty, setOrgDirty] = useStateSet(false);
   const [saving, setSaving] = useStateSet(false);
 
-  // Keep a clean form in step with settings saved elsewhere (another tab,
-  // the backend poll) so a stale snapshot can't silently revert newer rates.
+  const canEdit = store.can('manageSettings');
+
+  // Keep clean forms in step with data saved elsewhere (another tab, the
+  // backend poll) so a stale snapshot can't silently revert newer values.
   useEffectSet(() => {
     if (!dirty) setForm(JSON.parse(JSON.stringify(store.settings)));
   }, [store.settings, dirty]);
+  useEffectSet(() => {
+    if (!orgDirty) setOrgForm(JSON.parse(JSON.stringify(store.org)));
+  }, [store.org, orgDirty]);
 
   const set = (path, val) => {
     setForm((f) => {
@@ -25,11 +32,18 @@ function Settings({ store }) {
     setDirty(true);
   };
 
+  const setOrgField = (key, val) => {
+    setOrgForm((o) => ({ ...o, [key]: val }));
+    setOrgDirty(true);
+  };
+
+  const anyDirty = dirty || orgDirty;
+
   const save = async () => {
     setSaving(true);
     try {
-      await store.updateSettings(form);
-      setDirty(false);
+      if (dirty) { await store.updateSettings(form); setDirty(false); }
+      if (orgDirty) { await store.updateOrganization(orgForm); setOrgDirty(false); }
       store.toast('Settings saved', 'success');
     } catch (e) {
       store.toast(e.message || 'Could not save settings', 'error');
@@ -38,7 +52,13 @@ function Settings({ store }) {
     }
   };
 
-  const TABS = [['charges', 'Charge configuration'], ['notifications', 'Notifications'], ['port', 'Port profile']];
+  const TABS = [
+    ['organization', 'Organization'],
+    ['team', 'Team & roles'],
+    ['charges', 'Charge configuration'],
+    ['notifications', 'Notifications'],
+    ['port', 'Port profile'],
+  ];
 
   return (
     <div className="content-inner">
@@ -48,8 +68,25 @@ function Settings({ store }) {
         {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
       </div>
 
+      {!canEdit && (
+        <div className="muted" style={{ fontSize: 13, margin: '-8px 0 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="info" size={14} strokeWidth={2} /> You are signed in as {store.currentUser ? `${store.currentUser.name} (${store.currentUser.role})` : 'a guest'} — settings are read-only. Only Admins can make changes.
+        </div>
+      )}
+
+      {/* ---------- Organization ---------- */}
+      {tab === 'organization' && (
+        <OrganizationSection form={orgForm} set={setOrgField} canEdit={canEdit} toast={store.toast} />
+      )}
+
+      {/* ---------- Team & roles ---------- */}
+      {tab === 'team' && (
+        <TeamSection form={orgForm} set={setOrgField} canEdit={canEdit && store.can('manageTeam')} currentUser={store.currentUser} toast={store.toast} />
+      )}
+
       {/* ---------- Charge configuration ---------- */}
       {tab === 'charges' && (
+        <fieldset disabled={!canEdit} style={{ border: 'none', padding: 0, margin: 0 }}>
         <div className="card card-pad" style={{ maxWidth: 640 }}>
           <div className="card-title">Charge configuration</div>
           <p className="muted" style={{ fontSize: 13, margin: '6px 0 24px' }}>Changes affect future calculations only. Existing invoices keep the rate they were issued under.</p>
@@ -84,10 +121,12 @@ function Settings({ store }) {
             </div>
           </div>
         </div>
+        </fieldset>
       )}
 
       {/* ---------- Notifications ---------- */}
       {tab === 'notifications' && (
+        <fieldset disabled={!canEdit} style={{ border: 'none', padding: 0, margin: 0 }}>
         <div style={{ maxWidth: 640, display: 'flex', flexDirection: 'column', gap: 24 }}>
           <div className="card card-pad">
             <div className="flex between items-center" style={{ marginBottom: 4 }}>
@@ -115,16 +154,21 @@ function Settings({ store }) {
             <button className="btn btn-secondary btn-sm" onClick={() => store.toast(form.sms.connected ? 'Test SMS sent' : 'Connect Twilio before sending a test', form.sms.connected ? 'success' : 'error')}><Icon name="send" size={15} strokeWidth={2} /> Send test</button>
           </div>
         </div>
+        </fieldset>
       )}
 
       {/* ---------- Port profile ---------- */}
       {tab === 'port' && (
         <div className="card card-pad" style={{ maxWidth: 640 }}>
           <div className="card-title" style={{ marginBottom: 20 }}>Port profile</div>
-          <Field label="Port name"><input type="text" value={form.portName} onChange={(e) => set('portName', e.target.value)} /></Field>
+          <p className="muted" style={{ fontSize: 13, margin: '-8px 0 18px' }}>
+            The designated port is set on the <button className="link-btn" onClick={() => setTab('organization')}>Organization</button> tab — currently <strong>{store.org.designatedPort}</strong>.
+          </p>
+          <fieldset disabled={!canEdit} style={{ border: 'none', padding: 0, margin: 0 }}>
           <Field label="Default terminals" hint="One per line. Offered when registering a vessel call.">
             <textarea style={{ minHeight: 120 }} value={form.terminals.join('\n')} onChange={(e) => set('terminals', e.target.value.split('\n'))} />
           </Field>
+          </fieldset>
           <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--hairline)' }}>
             <div className="card-title" style={{ fontSize: 14 }}>Data store</div>
             <p className="muted" style={{ fontSize: 13, margin: '6px 0 12px' }}>
@@ -146,10 +190,11 @@ function Settings({ store }) {
       )}
 
       <div className="save-bar">
-        <span className="unsaved">{dirty ? <><Icon name="alert" size={14} strokeWidth={2} /> You have unsaved changes</> : <span className="muted">All changes saved</span>}</span>
+        <span className="unsaved">{anyDirty ? <><Icon name="alert" size={14} strokeWidth={2} /> You have unsaved changes</> : <span className="muted">All changes saved</span>}</span>
         <div className="flex gap-3">
-          <button className="btn btn-secondary" disabled={!dirty || saving} onClick={() => { setForm(JSON.parse(JSON.stringify(store.settings))); setDirty(false); }}>Discard</button>
-          <button className="btn btn-primary" disabled={!dirty || saving} onClick={save}>{saving ? <><Icon name="spinner" size={16} className="spin" strokeWidth={2} /> Saving…</> : 'Save changes'}</button>
+          <button className="btn btn-secondary" disabled={!anyDirty || saving}
+            onClick={() => { setForm(JSON.parse(JSON.stringify(store.settings))); setDirty(false); setOrgForm(JSON.parse(JSON.stringify(store.org))); setOrgDirty(false); }}>Discard</button>
+          <button className="btn btn-primary" disabled={!anyDirty || saving || !canEdit} onClick={save}>{saving ? <><Icon name="spinner" size={16} className="spin" strokeWidth={2} /> Saving…</> : 'Save changes'}</button>
         </div>
       </div>
     </div>

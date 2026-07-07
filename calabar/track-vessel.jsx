@@ -18,9 +18,10 @@ function routePoints(o, d, n = 60) {
 }
 function pathFrom(pts) { return 'M' + pts.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' L'); }
 
-function TrackVessel({ call }) {
+function TrackVessel({ call, portName }) {
   const voyage = VOYAGES[call.id];
   const dest = PORT.calabar;
+  const destLabel = portName || dest.name.split(',')[0];
   const origin = voyage ? PORT[voyage.origin] : null;
 
   // live jitter — nudges progress + refreshes "last report"
@@ -49,7 +50,7 @@ function TrackVessel({ call }) {
     return (
       <div className="card card-pad section-gap">
         <div className="card-title" style={{ marginBottom: 6 }}>Live position</div>
-        <p className="muted" style={{ fontSize: 13 }}>No AIS track is available for this vessel yet. Tracking begins once the vessel reports a position en route to Calabar.</p>
+        <p className="muted" style={{ fontSize: 13 }}>No AIS track is available for this vessel yet. Tracking begins once the vessel reports a position en route to {destLabel}.</p>
       </div>
     );
   }
@@ -86,7 +87,7 @@ function TrackVessel({ call }) {
       <div className="track-grid">
         {/* ---- chart ---- */}
         <div className="track-map">
-          <svg viewBox={`0 0 ${MAPW} ${MAPH}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label={`Chart showing ${call.vesselName} en route to Calabar`}>
+          <svg viewBox={`0 0 ${MAPW} ${MAPH}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label={`Chart showing ${call.vesselName} en route to ${destLabel}`}>
             <defs>
               <radialGradient id="seaGrad" cx="62%" cy="78%" r="80%">
                 <stop offset="0%" stopColor="#EAF2FB" />
@@ -119,11 +120,11 @@ function TrackVessel({ call }) {
               <circle cx={ox} cy={oy} r="6" fill="#fff" stroke="#5F6B7A" strokeWidth="2" />
               <text x={ox} y={oy + 20} fontSize="11.5" fontWeight="600" fill="#41506180" textAnchor="middle" style={{ fill: '#415061' }}>{origin.name.split(',')[0]}</text>
             </g>
-            {/* destination — Calabar */}
+            {/* destination */}
             <g>
               <circle cx={dx} cy={dy} r="11" fill="#1B5FAA" opacity="0.14" />
               <circle cx={dx} cy={dy} r="5.5" fill="#1B5FAA" stroke="#fff" strokeWidth="2" />
-              <text x={dx} y={dy - 14} fontSize="12" fontWeight="700" fill="#16191D" textAnchor="middle">Calabar ⚓</text>
+              <text x={dx} y={dy - 14} fontSize="12" fontWeight="700" fill="#16191D" textAnchor="middle">{destLabel}</text>
             </g>
 
             {/* vessel marker */}
@@ -147,7 +148,7 @@ function TrackVessel({ call }) {
           <div className="track-pos">
             <div className="tp-label"><Icon name="mapPin" size={13} strokeWidth={2} /> Current position</div>
             <div className="tp-coords tnum">{fll.lat} &nbsp; {fll.lon}</div>
-            <div className="tp-sub">{live.moored ? 'Alongside ' + (call.berth || 'berth') : `${fmtNum(live.toGo)} nm to Calabar`}</div>
+            <div className="tp-sub">{live.moored ? 'Alongside ' + (call.berth || 'berth') : `${fmtNum(live.toGo)} nm to ${destLabel}`}</div>
           </div>
 
           <div className="telem-grid">
@@ -160,7 +161,7 @@ function TrackVessel({ call }) {
           <div className="voyage-line">
             <div className="vl-pt"><span className="vl-dot o" /><div><div className="vl-name">{origin.name}</div><div className="vl-code">Departed · {origin.code}</div></div></div>
             <div className="vl-track"><div className="vl-fill" style={{ width: (live.prog * 100) + '%' }} /></div>
-            <div className="vl-pt"><span className="vl-dot d" /><div><div className="vl-name">{dest.name}</div><div className="vl-code">Destination · {dest.code}</div></div></div>
+            <div className="vl-pt"><span className="vl-dot d" /><div><div className="vl-name">{destLabel}</div><div className="vl-code">Destination · {dest.code}</div></div></div>
           </div>
 
           <div className="ais-meta">

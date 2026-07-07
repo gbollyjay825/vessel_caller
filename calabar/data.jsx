@@ -109,10 +109,12 @@ const SEED_INSPECTIONS = [
 // ---- Seed invoices ----
 // status: paid | unpaid | overdue
 const SEED_INVOICES = [
-  { id: 'iv-001', invoiceNo: 'INV-2026-0288', callId: 'vc-001', inspectionId: 'in-001', vesselName: 'MT Sea Eagle',    callRef: 'ROT-2026-0438', status: 'paid',    issued: '2026-06-02T14:10', due: '2026-06-09' },
-  { id: 'iv-002', invoiceNo: 'INV-2026-0287', callId: 'vc-002', inspectionId: 'in-002', vesselName: 'MV Calabar Pride', callRef: 'ROT-2026-0437', status: 'unpaid',  issued: '2026-06-01T18:30', due: '2026-06-08' },
-  { id: 'iv-003', invoiceNo: 'INV-2026-0286', callId: 'vc-003', inspectionId: 'in-003', vesselName: 'MT Qua Iboe',      callRef: 'ROT-2026-0436', status: 'paid',    issued: '2026-05-31T10:20', due: '2026-06-07' },
-  { id: 'iv-004', invoiceNo: 'INV-2026-0285', callId: 'vc-004', inspectionId: 'in-004', vesselName: 'MV Atlantic Dawn', callRef: 'ROT-2026-0435', status: 'overdue', issued: '2026-05-29T20:40', due: '2026-06-05' },
+  { id: 'iv-001', invoiceNo: 'INV-2026-0288', callId: 'vc-001', inspectionId: 'in-001', vesselName: 'MT Sea Eagle',    callRef: 'ROT-2026-0438', status: 'paid',   issued: '2026-06-02T14:10', due: '2026-06-09',
+    payment: { paidOn: '2026-06-05', method: 'Bank transfer', reference: 'NPA-TRF-88213', recordedBy: 'Bassey Effiong' } },
+  { id: 'iv-002', invoiceNo: 'INV-2026-0287', callId: 'vc-002', inspectionId: 'in-002', vesselName: 'MV Calabar Pride', callRef: 'ROT-2026-0437', status: 'unpaid', issued: '2026-06-01T18:30', due: '2026-07-15', payment: null },
+  { id: 'iv-003', invoiceNo: 'INV-2026-0286', callId: 'vc-003', inspectionId: 'in-003', vesselName: 'MT Qua Iboe',      callRef: 'ROT-2026-0436', status: 'paid',   issued: '2026-05-31T10:20', due: '2026-06-07',
+    payment: { paidOn: '2026-06-02', method: 'Bank transfer', reference: 'NPA-TRF-88102', recordedBy: 'Bassey Effiong' } },
+  { id: 'iv-004', invoiceNo: 'INV-2026-0285', callId: 'vc-004', inspectionId: 'in-004', vesselName: 'MV Atlantic Dawn', callRef: 'ROT-2026-0435', status: 'unpaid', issued: '2026-05-29T20:40', due: '2026-06-05', payment: null },
 ];
 
 const VESSEL_TYPES = ['Tanker', 'Bulk Carrier', 'Container', 'General Cargo', 'Other'];
@@ -181,8 +183,72 @@ function fmtLatLon(lon, lat) {
 
 const CURRENT_USER = { name: 'Etim Okon', role: 'Port Agent', initials: 'EO' };
 
+// ---- Organization, roles & permissions ----
+const NPA_PORTS = [
+  'Port of Calabar',
+  'Apapa Port, Lagos',
+  'Tin Can Island Port, Lagos',
+  'Onne Port, Rivers',
+  'Port Harcourt Port',
+  'Warri Port, Delta',
+];
+
+const ROLES = ['Admin', 'Operations', 'Finance', 'Viewer'];
+
+// action -> roles allowed. Viewer is read-only everywhere.
+const PERMS = {
+  registerCall:   ['Admin', 'Operations'],
+  cancelCall:     ['Admin', 'Operations'],
+  addInspection:  ['Admin', 'Operations'],
+  recordPayment:  ['Admin', 'Finance'],
+  manageSettings: ['Admin'],
+  manageTeam:     ['Admin'],
+};
+function canUser(user, action) {
+  const allowed = PERMS[action];
+  return !!(user && allowed && allowed.indexOf(user.role) !== -1);
+}
+function userInitials(name) {
+  return String(name || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0] || '').join('').toUpperCase() || '?';
+}
+
+// Fresh installs run the Register Organization onboarding (registered:false).
+// "Use demo organization" fills DEMO_ORG_PROFILE for quick walk-throughs.
+const SEED_ORG = {
+  registered: false,
+  name: '', rcNumber: '', email: '', phone: '', address: '',
+  designatedPort: 'Port of Calabar',
+  logo: null, // data-URL image set via Upload logo
+  members: [],
+};
+const DEMO_ORG_PROFILE = {
+  registered: true,
+  name: 'Vessel Caller Ltd', rcNumber: 'RC-482913',
+  email: 'ops@vesselcaller.ng', phone: '+234 901 122 3344',
+  address: '14 Marina Road, Calabar, Cross River',
+  designatedPort: 'Port of Calabar',
+  logo: null,
+  members: [
+    { id: 'u-001', name: 'Etim Okon',      email: 'etim@vesselcaller.ng',   role: 'Admin' },
+    { id: 'u-002', name: 'Adaeze Nwosu',   email: 'adaeze@vesselcaller.ng', role: 'Operations' },
+    { id: 'u-003', name: 'Bassey Effiong', email: 'bassey@vesselcaller.ng', role: 'Finance' },
+    { id: 'u-004', name: 'Ngozi Kalu',     email: 'ngozi@vesselcaller.ng',  role: 'Viewer' },
+  ],
+};
+
+// ---- Invoice payment tracking ----
+// Stored status is paid | unpaid; "overdue" is DERIVED from the due date so
+// tracking stays automatic. payment = {paidOn, method, reference, recordedBy}.
+function effectiveInvoiceStatus(inv) {
+  if (!inv) return 'unpaid';
+  if (inv.status === 'paid') return 'paid';
+  if (inv.due && new Date(inv.due + 'T23:59:59') < new Date()) return 'overdue';
+  return 'unpaid';
+}
+
 Object.assign(window, {
   DEFAULT_SETTINGS, SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, VESSEL_TYPES, CURRENT_USER,
+  SEED_ORG, DEMO_ORG_PROFILE, NPA_PORTS, ROLES, PERMS, canUser, userInitials, effectiveInvoiceStatus,
   PORT, VOYAGES, bezierAt, haversineNm, bearing, fmtLatLon,
   calcDues, calcCommission, calcPreview, rateForInspection,
   fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, fmtDateTime,

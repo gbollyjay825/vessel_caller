@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Calabar Port — Document</title>
+<title>Vessel Caller — Document</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
@@ -59,6 +59,7 @@
   .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:4px 11px;border-radius:999px;}
   .pill.unpaid{color:var(--warning);background:#FBF1DF;}
   .pill.paid{color:var(--success);background:#E7F4EC;}
+  .pill.overdue{color:var(--danger);background:#FBEAE7;}
   .note{margin-top:40px;padding:18px 20px;background:#F7F9FB;border:1px solid var(--hairline);border-radius:8px;font-size:12.5px;color:var(--slate);}
   .note .nh{font-weight:600;color:var(--ink);margin-bottom:5px;}
   .sign-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:56px;}
@@ -104,7 +105,7 @@
 
   const doc = g('doc','invoice');
   const isInvoice = doc === 'invoice';
-  document.title = 'Calabar Port — ' + (isInvoice ? 'Invoice ' + g('invoiceNo') : 'Inspection Report ' + g('callRef'));
+  document.title = g('port', 'Vessel Caller') + ' — ' + (isInvoice ? 'Invoice ' + g('invoiceNo') : 'Inspection Report ' + g('callRef'));
   document.getElementById('tb-title').textContent = isInvoice ? 'Tax Invoice · ' + g('invoiceNo') : 'Inspection Report · ' + g('callRef');
 
   const dues = num(g('dues')), fx = num(g('fx',1600));
@@ -114,8 +115,8 @@
   const head = `
     <div class="doc-head">
       <div class="brand">
-        <div class="mk"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/><circle cx="12" cy="5" r="3"/></svg></div>
-        <div><div class="nm">Calabar Port</div><div class="sub">${g('port','Port of Calabar')} · Vessel & Cargo Inspection</div></div>
+        <div class="mk" id="brand-mark"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/><circle cx="12" cy="5" r="3"/></svg></div>
+        <div><div class="nm" id="brand-name">Vessel Caller</div><div class="sub">${g('port','Port of Calabar')} · Vessel & Cargo Inspection</div></div>
       </div>
       <div class="doc-type">
         <div class="label">${isInvoice ? 'Tax Invoice' : 'Inspection Report'}</div>
@@ -134,8 +135,10 @@
       </div>
       <div class="meta-block" style="text-align:right">
         <div class="h">Payment</div>
-        <div class="kvline"><span class="k">Status</span><span class="val"><span class="pill unpaid">Unpaid</span></span></div>
+        <div class="kvline"><span class="k">Status</span><span class="val"><span class="pill ${g('invStatus','unpaid')}">${{paid:'Paid',unpaid:'Unpaid',overdue:'Overdue'}[g('invStatus','unpaid')] || 'Unpaid'}</span></span></div>
         <div class="kvline"><span class="k">Due date</span><span class="val">${fmtDate(g('dueDate'))}</span></div>
+        ${g('invStatus') === 'paid' ? `<div class="kvline"><span class="k">Paid on</span><span class="val">${fmtDate(g('paidOn'))}</span></div>
+        <div class="kvline"><span class="k">Payment ref</span><span class="val">${g('payRef')}</span></div>` : ''}
         <div class="kvline"><span class="k">Exchange rate</span><span class="val">₦${nf(fx)} / USD</span></div>
       </div>
     </div>
@@ -163,9 +166,9 @@
     </div>
     <div class="note">
       <div class="nh">Payment instructions</div>
-      Remit to Nigerian Ports Authority — Calabar, within 7 days of issue. Quote invoice number ${g('invoiceNo')} and rotation number ${g('callRef')} on all transfers. Harbour dues are computed from the vessel's net tonnage and the applicable jetty / cargo dues rate.
+      Remit to Nigerian Ports Authority — ${g('port','Port of Calabar')}, within 7 days of issue. Quote invoice number ${g('invoiceNo')} and rotation number ${g('callRef')} on all transfers. Harbour dues are computed from the vessel's net tonnage and the applicable jetty / cargo dues rate.
     </div>
-    <div class="foot"><span>Calabar Port Vessel & Cargo Inspection Platform</span><span>${g('invoiceNo')} · Page 1 of 1</span></div>`;
+    <div class="foot"><span>${g('port','Port of Calabar')} Vessel & Cargo Inspection Platform</span><span>${g('invoiceNo')} · Page 1 of 1</span></div>`;
   } else {
     body = `
     <div class="meta-grid">
@@ -209,13 +212,44 @@
     </div>
 
     <div class="sign-grid">
-      <div class="sign"><div class="line"><span class="role">Marine Surveyor</span><br/>Calabar Port Inspection</div></div>
+      <div class="sign"><div class="line"><span class="role">Marine Surveyor</span><br/>${g('port','Port of Calabar')} Inspection</div></div>
       <div class="sign"><div class="line"><span class="role">Master / Chief Officer</span><br/>${g('vessel')}</div></div>
     </div>
-    <div class="foot"><span>Calabar Port Vessel & Cargo Inspection Platform</span><span>${g('callRef')} · Page 1 of 1</span></div>`;
+    <div class="foot"><span>${g('port','Port of Calabar')} Vessel & Cargo Inspection Platform</span><span>${g('callRef')} · Page 1 of 1</span></div>`;
   }
 
   document.getElementById('page').innerHTML = head + body;
+
+  // ---- Organization branding (logo + name) ----
+  // Pulled from the app's data store rather than the query string (data-URL
+  // logos are too large for URLs): backend first, localStorage fallback.
+  (async () => {
+    let org = null;
+    try {
+      const res = await fetch('/api/state');
+      if (res.ok) { const s = await res.json(); org = s.org || null; }
+    } catch (e) { /* no backend */ }
+    if (!org) {
+      try {
+        const raw = localStorage.getItem('vessel-caller:v1');
+        if (raw) org = (JSON.parse(raw) || {}).org || null;
+      } catch (e) { /* ignore */ }
+    }
+    if (!org || !org.registered) return;
+    const nameEl = document.getElementById('brand-name');
+    if (nameEl && org.name) nameEl.textContent = org.name;
+    const mk = document.getElementById('brand-mark');
+    if (mk && org.logo) {
+      mk.style.background = '#fff';
+      mk.style.border = '1px solid var(--hairline)';
+      mk.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = org.logo;
+      img.alt = (org.name || 'Organization') + ' logo';
+      img.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+      mk.appendChild(img);
+    }
+  })();
 </script>
 </body>
 </html>

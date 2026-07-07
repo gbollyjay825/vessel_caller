@@ -1,4 +1,4 @@
-/* global React, ReactDOM, Sidebar, TopBar, ToastHost, Dashboard, VesselCalls, VesselCallDetail, Inspections, NewInspection, Invoices, Settings, Analytics, calcDues, calcCommission, rateForInspection, PORT_STORE_KEY, apiActive, bootPortData, savePortData, applyInspection, apiCreateCall, apiCreateInspection, apiDeleteCall, apiUpdateSettings, fetchStateIfChanged */
+/* global React, ReactDOM, Sidebar, TopBar, ToastHost, Dashboard, VesselCalls, VesselCallDetail, Inspections, NewInspection, Invoices, Settings, Analytics, Onboarding, calcDues, calcCommission, rateForInspection, PORT_STORE_KEY, apiActive, bootPortData, savePortData, applyInspection, apiCreateCall, apiCreateInspection, apiDeleteCall, apiUpdateSettings, apiUpdateOrganization, apiUpdateInvoice, fetchStateIfChanged, canUser, SEED_ORG */
 const { useState: useStateApp, useCallback: useCallbackApp, useEffect: useEffectApp, useRef: useRefApp } = React;
 
 // ---- Boot: probe the Python backend, fall back to localStorage ----
@@ -7,7 +7,7 @@ function App() {
   useEffectApp(() => { bootPortData().then(setBoot); }, []);
   if (!boot) {
     return (
-      <div className="app" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', color: 'var(--slate)', fontSize: 14 }}>
+      <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', color: 'var(--slate)', fontSize: 14 }}>
         Loading port data…
       </div>
     );
@@ -20,20 +20,40 @@ const TITLES = {
   inspections: 'Inspections', 'new-inspection': 'New Inspection', invoices: 'Invoices', analytics: 'Analytics', settings: 'Settings',
 };
 
+const USER_KEY = 'vessel-caller:user'; // per-device signed-in member
+
 function PortApp({ boot }) {
   const [route, setRoute] = useStateApp({ screen: 'dashboard', params: {} });
   const [calls, setCalls] = useStateApp(boot.calls);
   const [inspections, setInspections] = useStateApp(boot.inspections);
   const [invoices, setInvoices] = useStateApp(boot.invoices);
   const [settings, setSettings] = useStateApp(boot.settings);
+  const [org, setOrg] = useStateApp(boot.org || SEED_ORG);
   const [toasts, setToasts] = useStateApp([]);
   const [flashId, setFlashId] = useStateApp(null);
   const [mobileNav, setMobileNav] = useStateApp(false);
+  const [currentUserId, setCurrentUserId] = useStateApp(() => {
+    try { return localStorage.getItem(USER_KEY) || null; } catch (e) { return null; }
+  });
   const revRef = useRefApp(boot.rev || 0);
+
+  // Signed-in member: the persisted pick if still on the team, else the
+  // first Admin, else the first member.
+  const members = org.members || [];
+  const currentUser = members.find((m) => m.id === currentUserId)
+    || members.find((m) => m.role === 'Admin')
+    || members[0]
+    || null;
+  const setCurrentUser = useCallbackApp((id) => {
+    setCurrentUserId(id);
+    try { localStorage.setItem(USER_KEY, id); } catch (e) { /* noop */ }
+  }, []);
+  const can = useCallbackApp((action) => canUser(currentUser, action), [currentUser]);
 
   const applyServerState = useCallbackApp((d) => {
     revRef.current = d.rev || 0;
     setCalls(d.calls); setInspections(d.inspections); setInvoices(d.invoices); setSettings(d.settings);
+    if (d.org) setOrg(d.org);
   }, []);
 
   // Advance the poll cursor ONLY when the mutation's rev is contiguous.
@@ -46,8 +66,8 @@ function PortApp({ boot }) {
   // Fallback mode only: write-through persistence to localStorage
   // (in backend mode the server owns the data — savePortData no-ops)
   useEffectApp(() => {
-    savePortData({ calls, inspections, invoices, settings });
-  }, [calls, inspections, invoices, settings]);
+    savePortData({ calls, inspections, invoices, settings, org });
+  }, [calls, inspections, invoices, settings, org]);
 
   // Live sync. Backend mode: poll the server rev so captures from the
   // mobile app appear here across devices. Fallback: storage event.
@@ -65,6 +85,7 @@ function PortApp({ boot }) {
         const d = JSON.parse(e.newValue);
         if (!d || !Array.isArray(d.calls)) return;
         setCalls(d.calls); setInspections(d.inspections); setInvoices(d.invoices); setSettings(d.settings);
+        if (d.org) setOrg(d.org);
       } catch (err) { /* ignore malformed writes */ }
     };
     window.addEventListener('storage', onStorage);
@@ -103,21 +124,24 @@ function PortApp({ boot }) {
   }, [inspections, settings]);
 
   const addCall = useCallbackApp(async (data) => {
+    if (!can('registerCall')) throw new Error('Your role cannot register vessel calls');
     const res = await apiCreateCall(data); // POST /api/vessel-calls (or local)
     advanceRev(res.rev);
     setCalls((cs) => [res.call, ...cs]);
     return res.call.id;
-  }, [advanceRev]);
+  }, [advanceRev, can]);
 
   const deleteCall = useCallbackApp(async (id) => {
+    if (!can('cancelCall')) throw new Error('Your role cannot cancel vessel calls');
     const res = await apiDeleteCall(id); // DELETE /api/vessel-calls/:id (or local)
     advanceRev(res.rev);
     setCalls((cs) => cs.filter((c) => c.id !== id));
     setInspections((is) => is.filter((i) => i.callId !== id));
     setInvoices((iv) => iv.filter((v) => v.callId !== id));
-  }, [advanceRev]);
+  }, [advanceRev, can]);
 
   const addInspection = useCallbackApp(async (data) => {
+    if (!can('addInspection')) throw new Error('Your role cannot submit inspections');
     // POST /api/inspections — the server (or the local fallback engine)
     // numbers the inspection, completes the call and issues the invoice.
     const res = await apiCreateInspection({ calls, inspections, invoices, settings }, data);
@@ -126,19 +150,56 @@ function PortApp({ boot }) {
     if (res.call) setCalls((cs) => cs.map((c) => (c.id === res.call.id ? res.call : c)));
     if (res.invoice) setInvoices((iv) => [res.invoice, ...iv]);
     return { inspection: res.inspection, invoice: res.invoice, call: res.call };
-  }, [calls, inspections, invoices, settings, advanceRev]);
+  }, [calls, inspections, invoices, settings, advanceRev, can]);
 
   const updateSettings = useCallbackApp(async (s) => {
+    if (!can('manageSettings')) throw new Error('Only Admins can change settings');
     const res = await apiUpdateSettings(s); // PUT /api/settings (or local)
     advanceRev(res.rev);
     setSettings(s);
-  }, [advanceRev]);
+  }, [advanceRev, can]);
+
+  const updateOrganization = useCallbackApp(async (o) => {
+    // allowed unauthenticated ONLY while onboarding an unregistered org
+    if (org.registered && !can('manageSettings')) throw new Error('Only Admins can change the organization profile');
+    const res = await apiUpdateOrganization(o); // PUT /api/organization (or local)
+    advanceRev(res.rev);
+    setOrg(o);
+  }, [advanceRev, can, org.registered]);
+
+  // Payment tracking: record / clear a payment on an invoice
+  const updateInvoice = useCallbackApp(async (invoiceId, patch) => {
+    if (!can('recordPayment')) throw new Error('Your role cannot record payments');
+    const res = await apiUpdateInvoice({ invoices }, invoiceId, patch); // PUT /api/invoices/:id (or local)
+    advanceRev(res.rev);
+    setInvoices((iv) => iv.map((v) => (v.id === invoiceId ? res.invoice : v)));
+    return res.invoice;
+  }, [invoices, advanceRev, can]);
 
   const store = {
     route, navigate, calls, inspections, invoices, settings, flashId,
     toast, addCall, deleteCall, addInspection, updateSettings,
     financialsForCall, inspectionsForCall, invoiceForCall,
+    org, updateOrganization, updateInvoice,
+    currentUser, setCurrentUser, can,
   };
+
+  // ---- Onboarding gate: an unregistered organization sets up first ----
+  if (!org.registered) {
+    return (
+      <>
+        <Onboarding
+          onComplete={async (o, adminId) => {
+            await updateOrganization(o);
+            if (adminId) setCurrentUser(adminId);
+            toast(`${o.name} registered — welcome aboard`, 'success');
+          }}
+          toast={toast}
+        />
+        <ToastHost toasts={toasts} dismiss={dismissToast} />
+      </>
+    );
+  }
 
   let Screen;
   switch (route.screen) {
@@ -158,10 +219,11 @@ function PortApp({ boot }) {
 
   return (
     <div className="app">
-      <Sidebar active={navActive} navigate={navigate} mobileOpen={mobileNav} closeMobile={() => setMobileNav(false)} />
+      <Sidebar active={navActive} navigate={navigate} mobileOpen={mobileNav} closeMobile={() => setMobileNav(false)} org={org} currentUser={currentUser} />
       <div className={'drawer-backdrop-mobile ' + (mobileNav ? 'open' : '')} onClick={() => setMobileNav(false)} />
       <div className="main">
-        <TopBar title={TITLES[route.screen] || 'Calabar Port'} portName={settings.portName} onHamburger={() => setMobileNav(true)} />
+        <TopBar title={TITLES[route.screen] || 'Calabar Port'} portName={org.designatedPort || settings.portName}
+          onHamburger={() => setMobileNav(true)} org={org} currentUser={currentUser} setCurrentUser={setCurrentUser} />
         <main className="content scroll-host">
           {Screen}
         </main>

@@ -1,4 +1,4 @@
-/* global React, Icon, StatusBadge, CargoTag, Money, PdfButton, StatCard, DataTable, EmptyState, Drawer, ConfirmModal, Field, VESSEL_TYPES, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, fmtDateTime, calcDues, calcCommission */
+/* global React, Icon, StatusBadge, CargoTag, Money, PdfButton, StatCard, DataTable, EmptyState, Drawer, ConfirmModal, Field, VESSEL_TYPES, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, fmtDateTime, calcDues, calcCommission, effectiveInvoiceStatus */
 const { useState: useStateOps, useEffect: useEffectOps, useMemo, useRef: useRefOps } = React;
 
 // =========================================================
@@ -48,9 +48,11 @@ function Dashboard({ store }) {
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Dashboard</h1>
-          <p className="desc">What's happening at the Port of Calabar right now.</p>
+          <p className="desc">What's happening at {store.org.designatedPort} right now.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => store.navigate('vessel-calls', { register: true })}>
+        <button className="btn btn-primary" disabled={!store.can('registerCall')}
+          title={store.can('registerCall') ? undefined : 'Requires the Admin or Operations role'}
+          onClick={() => store.navigate('vessel-calls', { register: true })}>
           <Icon name="plus" size={17} strokeWidth={2.2} /> Register Vessel Call
         </button>
       </div>
@@ -89,7 +91,7 @@ function Dashboard({ store }) {
             <div className="spotlight">
               <div className="sl-eyebrow"><Icon name="droplet" size={14} strokeWidth={2} /> PMS · Premium Motor Spirit</div>
               <div className="sl-num tnum">{fmtCompactMT(pms.tonnage)}<span className="sl-unit">MT</span></div>
-              <div className="sl-sub">{pmsPct}% of all cargo through Calabar · last 12 months</div>
+              <div className="sl-sub">{pmsPct}% of all cargo through {store.org.designatedPort || store.settings.portName} · last 12 months</div>
               <div className="sl-divide" />
               <div className="sl-row"><span className="l">Revenue from PMS</span><span className="v tnum">{fmtCompactUSD(pms.revenue)}</span></div>
               <div className="sl-spark"><MiniSpark values={pmsMonthly} color="#FFFFFF" w={260} h={42} /></div>
@@ -145,8 +147,10 @@ function pdfRecord(store, call) {
     cargoType: insp?.cargoType || '—', tonnage: insp ? String(insp.reconciledTonnage) : '0',
     dues: String(f?.dues || 0), duesRate: String(f?.rate || 0), commRate: String(store.settings.commissionRate),
     commUsd: String(f?.commissionUsd || 0), commNgn: String(f?.commissionNgn || 0),
-    fx: String(store.settings.exchangeRate), port: store.settings.portName,
+    fx: String(store.settings.exchangeRate), port: (store.org && store.org.designatedPort) || store.settings.portName,
     jettyType: jettyLabel, jettyName: jetty?.name || '',
+    invStatus: inv ? effectiveInvoiceStatus(inv) : '',
+    paidOn: inv?.payment?.paidOn || '', payRef: inv?.payment?.reference || '', payMethod: inv?.payment?.method || '',
   };
 }
 
@@ -191,9 +195,11 @@ function VesselCalls({ store }) {
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Vessel Calls</h1>
-          <p className="desc">Every incoming vessel call at the Port of Calabar.</p>
+          <p className="desc">Every incoming vessel call at {store.org.designatedPort || store.settings.portName}.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setRegisterOpen(true)}>
+        <button className="btn btn-primary" disabled={!store.can('registerCall')}
+          title={store.can('registerCall') ? undefined : 'Requires the Admin or Operations role'}
+          onClick={() => setRegisterOpen(true)}>
           <Icon name="plus" size={17} strokeWidth={2.2} /> Register Vessel Call
         </button>
       </div>
@@ -375,16 +381,20 @@ function VesselCallDetail({ store }) {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-secondary btn-sm" onClick={() => store.navigate('new-inspection', { callId: call.id })}>
+          <button className="btn btn-secondary btn-sm" disabled={!store.can('addInspection')}
+            title={store.can('addInspection') ? undefined : 'Requires the Admin or Operations role'}
+            onClick={() => store.navigate('new-inspection', { callId: call.id })}>
             <Icon name="plus" size={16} strokeWidth={2.2} /> Add Inspection
           </button>
-          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setConfirmDel(true)}>
-            <Icon name="trash" size={16} /> Cancel call
-          </button>
+          {store.can('cancelCall') && (
+            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setConfirmDel(true)}>
+              <Icon name="trash" size={16} /> Cancel call
+            </button>
+          )}
         </div>
       </div>
 
-      <TrackVessel call={call} />
+      <TrackVessel call={call} portName={store.org.designatedPort || store.settings.portName} />
 
       <div className="card card-pad section-gap">
         <div className="card-title" style={{ marginBottom: 20 }}>Vessel particulars</div>
@@ -406,7 +416,9 @@ function VesselCallDetail({ store }) {
       <div className="card section-gap">
         <div className="card-head">
           <div className="card-title">Inspections on this call</div>
-          <button className="btn btn-secondary btn-sm" onClick={() => store.navigate('new-inspection', { callId: call.id })}>
+          <button className="btn btn-secondary btn-sm" disabled={!store.can('addInspection')}
+            title={store.can('addInspection') ? undefined : 'Requires the Admin or Operations role'}
+            onClick={() => store.navigate('new-inspection', { callId: call.id })}>
             <Icon name="plus" size={16} strokeWidth={2.2} /> Add Inspection
           </button>
         </div>
@@ -480,18 +492,33 @@ function Invoices({ store }) {
   const [statusFilter, setStatusFilter] = useStateOps('all');
   const [detail, setDetail] = useStateOps(null);
 
-  const rows = useMemo(() => {
+  const allRows = useMemo(() => {
     return store.invoices.map((iv) => {
       const call = store.calls.find((c) => c.id === iv.callId);
       const insp = store.inspections.find((i) => i.id === iv.inspectionId);
       const f = store.financialsForCall(call);
-      return { ...iv, call, cargoType: insp?.cargoType || null, dues: f?.dues || 0, rate: f?.rate || 0, commissionUsd: f?.commissionUsd || 0, commissionNgn: f?.commissionNgn || 0 };
-    }).filter((r) => {
-      if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+      return { ...iv, call, effective: effectiveInvoiceStatus(iv), cargoType: insp?.cargoType || null, dues: f?.dues || 0, rate: f?.rate || 0, commissionUsd: f?.commissionUsd || 0, commissionNgn: f?.commissionNgn || 0 };
+    }).sort((a, b) => new Date(b.issued) - new Date(a.issued));
+  }, [store.invoices, store.calls, store.inspections, store.settings]);
+
+  // Payment tracking summary across ALL invoices (unfiltered)
+  const tracking = useMemo(() => {
+    const t = { invoiced: 0, collected: 0, outstanding: 0, overdue: 0, overdueCount: 0 };
+    allRows.forEach((r) => {
+      t.invoiced += r.dues;
+      if (r.effective === 'paid') t.collected += r.dues;
+      else { t.outstanding += r.dues; if (r.effective === 'overdue') { t.overdue += r.dues; t.overdueCount += 1; } }
+    });
+    return t;
+  }, [allRows]);
+
+  const rows = useMemo(() => {
+    return allRows.filter((r) => {
+      if (statusFilter !== 'all' && r.effective !== statusFilter) return false;
       if (query) { const q = query.toLowerCase(); return r.invoiceNo.toLowerCase().includes(q) || r.vesselName.toLowerCase().includes(q); }
       return true;
-    }).sort((a, b) => new Date(b.issued) - new Date(a.issued));
-  }, [store.invoices, store.calls, query, statusFilter]);
+    });
+  }, [allRows, query, statusFilter]);
 
   const columns = [
     { key: 'invoiceNo', label: 'Invoice No.', sortable: true, render: (r) => <span className="cell-primary mono-ref" style={{ color: 'var(--ink)', fontWeight: 600 }}>{r.invoiceNo}</span> },
@@ -500,8 +527,8 @@ function Invoices({ store }) {
     { key: 'cargoType', label: 'Cargo', render: (r) => r.cargoType ? <CargoTag type={r.cargoType} /> : <span className="muted">—</span> },
     { key: 'dues', label: 'Amount (USD)', num: true, sortable: true, render: (r) => <span className="money tnum"><span className="usd">{fmtUSD(r.dues)}</span></span> },
     { key: 'commissionUsd', label: 'Commission', num: true, render: (r) => <span className="money tnum"><span className="usd">{fmtUSD(r.commissionUsd)}</span><span className="ngn">{fmtNGN(r.commissionNgn)}</span></span> },
-    { key: 'status', label: 'Status', sortable: true, render: (r) => <StatusBadge status={r.status} /> },
-    { key: 'issued', label: 'Issued', sortable: true, sortVal: (r) => r.issued, render: (r) => <span className="tnum muted">{fmtDate(r.issued)}</span> },
+    { key: 'status', label: 'Status', sortable: true, sortVal: (r) => r.effective, render: (r) => <StatusBadge status={r.effective} /> },
+    { key: 'due', label: 'Due', sortable: true, sortVal: (r) => r.due, render: (r) => <span className="tnum muted">{fmtDate(r.due)}</span> },
     { key: 'actions', label: '', num: true, render: (r) => (
       <div className="cell-actions">
         <PdfButton kind="invoice" record={pdfRecord(store, r.call)} />
@@ -516,8 +543,15 @@ function Invoices({ store }) {
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Invoices</h1>
-          <p className="desc">Harbour-dues invoices generated from completed inspections.</p>
+          <p className="desc">Harbour-dues invoices, payment tracking and receivables.</p>
         </div>
+      </div>
+
+      <div className="kpi-strip" style={{ marginBottom: 20 }}>
+        <StatCard label="Total Invoiced" value={fmtUSD(tracking.invoiced, 0).replace('$', '')} cur="$" sub={`${allRows.length} invoice${allRows.length === 1 ? '' : 's'}`} />
+        <StatCard label="Collected" value={fmtUSD(tracking.collected, 0).replace('$', '')} cur="$" sub="payments recorded" />
+        <StatCard label="Outstanding" value={fmtUSD(tracking.outstanding, 0).replace('$', '')} cur="$" sub="awaiting payment" />
+        <StatCard label="Overdue" value={fmtUSD(tracking.overdue, 0).replace('$', '')} cur="$" sub={`${tracking.overdueCount} past due date`} />
       </div>
 
       <div className="filter-bar">
@@ -539,7 +573,7 @@ function Invoices({ store }) {
             <div className="m-card" key={r.id} onClick={() => setDetail(r)}>
               <div className="mc-top">
                 <div><div className="mc-title">{r.vesselName}</div><div className="mc-sub mono-ref">{r.invoiceNo}{r.cargoType ? ' · ' + r.cargoType : ''}</div></div>
-                <StatusBadge status={r.status} />
+                <StatusBadge status={r.effective} />
               </div>
               <div className="mc-amt tnum">{fmtUSD(r.dues)}<span className="ngn">Commission {fmtUSD(r.commissionUsd)} · {fmtNGN(r.commissionNgn)}</span></div>
               <div className="mc-actions" onClick={(e) => e.stopPropagation()}>
@@ -559,6 +593,40 @@ function Invoices({ store }) {
 function InvoiceDetail({ store, row, onClose }) {
   const call = row.call;
   const rec = pdfRecord(store, call);
+  const effective = row.effective || effectiveInvoiceStatus(row);
+  const canPay = store.can('recordPayment');
+  const [pay, setPay] = useStateOps({ paidOn: new Date().toISOString().slice(0, 10), method: 'Bank transfer', reference: '' });
+  const [busy, setBusy] = useStateOps(false);
+
+  const recordPayment = async () => {
+    setBusy(true);
+    try {
+      await store.updateInvoice(row.id, {
+        status: 'paid',
+        payment: { ...pay, reference: pay.reference.trim(), recordedBy: store.currentUser ? store.currentUser.name : '—' },
+      });
+      store.toast(`${row.invoiceNo} marked as paid`, 'success');
+      onClose();
+    } catch (e) {
+      store.toast(e.message || 'Could not record the payment', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const markUnpaid = async () => {
+    setBusy(true);
+    try {
+      await store.updateInvoice(row.id, { status: 'unpaid', payment: null });
+      store.toast(`${row.invoiceNo} marked as unpaid`, 'info');
+      onClose();
+    } catch (e) {
+      store.toast(e.message || 'Could not update the invoice', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Drawer title={row.invoiceNo} sub={`${row.vesselName} · ${row.callRef}`} onClose={onClose}
       footer={<>
@@ -566,7 +634,7 @@ function InvoiceDetail({ store, row, onClose }) {
         <button className="btn btn-primary" onClick={() => openPdf('invoice', rec)}><Icon name="receipt" size={16} strokeWidth={2} /> Open invoice</button>
       </>}>
       <div className="flex between items-center" style={{ marginBottom: 20 }}>
-        <StatusBadge status={row.status} />
+        <StatusBadge status={effective} />
         <span className="muted" style={{ fontSize: 13 }}>Issued {fmtDate(row.issued)} · Due {fmtDate(row.due)}</span>
       </div>
       <div className="card-title" style={{ marginBottom: 14 }}>Line-item breakdown</div>
@@ -576,6 +644,50 @@ function InvoiceDetail({ store, row, onClose }) {
       <div className="fin-row"><div className="fl">NPA harbour dues</div><div className="fv tnum">{fmtUSD(row.dues)}</div></div>
       <div className="fin-row"><div className="fl">Agency commission<span className="basis">{store.settings.commissionRate}% · ₦{fmtNum(store.settings.exchangeRate)}/USD</span></div><div className="fv tnum">{fmtUSD(row.commissionUsd)} · {fmtNGN(row.commissionNgn)}</div></div>
       <div className="fin-total"><div className="fl">Invoice total</div><div className="fv tnum">{fmtUSD(row.dues)}<span className="ngn">{fmtNGN(row.dues * store.settings.exchangeRate)}</span></div></div>
+
+      {/* ---- Payment tracking ---- */}
+      <div className="card-title" style={{ margin: '26px 0 14px' }}>Payment</div>
+      {effective === 'paid' && row.payment ? (
+        <>
+          <div className="fin-row"><div className="fl">Paid on</div><div className="fv tnum">{fmtDate(row.payment.paidOn)}</div></div>
+          <div className="fin-row"><div className="fl">Method</div><div className="fv">{row.payment.method}</div></div>
+          <div className="fin-row"><div className="fl">Reference</div><div className="fv mono-ref" style={{ color: 'var(--ink)' }}>{row.payment.reference || '—'}</div></div>
+          <div className="fin-row"><div className="fl">Recorded by</div><div className="fv">{row.payment.recordedBy || '—'}</div></div>
+          {canPay && (
+            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', marginTop: 12 }} disabled={busy} onClick={markUnpaid}>
+              Mark as unpaid
+            </button>
+          )}
+        </>
+      ) : canPay ? (
+        <>
+          {effective === 'overdue' && (
+            <p className="muted" style={{ fontSize: 13, margin: '0 0 12px', color: 'var(--danger)' }}>
+              This invoice passed its due date ({fmtDate(row.due)}) without a recorded payment.
+            </p>
+          )}
+          <div className="field-row">
+            <Field label="Paid on">
+              <input type="date" value={pay.paidOn} onChange={(e) => setPay({ ...pay, paidOn: e.target.value })} />
+            </Field>
+            <Field label="Method">
+              <select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>
+                <option>Bank transfer</option><option>Cheque</option><option>Cash</option><option>Remita</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Payment reference" hint="Teller / transfer reference for the audit trail.">
+            <input type="text" value={pay.reference} placeholder="e.g. NPA-TRF-88214" onChange={(e) => setPay({ ...pay, reference: e.target.value })} />
+          </Field>
+          <button className="btn btn-primary" disabled={busy} onClick={recordPayment}>
+            {busy ? <><Icon name="spinner" size={16} className="spin" strokeWidth={2} /> Recording…</> : <><Icon name="check" size={16} strokeWidth={2.2} /> Record payment</>}
+          </button>
+        </>
+      ) : (
+        <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+          No payment recorded yet. Recording payments requires the Admin or Finance role.
+        </p>
+      )}
     </Drawer>
   );
 }

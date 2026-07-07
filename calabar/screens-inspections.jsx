@@ -52,7 +52,9 @@ function Inspections({ store }) {
           <h1 className="hide-sr">Inspections</h1>
           <p className="desc">Liquid and dry cargo inspections logged against vessel calls.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => store.navigate('new-inspection', {})}>
+        <button className="btn btn-primary" disabled={!store.can('addInspection')}
+          title={store.can('addInspection') ? undefined : 'Requires the Admin or Operations role'}
+          onClick={() => store.navigate('new-inspection', {})}>
           <Icon name="plus" size={17} strokeWidth={2.2} /> New Inspection
         </button>
       </div>

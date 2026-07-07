@@ -131,10 +131,10 @@ function NewInspection({ store }) {
     );
   }
 
-  const doSubmit = (asDraft) => {
+  const doSubmit = async (asDraft) => {
     setSubmitting(true);
-    setTimeout(() => {
-      const result = store.addInspection({
+    try {
+      const result = await store.addInspection({
         callId, cargoType, reconciledTonnage: asDraft ? 0 : reconciled,
         status: asDraft ? 'draft' : 'completed',
         liquid: cargoType === 'Liquid' ? liquid : undefined,
@@ -143,14 +143,17 @@ function NewInspection({ store }) {
           ? { type: liquid.jettyType, category: liquid.jettyType === 'Local' ? liquid.jettyCategory : null, name: liquid.jettyName.trim() }
           : null,
       });
-      setSubmitting(false);
       if (asDraft) {
         store.toast(`Draft inspection ${result.inspection.reference} saved`, 'info');
         store.navigate('inspections', { flash: result.inspection.id });
       } else {
         setSubmitted(result);
       }
-    }, 750);
+    } catch (e) {
+      store.toast(e.message || 'Could not submit the inspection', 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

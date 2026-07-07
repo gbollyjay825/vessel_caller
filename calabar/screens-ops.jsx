@@ -260,20 +260,23 @@ function RegisterCall({ store, onClose, lockedCallId }) {
     return Object.keys(e).length === 0;
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!validate()) return;
     setSubmitting(true);
-    setTimeout(() => {
-      const id = store.addCall({
+    try {
+      const id = await store.addCall({
         vesselName: form.vesselName.trim(), reference: form.reference.trim(), type: form.type,
         nrt: Number(form.nrt), eta: form.eta || new Date().toISOString().slice(0, 16),
         sailingEta: form.sailingEta || null, berth: form.berth, status: 'pending', notes: form.notes.trim(),
       });
       store.toast(`Vessel call ${form.reference.trim()} registered`, 'success');
-      setSubmitting(false);
       onClose();
       store.navigate('vessel-calls', { flash: id });
-    }, 700);
+    } catch (e) {
+      store.toast(e.message || 'Could not register vessel call', 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const guard = () => dirty && !submitting && !window.confirm('Discard this vessel call? Your entered details will be lost.');

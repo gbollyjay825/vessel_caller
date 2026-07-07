@@ -1,61 +1,83 @@
-# Vessel Caller — Calabar Port Inspection (Frontend)
+# Vessel Caller — Calabar Port Inspection
 
-The approved **Vessel Caller** UI for managing maritime vessel calls and cargo
+The **Vessel Caller** platform for managing maritime vessel calls and cargo
 inspections at the Port of Calabar — vessel registration, liquid/dry cargo
-inspections, NPA harbour dues & agency commission, invoices, analytics, and
-printable invoice/report documents.
+inspections with jetty-based harbour dues, agency commission, invoices,
+analytics, printable invoice/report documents, and a mobile quayside
+data-capture app.
 
-This is the design-master UI (from `Vessel master.zip`), copied exactly.
+React 18 + Babel Standalone frontend (design-master UI, no build step,
+runtime vendored locally) wired to a **Python backend** (stdlib only, no
+dependencies) with SQLite persistence.
 
 ---
 
 ## Running it
 
-No build step. The app is React 18 + Babel Standalone loaded from CDN, so it
-runs from any static file server (internet access required for the CDN):
-
 ```bash
 ./serve.sh            # http://localhost:8000
 # or:
-python3 server.py
+python3 server.py     # PORT / HOST / VESSEL_DB env vars supported
 ```
+
+One process serves everything: the static frontend, the REST API, and the
+SQLite database (`vessel_caller.db`, created on first run and seeded with
+demo data).
 
 | Entry | What it is |
 |---|---|
-| `index.html` | The desktop app (identical copy of `Calabar Port Inspection.html` from the design master) |
+| `index.html` | The desktop app |
 | `Mobile Data Capture.html` | The mobile quayside data-capture app (iOS-framed) |
 | `calabar/pdf.html` | Print-ready invoice/report document opened by the PDF buttons |
+
+The desktop and mobile apps share the same backend, so an inspection
+captured on the quayside app appears in the desktop app (clients poll a
+server `rev` counter every 5 s — it works across devices and browsers).
+
+## The API (server.py)
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /api/state[?rev=N]` | Full app state; `{changed:false}` when the client is current |
+| `POST /api/vessel-calls` | Register a call (validates rotation-number uniqueness) |
+| `DELETE /api/vessel-calls/:id` | Cancel a call, cascading its inspections and invoices |
+| `POST /api/inspections` | Submit an inspection — the server numbers it and, when completed, marks the call completed and issues the next invoice |
+| `PUT /api/settings` | Save charge rates / notifications / port profile |
+| `POST /api/reset` | Restore the demo seed data |
+
+Harbour dues are computed from the vessel's **net tonnage × the applicable
+rate**: liquid cargo by jetty classification (Government $1.68 · Private
+$2.88 · International $4.23) and dry/bulk at a flat $2.17. Rates are
+editable in Settings → Charge configuration.
+
+## No backend? Automatic fallback
+
+The frontend probes `/api/state` at boot (see `calabar/api.jsx`, the single
+wiring seam). When the API isn't there — e.g. the static Vercel deploy at
+**https://vessel-caller.vercel.app** — it falls back to browser
+localStorage with the same behaviour, so the hosted demo stays fully
+interactive. Settings → Port profile shows which store is active and offers
+a data reset.
 
 ## Structure
 
 ```
-index.html                  desktop entry (React + Babel via CDN)
-Mobile Data Capture.html    mobile capture entry (shares calabar/data + icons)
+server.py                   Python backend: static files + REST API + SQLite
+index.html                  desktop entry (React + Babel, vendored locally)
+Mobile Data Capture.html    mobile capture entry (shares the calabar modules)
+vendor/                     react / react-dom / @babel/standalone (pinned)
 calabar/
+  api.jsx                   the wiring seam: backend client + local fallback
   styles.css                design system styles
-  data.jsx                  seed data (vessel calls, inspections, invoices)
-  analytics-data.jsx        port-level throughput / product mix aggregates
-  icons.jsx                 icon set
-  ui.jsx                    shared UI components
+  data.jsx                  demo seeds + rates + formatters
+  icons.jsx / ui.jsx        icon set + shared components
   charts.jsx                chart components
-  shell.jsx                 sidebar + topbar shell
-  app.jsx                   root app + routing
+  shell.jsx / app.jsx       sidebar + topbar shell, root app + store
   screens-ops.jsx           dashboard + vessel calls
-  screens-inspections.jsx   inspections + flow
+  screens-inspections.jsx   inspections + 3-step wizard
   screen-analytics.jsx      analytics
-  screens-settings.jsx      settings
-  track-vessel.jsx          vessel tracking
+  screens-settings.jsx      settings (charge rates, channels, port, data store)
+  track-vessel.jsx          live voyage tracker
   pdf.html                  printable invoice/report template
 mobile/                     mobile app modules (ios-frame, mobile-app, css)
 ```
-
-## Deploy
-
-Deployed on Vercel as a static site: **https://vessel-caller.vercel.app**
-
-```bash
-npx vercel deploy --prod   # (run from a copy at a path without spaces)
-```
-
-> Note: the prior zero-dependency vanilla-JS implementation lives in git
-> history (up to commit 3e5bb56) if it's ever needed for reference.

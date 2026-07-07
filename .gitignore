@@ -7,6 +7,13 @@
 # Vercel
 .vercel
 
+# Local backend database (SQLite)
+vessel_caller.db
+vessel_caller.db-*
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Node (not used, but standard hygiene)
 node_modules/
 *.log

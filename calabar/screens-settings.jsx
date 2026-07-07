@@ -1,4 +1,4 @@
-/* global React, Icon, Field, fmtNum */
+/* global React, Icon, Field, fmtNum, apiResetData, apiActive */
 const { useState: useStateSet } = React;
 
 function Settings({ store }) {
@@ -19,13 +19,17 @@ function Settings({ store }) {
     setDirty(true);
   };
 
-  const save = () => {
+  const save = async () => {
     setSaving(true);
-    setTimeout(() => {
-      store.updateSettings(form);
-      setSaving(false); setDirty(false);
+    try {
+      await store.updateSettings(form);
+      setDirty(false);
       store.toast('Settings saved', 'success');
-    }, 600);
+    } catch (e) {
+      store.toast(e.message || 'Could not save settings', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const TABS = [['charges', 'Charge configuration'], ['notifications', 'Notifications'], ['port', 'Port profile']];
@@ -115,6 +119,23 @@ function Settings({ store }) {
           <Field label="Default terminals" hint="One per line. Offered when registering a vessel call.">
             <textarea style={{ minHeight: 120 }} value={form.terminals.join('\n')} onChange={(e) => set('terminals', e.target.value.split('\n'))} />
           </Field>
+          <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--hairline)' }}>
+            <div className="card-title" style={{ fontSize: 14 }}>Data store</div>
+            <p className="muted" style={{ fontSize: 13, margin: '6px 0 12px' }}>
+              {apiActive()
+                ? 'Connected to the Python backend — data persists in SQLite on the server and is shared with the mobile capture app.'
+                : 'Running without a backend — data persists in this browser and is shared with the mobile capture app.'}
+              {' '}Reset restores the demo seed data.
+            </p>
+            <button className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)' }}
+              onClick={async () => {
+                if (!window.confirm('Reset all stored data back to the demo seeds?')) return;
+                try { await apiResetData(); } catch (e) { /* fall through to reload */ }
+                location.reload();
+              }}>
+              <Icon name="trash" size={15} /> Reset data
+            </button>
+          </div>
         </div>
       )}
 

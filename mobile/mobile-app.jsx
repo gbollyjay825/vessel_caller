@@ -1,4 +1,4 @@
-/* global React, ReactDOM, Icon, IOSDevice, SEED_CALLS, SEED_INSPECTIONS, DEFAULT_SETTINGS, calcPreview, rateForInspection, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, CURRENT_USER */
+/* global React, ReactDOM, Icon, IOSDevice, calcPreview, rateForInspection, fmtUSD, fmtNGN, fmtNum, fmtTons, fmtDate, CURRENT_USER, PORT_STORE_KEY, apiActive, bootPortData, savePortData, apiCreateInspection, fetchStateIfChanged */
 const { useState, useEffect, useRef, useMemo } = React;
 
 // reconciled-tonnage maths (mirrors the desktop / server)
@@ -23,30 +23,77 @@ function MTag({ type }) {
 // =========================================================
 // Root
 // =========================================================
+// ---- Boot: same wired data layer as the desktop app ----
 function MobileApp() {
+  const [boot, setBoot] = useState(null);
+  useEffect(() => { bootPortData().then(setBoot); }, []);
+  if (!boot) return <div className="stage" />;
+  return <MobileMain boot={boot} />;
+}
+
+function MobileMain({ boot }) {
   const [tab, setTab] = useState('tasks');
   const [capture, setCapture] = useState(null); // { callId }
-  const [calls, setCalls] = useState(SEED_CALLS);
-  const [captured, setCaptured] = useState(
-    SEED_INSPECTIONS.filter((i) => i.status === 'completed').map((i) => ({ ...i, synced: true }))
-  );
+  const [data, setData] = useState(boot); // { rev?, calls, inspections, invoices, settings }
+  const [syncingIds, setSyncingIds] = useState([]); // captures still "uploading"
+  const revRef = useRef(boot.rev || 0);
+
+  const calls = data.calls;
+  const captured = data.inspections
+    .filter((i) => i.status === 'completed')
+    .map((i) => ({ ...i, synced: !syncingIds.includes(i.id) }));
 
   const awaiting = calls.filter((c) => c.status !== 'completed');
-  const pendingSync = captured.filter((c) => !c.synced).length;
+  const pendingSync = syncingIds.length;
 
-  const onSubmit = (rec) => {
-    setCaptured((cs) => [{ ...rec, synced: false }, ...cs]);
-    // simulate background sync
-    setTimeout(() => setCaptured((cs) => cs.map((c) => c.id === rec.id ? { ...c, synced: true } : c)), 2600);
-    setCalls((cs) => cs.map((c) => c.id === rec.callId ? { ...c, status: 'completed' } : c));
+  // Capture writes through the shared API (Python backend when present,
+  // localStorage fallback otherwise) — the desktop app sees it live.
+  const onSubmit = async (payload) => {
+    const res = await apiCreateInspection(data, payload);
+    if (res.rev) revRef.current = res.rev;
+    setData((d) => {
+      const next = {
+        ...d,
+        inspections: [res.inspection, ...d.inspections],
+        invoices: res.invoice ? [res.invoice, ...d.invoices] : d.invoices,
+        calls: res.call ? d.calls.map((c) => (c.id === res.call.id ? res.call : c)) : d.calls,
+      };
+      savePortData(next); // no-op in backend mode
+      return next;
+    });
+    setSyncingIds((ids) => [res.inspection.id, ...ids]);
+    // brief "uploading" chip while the platform ingests the capture
+    setTimeout(() => setSyncingIds((ids) => ids.filter((x) => x !== res.inspection.id)), 2600);
+    return res;
   };
+
+  // Live sync with the desktop app: poll the backend rev, or listen to
+  // the storage event in fallback mode.
+  useEffect(() => {
+    if (apiActive()) {
+      const id = setInterval(async () => {
+        const d = await fetchStateIfChanged(revRef.current);
+        if (d) { revRef.current = d.rev || 0; setData(d); }
+      }, 5000);
+      return () => clearInterval(id);
+    }
+    const onStorage = (e) => {
+      if (e.key !== PORT_STORE_KEY || !e.newValue) return;
+      try {
+        const d = JSON.parse(e.newValue);
+        if (d && Array.isArray(d.calls)) setData(d);
+      } catch (err) { /* ignore malformed writes */ }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   return (
     <div className="stage">
       <IOSDevice>
         <div className="mob">
           {capture ? (
-            <CaptureFlow call={calls.find((c) => c.id === capture.callId)} onClose={() => setCapture(null)} onSubmit={onSubmit} />
+            <CaptureFlow call={calls.find((c) => c.id === capture.callId)} settings={data.settings} onClose={() => setCapture(null)} onSubmit={onSubmit} />
           ) : (
             <div className="mob-app">
               <div className="mob-body">
@@ -123,7 +170,7 @@ function TaskCard({ call, onStart }) {
 // =========================================================
 // Capture flow
 // =========================================================
-function CaptureFlow({ call, onClose, onSubmit }) {
+function CaptureFlow({ call, settings, onClose, onSubmit }) {
   const [step, setStep] = useState(0);
   const [cargo, setCargo] = useState('');
   const [liquid, setLiquid] = useState({ ullage: '', observedVol: '', temp: '', blQty: '', surveyorTonnage: '', jettyType: '', jettyCategory: '', jettyName: '' });
@@ -133,23 +180,34 @@ function CaptureFlow({ call, onClose, onSubmit }) {
 
   const m = cargo === 'Liquid' ? liquid : dry;
   const tonnage = useMemo(() => reconcile(cargo, m), [cargo, liquid, dry]);
-  const previewRate = rateForInspection({ cargoType: cargo, jetty: { type: liquid.jettyType, category: liquid.jettyType === 'Local' ? liquid.jettyCategory : null } }, DEFAULT_SETTINGS);
-  const preview = call ? calcPreview(call.nrt, previewRate, DEFAULT_SETTINGS) : null;
+  const previewRate = rateForInspection({ cargoType: cargo, jetty: { type: liquid.jettyType, category: liquid.jettyType === 'Local' ? liquid.jettyCategory : null } }, settings);
+  const preview = call ? calcPreview(call.nrt, previewRate, settings) : null;
   const jettyOk = cargo !== 'Liquid' || liquid.jettyType === 'International' || (liquid.jettyType === 'Local' && liquid.jettyCategory);
   const numRef = useRef(null);
   useEffect(() => { const el = numRef.current; if (!el) return; el.classList.remove('rb-flash'); void el.offsetWidth; el.classList.add('rb-flash'); }, [tonnage]);
 
   if (!call) return null;
 
-  const submit = () => {
+  const submit = async () => {
     setSubmitting(true);
-    setTimeout(() => {
-      const insNum = 314 + Math.floor(Math.random() * 40);
-      const rec = { id: 'in-' + Date.now(), reference: `INS-2026-${insNum}`, callId: call.id, vesselName: call.vesselName, cargoType: cargo, reconciledTonnage: tonnage, date: new Date().toISOString().slice(0, 16), status: 'completed', dues: preview.dues, commissionUsd: preview.commissionUsd, commissionNgn: preview.commissionNgn };
+    try {
+      const res = await onSubmit({
+        callId: call.id,
+        cargoType: cargo,
+        reconciledTonnage: tonnage,
+        status: 'completed',
+        liquid: cargo === 'Liquid' ? liquid : undefined,
+        dry: cargo === 'Dry' ? dry : undefined,
+        jetty: cargo === 'Liquid'
+          ? { type: liquid.jettyType, category: liquid.jettyType === 'Local' ? liquid.jettyCategory : null, name: (liquid.jettyName || '').trim() }
+          : null,
+      });
+      setDone({ ...res.inspection, dues: preview.dues, commissionUsd: preview.commissionUsd, commissionNgn: preview.commissionNgn });
+    } catch (e) {
+      alert(e.message || 'Could not submit the inspection');
+    } finally {
       setSubmitting(false);
-      setDone(rec);
-      onSubmit(rec);
-    }, 850);
+    }
   };
 
   if (done) {
@@ -161,7 +219,7 @@ function CaptureFlow({ call, onClose, onSubmit }) {
         <div className="sc-result">
           <div className="rev-row"><span className="rk">Reconciled tonnage</span><span className="rv">{fmtTons(done.reconciledTonnage)}</span></div>
           <div className="rev-row"><span className="rk">NPA harbour dues</span><span className="rv">{fmtUSD(done.dues)}</span></div>
-          <div className="rev-row"><span className="rk">Commission · {DEFAULT_SETTINGS.commissionRate}%</span><span className="rv">{fmtUSD(done.commissionUsd)}</span></div>
+          <div className="rev-row"><span className="rk">Commission · {settings.commissionRate}%</span><span className="rv">{fmtUSD(done.commissionUsd)}</span></div>
           <div className="rev-row"><span className="rk">Sync status</span><span className="rv"><span className="sync-chip pending"><span className="cdot" />Uploading</span></span></div>
         </div>
       </div></div>
@@ -265,7 +323,7 @@ function CaptureFlow({ call, onClose, onSubmit }) {
       <div className="charge-preview">
         <div className="cp-label"><Icon name="gauge" size={14} strokeWidth={2} /> Charges preview</div>
         <div className="cp-row"><span className="l">NPA harbour dues</span><span className="v">{fmtUSD(preview.dues)}</span></div>
-        <div className="cp-row"><span className="l">Commission · {DEFAULT_SETTINGS.commissionRate}%</span><span className="v">{fmtUSD(preview.commissionUsd)}</span></div>
+        <div className="cp-row"><span className="l">Commission · {settings.commissionRate}%</span><span className="v">{fmtUSD(preview.commissionUsd)}</span></div>
         <div className="cp-row"><span className="l">&nbsp;</span><span className="v" style={{ color: 'var(--slate)', fontWeight: 500 }}>{fmtNGN(preview.commissionNgn)}</span></div>
       </div>
 

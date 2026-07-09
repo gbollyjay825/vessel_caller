@@ -138,6 +138,8 @@ function pdfRecord(store, call) {
   const f = store.financialsForCall(call);
   const insp = store.inspectionsForCall(call.id).find((i) => i.status === 'completed');
   const inv = store.invoiceForCall(call.id);
+  // prefer the invoice's issue-time money snapshot over recomputed figures
+  const snap = inv && inv.dues != null ? inv : null;
   const jetty = insp?.jetty || null;
   const jettyLabel = jetty ? (jetty.type === 'International' ? 'International Jetty' : `${jetty.category || ''} Jetty (Local)`.trim()) : '';
   return {
@@ -145,9 +147,9 @@ function pdfRecord(store, call) {
     nrt: String(call.nrt), berth: call.berth || '', date: insp?.date || call.berthDate || '',
     invoiceNo: inv?.invoiceNo || '—', dueDate: inv?.due || '',
     cargoType: insp?.cargoType || '—', tonnage: insp ? String(insp.reconciledTonnage) : '0',
-    dues: String(f?.dues || 0), duesRate: String(f?.rate || 0), commRate: String(store.settings.commissionRate),
-    commUsd: String(f?.commissionUsd || 0), commNgn: String(f?.commissionNgn || 0),
-    fx: String(store.settings.exchangeRate), port: store.primaryPort || store.settings.portName,
+    dues: String(snap ? snap.dues : (f?.dues || 0)), duesRate: String(snap ? (snap.rate || 0) : (f?.rate || 0)), commRate: String(store.settings.commissionRate),
+    commUsd: String(snap ? (snap.commissionUsd || 0) : (f?.commissionUsd || 0)), commNgn: String(snap ? (snap.commissionNgn || 0) : (f?.commissionNgn || 0)),
+    fx: String(snap && snap.fx != null ? snap.fx : store.settings.exchangeRate), port: store.primaryPort || store.settings.portName,
     jettyType: jettyLabel, jettyName: jetty?.name || '',
     invStatus: inv ? effectiveInvoiceStatus(inv) : '',
     paidOn: inv?.payment?.paidOn || '', payRef: inv?.payment?.reference || '', payMethod: inv?.payment?.method || '',
@@ -496,8 +498,14 @@ function Invoices({ store }) {
     return store.invoices.map((iv) => {
       const call = store.calls.find((c) => c.id === iv.callId);
       const insp = store.inspections.find((i) => i.id === iv.inspectionId);
-      const f = store.financialsForCall(call);
-      return { ...iv, call, effective: effectiveInvoiceStatus(iv), cargoType: insp?.cargoType || null, dues: f?.dues || 0, rate: f?.rate || 0, commissionUsd: f?.commissionUsd || 0, commissionNgn: f?.commissionNgn || 0 };
+      // prefer the amounts snapshotted on the invoice at issue time; recompute
+      // from current settings only for legacy invoices without a snapshot
+      const f = iv.dues != null ? null : store.financialsForCall(call);
+      return { ...iv, call, effective: effectiveInvoiceStatus(iv), cargoType: insp?.cargoType || null,
+        dues: iv.dues != null ? iv.dues : (f?.dues || 0),
+        rate: iv.dues != null ? (iv.rate || 0) : (f?.rate || 0),
+        commissionUsd: iv.dues != null ? (iv.commissionUsd || 0) : (f?.commissionUsd || 0),
+        commissionNgn: iv.dues != null ? (iv.commissionNgn || 0) : (f?.commissionNgn || 0) };
     }).sort((a, b) => new Date(b.issued) - new Date(a.issued));
   }, [store.invoices, store.calls, store.inspections, store.settings]);
 

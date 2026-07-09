@@ -1,4 +1,4 @@
-/* global React, ReactDOM, Sidebar, TopBar, ToastHost, Dashboard, VesselCalls, VesselCallDetail, Inspections, NewInspection, Invoices, Settings, Analytics, Onboarding, calcDues, calcCommission, rateForInspection, PORT_STORE_KEY, apiActive, bootPortData, savePortData, applyInspection, apiCreateCall, apiCreateInspection, apiDeleteCall, apiUpdateSettings, apiUpdateOrganization, apiUpdateInvoice, fetchStateIfChanged, canUser, SEED_ORG, normalizeOrg, orgPorts, primaryOrgPort, orgPortsLabel */
+/* global React, ReactDOM, Sidebar, TopBar, ToastHost, Dashboard, VesselCalls, VesselCallDetail, Inspections, NewInspection, Invoices, Settings, Analytics, Onboarding, calcDues, calcCommission, rateForInspection, PORT_STORE_KEY, apiActive, bootPortData, savePortData, applyInspection, apiCreateCall, apiCreateInspection, apiDeleteCall, apiUpdateSettings, apiUpdateOrganization, apiUpdateInvoice, apiResetData, fetchStateIfChanged, canUser, SEED_ORG, normalizeOrg, orgPorts, primaryOrgPort, orgPortsLabel */
 const { useState: useStateApp, useCallback: useCallbackApp, useEffect: useEffectApp, useRef: useRefApp } = React;
 
 // ---- Boot: probe the Python backend, fall back to localStorage ----
@@ -177,13 +177,19 @@ function PortApp({ boot }) {
     return res.invoice;
   }, [invoices, advanceRev, can]);
 
+  // Wipe everything back to the demo seeds — Admins only
+  const resetData = useCallbackApp(async () => {
+    if (!can('manageSettings')) throw new Error('Only Admins can reset data');
+    return apiResetData(); // POST /api/reset (or clear localStorage)
+  }, [can]);
+
   const primaryPort = primaryOrgPort(org, settings.portName);
   const portLabel = orgPortsLabel(org, settings.portName);
   const store = {
     route, navigate, calls, inspections, invoices, settings, flashId,
     toast, addCall, deleteCall, addInspection, updateSettings,
     financialsForCall, inspectionsForCall, invoiceForCall,
-    org, updateOrganization, updateInvoice,
+    org, updateOrganization, updateInvoice, resetData,
     orgPorts: orgPorts(org), primaryPort, portLabel,
     currentUser, setCurrentUser, can,
   };

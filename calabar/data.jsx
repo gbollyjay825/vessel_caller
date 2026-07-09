@@ -108,13 +108,19 @@ const SEED_INSPECTIONS = [
 
 // ---- Seed invoices ----
 // status: paid | unpaid | overdue
+// dues/rate/commission/fx are snapshotted at issue time so later rate changes
+// never rewrite what an invoice was worth (figures = seed nrt × jetty rate).
 const SEED_INVOICES = [
   { id: 'iv-001', invoiceNo: 'INV-2026-0288', callId: 'vc-001', inspectionId: 'in-001', vesselName: 'MT Sea Eagle',    callRef: 'ROT-2026-0438', status: 'paid',   issued: '2026-06-02T14:10', due: '2026-06-09',
-    payment: { paidOn: '2026-06-05', method: 'Bank transfer', reference: 'NPA-TRF-88213', recordedBy: 'Bassey Effiong' } },
-  { id: 'iv-002', invoiceNo: 'INV-2026-0287', callId: 'vc-002', inspectionId: 'in-002', vesselName: 'MV Calabar Pride', callRef: 'ROT-2026-0437', status: 'unpaid', issued: '2026-06-01T18:30', due: '2026-07-15', payment: null },
+    dues: 241689.51, rate: 4.23, commissionUsd: 8459.13, commissionNgn: 13534608, fx: 1600,
+    payment: { paidOn: '2026-06-05', method: 'Bank transfer', reference: 'NPA-TRF-88213', recordedBy: 'Bassey Effiong', amount: 241689.51 } },
+  { id: 'iv-002', invoiceNo: 'INV-2026-0287', callId: 'vc-002', inspectionId: 'in-002', vesselName: 'MV Calabar Pride', callRef: 'ROT-2026-0437', status: 'unpaid', issued: '2026-06-01T18:30', due: '2026-07-15',
+    dues: 91530.60, rate: 2.17, commissionUsd: 3203.57, commissionNgn: 5125712, fx: 1600, payment: null },
   { id: 'iv-003', invoiceNo: 'INV-2026-0286', callId: 'vc-003', inspectionId: 'in-003', vesselName: 'MT Qua Iboe',      callRef: 'ROT-2026-0436', status: 'paid',   issued: '2026-05-31T10:20', due: '2026-06-07',
-    payment: { paidOn: '2026-06-02', method: 'Bank transfer', reference: 'NPA-TRF-88102', recordedBy: 'Bassey Effiong' } },
-  { id: 'iv-004', invoiceNo: 'INV-2026-0285', callId: 'vc-004', inspectionId: 'in-004', vesselName: 'MV Atlantic Dawn', callRef: 'ROT-2026-0435', status: 'unpaid', issued: '2026-05-29T20:40', due: '2026-06-05', payment: null },
+    dues: 83781.60, rate: 1.68, commissionUsd: 2932.36, commissionNgn: 4691776, fx: 1600,
+    payment: { paidOn: '2026-06-02', method: 'Bank transfer', reference: 'NPA-TRF-88102', recordedBy: 'Bassey Effiong', amount: 83781.60 } },
+  { id: 'iv-004', invoiceNo: 'INV-2026-0285', callId: 'vc-004', inspectionId: 'in-004', vesselName: 'MV Atlantic Dawn', callRef: 'ROT-2026-0435', status: 'unpaid', issued: '2026-05-29T20:40', due: '2026-06-05',
+    dues: 133107.80, rate: 2.17, commissionUsd: 4658.77, commissionNgn: 7454032, fx: 1600, payment: null },
 ];
 
 const VESSEL_TYPES = ['Tanker', 'Bulk Carrier', 'Container', 'General Cargo', 'Other'];

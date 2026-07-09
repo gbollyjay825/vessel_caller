@@ -66,7 +66,12 @@ a data reset.
 ## Structure
 
 ```
-server.py                   Python backend: static files + REST API + SQLite
+backend/                    the Python backend project (see backend/README.md)
+  run.py                    entry: python3 backend/run.py
+  vessel_backend/           config · seeds · db · services · api (stdlib only)
+  tests/                    unittest suite: python3 -m unittest discover -s tests
+server.py                   thin launcher shim -> backend/ (kept for serve.sh)
+landing.html                marketing landing page
 index.html                  desktop entry (React + Babel, vendored locally)
 Mobile Data Capture.html    mobile capture entry (shares the calabar modules)
 vendor/                     react / react-dom / @babel/standalone (pinned)

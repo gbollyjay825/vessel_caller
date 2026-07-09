@@ -1,4 +1,4 @@
-/* global React, Icon, Field, fmtNum, apiResetData, apiActive, OrganizationSection, TeamSection, normalizeOrg */
+/* global React, Icon, Field, fmtNum, apiActive, OrganizationSection, TeamSection, normalizeOrg */
 const { useState: useStateSet, useEffect: useEffectSet } = React;
 
 function Settings({ store }) {
@@ -183,9 +183,10 @@ function Settings({ store }) {
               {' '}Reset restores the demo seed data.
             </p>
             <button className="btn btn-secondary btn-sm" style={{ color: 'var(--danger)' }}
+              disabled={!canEdit} title={canEdit ? undefined : 'Only Admins can reset data'}
               onClick={async () => {
                 if (!window.confirm('Reset all stored data back to the demo seeds?')) return;
-                try { await apiResetData(); } catch (e) { /* fall through to reload */ }
+                try { await store.resetData(); } catch (e) { store.toast(e.message || 'Could not reset data', 'error'); return; }
                 location.reload();
               }}>
               <Icon name="trash" size={15} /> Reset data

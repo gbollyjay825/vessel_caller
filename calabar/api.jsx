@@ -1,4 +1,4 @@
-/* global SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, DEFAULT_SETTINGS, SEED_ORG, normalizeOrg */
+/* global SEED_CALLS, SEED_INSPECTIONS, SEED_INVOICES, DEFAULT_SETTINGS, SEED_ORG, normalizeOrg, rateForInspection, calcDues, calcCommission */
 // ============================================================
 // api.jsx — the application wiring seam (backend client).
 //
@@ -124,6 +124,11 @@ async function apiUpdateInvoice(state, invoiceId, patch) {
   const current = state.invoices.find((v) => v.id === invoiceId);
   if (!current) throw new Error('Unknown invoice');
   const invoice = { ...current, ...('status' in patch ? { status: patch.status } : {}), ...('payment' in patch ? { payment: patch.payment } : {}) };
+  // a recorded payment settles the snapshotted dues — stamp the amount
+  // unless the caller already sent one (mirrors the server)
+  if (patch.payment && invoice.payment && invoice.payment.amount == null && current.dues != null) {
+    invoice.payment = { ...invoice.payment, amount: current.dues };
+  }
   return { invoice, rev: 0 };
 }
 
@@ -180,6 +185,11 @@ function applyInspection(state, data) {
       : c);
     call = nextCalls.find((c) => c.id === data.callId);
     const invNum = Math.max(0, ...invoices.map((v) => parseInt(v.invoiceNo.split('-')[2], 10) || 0)) + 1;
+    // money snapshot — frozen at issue time so later rate changes never
+    // rewrite what an invoice was worth (mirrors the server)
+    const rate = rateForInspection(inspection, settings);
+    const dues = calcDues(call ? call.nrt : 0, rate);
+    const c = calcCommission(dues, settings);
     invoice = {
       id: 'iv-' + Date.now(),
       invoiceNo: `INV-2026-${invNum.toString().padStart(4, '0')}`,
@@ -190,6 +200,7 @@ function applyInspection(state, data) {
       status: 'unpaid',
       issued: new Date().toISOString().slice(0, 16),
       due: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
+      dues, rate, commissionUsd: c.usd, commissionNgn: c.ngn, fx: settings.exchangeRate,
     };
     nextInvoices = [invoice, ...invoices];
   }

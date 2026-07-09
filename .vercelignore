@@ -10,4 +10,5 @@ node_modules
 # Local dev / tooling — not needed on the static host
 server.py
 serve.sh
+backend
 *.md

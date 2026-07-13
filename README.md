@@ -72,11 +72,12 @@ backend/                    the Python backend project (see backend/README.md)
   vessel_backend/           config · seeds · db · services · api (stdlib only)
   tests/                    unittest suite: python3 -m unittest discover -s tests
 server.py                   thin launcher shim -> backend/ (kept for serve.sh)
-index.html                  marketing landing page — the site homepage
-app.html                    desktop app entry (React + Babel, vendored locally)
+index.html                  landing-page shell — the site homepage (mounts landing.jsx)
+app.html                    desktop app shell (React + Babel, vendored locally)
 Mobile Data Capture.html    mobile capture entry (shares the calabar modules)
 vendor/                     react / react-dom / @babel/standalone (pinned)
 calabar/
+  landing.jsx / landing.css marketing homepage (React) + its styles
   api.jsx                   the wiring seam: backend client + local fallback
   styles.css                design system styles
   data.jsx                  demo seeds + rates + formatters

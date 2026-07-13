@@ -28,7 +28,8 @@ demo data).
 
 | Entry | What it is |
 |---|---|
-| `index.html` | The desktop app |
+| `index.html` | The marketing landing page (the site homepage) |
+| `app.html` | The desktop app |
 | `Mobile Data Capture.html` | The mobile quayside data-capture app (iOS-framed) |
 | `calabar/pdf.html` | Print-ready invoice/report document opened by the PDF buttons |
 
@@ -71,8 +72,8 @@ backend/                    the Python backend project (see backend/README.md)
   vessel_backend/           config · seeds · db · services · api (stdlib only)
   tests/                    unittest suite: python3 -m unittest discover -s tests
 server.py                   thin launcher shim -> backend/ (kept for serve.sh)
-landing.html                marketing landing page
-index.html                  desktop entry (React + Babel, vendored locally)
+index.html                  marketing landing page — the site homepage
+app.html                    desktop app entry (React + Babel, vendored locally)
 Mobile Data Capture.html    mobile capture entry (shares the calabar modules)
 vendor/                     react / react-dom / @babel/standalone (pinned)
 calabar/

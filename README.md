@@ -8,13 +8,39 @@ jetty-based harbour dues, agency commission, invoice/payment tracking,
 analytics, printable invoice/report documents, and a mobile quayside
 data-capture app.
 
-React 18 + Babel Standalone frontend (design-master UI, no build step,
-runtime vendored locally) wired to a **Python backend** (stdlib only, no
-dependencies) with SQLite persistence.
+## Production architecture (`production-split` branch)
+
+The platform is split into two independently-deployable apps:
+
+```
+frontend/   Vite + React 18 + TypeScript SPA — talks to the API over HTTP
+backend/    FastAPI service — JWT auth, roles, SQLAlchemy/SQLite, analytics
+```
+
+Run both locally:
+
+```bash
+# 1) API  →  http://127.0.0.1:8000   (docs at /docs)
+cd backend && python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && uvicorn app.main:app --reload
+
+# 2) App  →  http://localhost:5173   (proxies /api to the backend)
+cd frontend && npm install && npm run dev
+```
+
+Demo login: `admin@calabarport.ng` / `demo1234`. See
+[`backend/README.md`](backend/README.md) and [`frontend/`](frontend) for details.
+Real auth (register/login/logout), server-enforced roles, and analytics
+computed from the database.
+
+> The files below (`index.html`, `app.html`, `calabar/`, root `server.py`) are
+> the **legacy single-repo prototype** — a no-build React+Babel frontend served
+> by a stdlib Python backend. They are kept during the migration and are
+> superseded by `frontend/` + `backend/`.
 
 ---
 
-## Running it
+## Legacy prototype — running it
 
 ```bash
 ./serve.sh            # http://localhost:8000

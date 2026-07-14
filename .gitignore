@@ -17,3 +17,11 @@ vessel_caller.db-*
 # Node (not used, but standard hygiene)
 node_modules/
 *.log
+
+# Python venv + FastAPI backend local db
+.venv/
+backend/*.db
+backend/*.db-*
+__pycache__/
+*.pyc
+.pytest_cache/

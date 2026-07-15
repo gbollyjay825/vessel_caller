@@ -12,21 +12,20 @@
 backend/.venv
 *.db
 *.db-*
-backend/*.db
-backend/*.db-*
 backend/tests
 
 # Node — Vercel installs deps itself
 node_modules
-frontend/node_modules
 frontend/dist
 
-# Legacy single-repo prototype (superseded by frontend/ + backend/; not served)
-index.html
-app.html
-Mobile Data Capture.html
-calabar
-mobile
-vendor
-server.py
-serve.sh
+# Legacy single-repo prototype (superseded by frontend/ + backend/; not served).
+# Leading "/" anchors to the repo root so these DON'T match nested frontend/ files
+# (e.g. a bare "mobile" would wrongly exclude frontend/src/mobile/).
+/index.html
+/app.html
+/Mobile Data Capture.html
+/calabar
+/mobile
+/vendor
+/server.py
+/serve.sh

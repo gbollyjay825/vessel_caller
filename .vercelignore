@@ -1,14 +1,32 @@
-# Only the web app should be deployed (Vercel ignores .gitignore, not this).
+# What NOT to upload to Vercel. (Vercel reads this, not .gitignore.)
+# The deploy = frontend/ (built to dist) + api/ (Python function) + backend/ (imported by the function).
 .git
 .gitignore
 .claude
-node_modules
 *.log
 .DS_Store
 .vercel
 
-# Local dev / tooling — not needed on the static host
+# Python venv + local databases
+.venv
+backend/.venv
+*.db
+*.db-*
+backend/*.db
+backend/*.db-*
+backend/tests
+
+# Node — Vercel installs deps itself
+node_modules
+frontend/node_modules
+frontend/dist
+
+# Legacy single-repo prototype (superseded by frontend/ + backend/; not served)
+index.html
+app.html
+Mobile Data Capture.html
+calabar
+mobile
+vendor
 server.py
 serve.sh
-backend
-*.md

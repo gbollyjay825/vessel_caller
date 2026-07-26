@@ -1,0 +1,96 @@
+---
+- name: Create Vessel Caller Nginx include directory
+  ansible.builtin.file:
+    path: /etc/nginx/vessel-caller
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Preserve initial FastAPI blue upstream until explicit Django promotion
+  ansible.builtin.copy:
+    dest: /etc/nginx/vessel-caller/active-upstream.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: "server 127.0.0.1:8001;\n"
+    force: false
+
+- name: Deny Django Admin until an allow-list is approved
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/staff-allowlist.conf"
+    dest: /etc/nginx/vessel-caller/staff-allowlist.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install protected Vercel-to-staging proxy identity
+  ansible.builtin.template:
+    src: staging-proxy-map.conf.j2
+    dest: /etc/nginx/vessel-caller/staging-proxy-map.conf
+    owner: root
+    group: www-data
+    mode: "0640"
+  no_log: true
+  notify: Validate and reload Nginx
+
+- name: Install maintenance page
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/maintenance.html"
+    dest: /var/www/vessel-caller/maintenance.html
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install production Vessel Caller site only
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/{{ vessel_tls_ready | ternary('nginx-vessel-caller.conf', 'nginx-vessel-caller-bootstrap.conf') }}"
+    dest: /etc/nginx/sites-available/vessel-caller
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Validate and reload Nginx
+
+- name: Enable production Vessel Caller site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/vessel-caller
+    dest: /etc/nginx/sites-enabled/vessel-caller
+    state: link
+  notify: Validate and reload Nginx
+
+- name: Install staging site without assuming DNS or a certificate
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/{{ vessel_staging_tls_ready | ternary('nginx-vessel-caller-staging.conf', 'nginx-vessel-caller-staging-bootstrap.conf') }}"
+    dest: /etc/nginx/sites-available/vessel-caller-staging
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Validate and reload Nginx
+
+- name: Enable staging site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/vessel-caller-staging
+    dest: /etc/nginx/sites-enabled/vessel-caller-staging
+    state: link
+  notify: Validate and reload Nginx
+
+- name: Enable automatic certificate renewal
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Validate Nginx before applying renewed certificates
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/vessel-caller-nginx
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      nginx -t
+      systemctl reload nginx

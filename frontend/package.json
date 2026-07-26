@@ -7,19 +7,40 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "e2e": "npm run e2e:integration",
+    "e2e:mocked": "PLAYWRIGHT_MOCKED_API=1 playwright test tests/e2e/auth.spec.ts",
+    "e2e:integration": "PLAYWRIGHT_REAL_BACKEND=1 playwright test"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
+    "wouter": "^3.7.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.55.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^26.1.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^4.0.17",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "fake-indexeddb": "^6.2.5",
+    "globals": "^16.4.0",
+    "jsdom": "^27.0.1",
     "typescript": "^5.6.3",
-    "vite": "^6.0.7"
+    "typescript-eslint": "^8.46.1",
+    "vite": "^7.1.9",
+    "vitest": "^4.0.17"
   }
 }

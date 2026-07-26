@@ -1,0 +1,173 @@
+---
+- name: Create release slots
+  ansible.builtin.file:
+    path: "{{ vessel_app_root }}/slots/{{ item.name }}"
+    state: directory
+    owner: "{{ item.user }}"
+    group: "{{ item.group }}"
+    mode: "0750"
+  loop:
+    - name: production-blue
+      user: "{{ vessel_production_user }}"
+      group: "{{ vessel_production_group }}"
+    - name: production-green
+      user: "{{ vessel_production_user }}"
+      group: "{{ vessel_production_group }}"
+    - name: staging
+      user: "{{ vessel_staging_user }}"
+      group: "{{ vessel_staging_group }}"
+
+- name: Install release and operational scripts
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/scripts/{{ item }}"
+    dest: "/usr/local/lib/vessel-caller/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - verify-release.sh
+    - install-release.sh
+    - promote-release.sh
+    - deploy-release.sh
+    - postgres-backup.sh
+    - postgres-restore.sh
+    - database-manifest.sh
+    - libpq-env.sh
+    - monitor-health.sh
+    - prune-releases.sh
+    - smoke-test.sh
+
+- name: Install restricted deployment entrypoint
+  ansible.builtin.file:
+    src: /usr/local/lib/vessel-caller/deploy-release.sh
+    dest: /usr/local/sbin/vessel-caller-deploy
+    state: link
+    force: true
+
+- name: Restrict deployment sudo surface
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/vessel-caller-deploy
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+    content: |
+      {{ vessel_deploy_user }} ALL=(root) NOPASSWD: /usr/local/sbin/vessel-caller-deploy staging /var/tmp/vessel-caller-v*.tar.gz
+      {{ vessel_deploy_user }} ALL=(root) NOPASSWD: /usr/local/sbin/vessel-caller-deploy production /var/tmp/vessel-caller-v*.tar.gz
+
+- name: Pin release-signing public key
+  ansible.builtin.copy:
+    dest: "{{ vessel_config_root }}/release-signing-public.pem"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ vessel_release_signing_public_key }}"
+
+- name: Install systemd units
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - vessel-caller-web@.service
+    - vessel-caller-worker@.service
+    - vessel-caller-prepare@.service
+    - vessel-caller-staging-web.service
+    - vessel-caller-staging-worker.service
+    - vessel-caller-staging-prepare.service
+    - redis-vessel-caller-production.service
+    - redis-vessel-caller-staging.service
+  notify: Reload systemd
+
+- name: Configure isolated authenticated Redis instances
+  ansible.builtin.template:
+    src: redis.conf.j2
+    dest: "{{ vessel_config_root }}/redis-{{ item.environment }}.conf"
+    owner: root
+    group: "{{ item.group }}"
+    mode: "0640"
+  vars:
+    runtime_environment: "{{ item.environment }}"
+    runtime_redis_port: "{{ item.port }}"
+    runtime_redis_password: "{{ item.password }}"
+    runtime_redis_maxmemory: "{{ item.maxmemory }}"
+  loop:
+    - environment: production
+      port: "{{ vessel_production_redis_port }}"
+      password: "{{ vessel_production_redis_password }}"
+      maxmemory: 512mb
+      group: "{{ vessel_production_redis_group }}"
+    - environment: staging
+      port: "{{ vessel_staging_redis_port }}"
+      password: "{{ vessel_staging_redis_password }}"
+      maxmemory: 192mb
+      group: "{{ vessel_staging_redis_group }}"
+  no_log: true
+  notify: Restart Vessel Caller Redis
+
+- name: Write production slot environments
+  ansible.builtin.template:
+    src: runtime.env.j2
+    dest: "{{ vessel_config_root }}/{{ item.name }}.env"
+    owner: root
+    group: "{{ vessel_production_group }}"
+    mode: "0640"
+  vars:
+    runtime_environment: production
+    runtime_bind: "{{ item.bind }}"
+    runtime_database_url: "{{ vessel_production_database_url }}"
+    runtime_secret_key: "{{ vessel_secret_key }}"
+    runtime_host: "{{ vessel_domain }}"
+    runtime_csrf_origin: "https://{{ vessel_domain }}"
+    runtime_frontend_url: "https://{{ vessel_domain }}"
+    runtime_redis_port: "{{ vessel_production_redis_port }}"
+    runtime_redis_password: "{{ vessel_production_redis_password }}"
+    runtime_resend_api_key: "{{ vessel_production_resend_api_key }}"
+    runtime_email_from: "{{ vessel_production_email_from }}"
+    runtime_spaces_key: "{{ vessel_production_spaces_key }}"
+    runtime_spaces_secret: "{{ vessel_production_spaces_secret }}"
+    runtime_spaces_bucket: "{{ vessel_production_spaces_bucket }}"
+    runtime_sentry_dsn: "{{ vessel_production_sentry_dsn }}"
+    runtime_mfa_encryption_key: "{{ vessel_production_mfa_encryption_key }}"
+  loop:
+    - {name: production-blue, bind: "127.0.0.1:8001"}
+    - {name: production-green, bind: "127.0.0.1:8002"}
+  no_log: true
+
+- name: Write staging environment
+  ansible.builtin.template:
+    src: runtime.env.j2
+    dest: "{{ vessel_config_root }}/staging.env"
+    owner: root
+    group: "{{ vessel_staging_group }}"
+    mode: "0640"
+  vars:
+    runtime_environment: staging
+    runtime_bind: 127.0.0.1:8010
+    runtime_database_url: "{{ vessel_staging_database_url }}"
+    runtime_secret_key: "{{ vessel_staging_secret_key }}"
+    runtime_host: "{{ vessel_staging_domain }}"
+    runtime_csrf_origin: "{{ vessel_staging_frontend_origin }}"
+    runtime_frontend_url: "{{ vessel_staging_frontend_origin }}"
+    runtime_redis_port: "{{ vessel_staging_redis_port }}"
+    runtime_redis_password: "{{ vessel_staging_redis_password }}"
+    runtime_resend_api_key: "{{ vessel_staging_resend_api_key }}"
+    runtime_email_from: "{{ vessel_staging_email_from }}"
+    runtime_spaces_key: "{{ vessel_staging_spaces_key }}"
+    runtime_spaces_secret: "{{ vessel_staging_spaces_secret }}"
+    runtime_spaces_bucket: "{{ vessel_staging_spaces_bucket }}"
+    runtime_sentry_dsn: "{{ vessel_staging_sentry_dsn }}"
+    runtime_mfa_encryption_key: "{{ vessel_staging_mfa_encryption_key }}"
+  no_log: true
+
+- name: Enable isolated Redis instances
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - redis-vessel-caller-production.service
+    - redis-vessel-caller-staging.service

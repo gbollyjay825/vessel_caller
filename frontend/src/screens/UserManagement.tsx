@@ -1,280 +1,312 @@
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { useStore } from "../app/store";
 import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
 import {
-  ConfirmModal, DataTable, Drawer, EmptyState, Field, StatCard, StatusBadge,
+  ConfirmModal,
+  DataTable,
+  Drawer,
+  EmptyState,
+  Field,
+  StatusBadge,
   type Column,
 } from "../components/ui";
-import { fmtDate, userInitials } from "../lib/format";
-import { ROLES, type Member, type Role } from "../types";
+import { ApiError, api } from "../lib/api";
+import { fmtDate, fmtDateTime, userInitials } from "../lib/format";
+import {
+  ROLES,
+  type AuditEvent,
+  type Invitation,
+  type Role,
+  type User,
+  type UserStatus,
+} from "../types";
+
+type ManagementTab = "users" | "invitations" | "audit";
+type UserAction = "activate" | "suspend" | "remove";
 
 const ROLE_HELP: Record<Role, string> = {
-  Admin: "Full access, including settings and user management.",
-  Operations: "Can register vessel calls and submit inspections.",
-  Finance: "Can record and track invoice payments.",
+  Admin: "Full access, including settings, user management, and audit.",
+  Operations: "Can manage vessel calls and inspections.",
+  Finance: "Can manage invoices and record payments.",
   Viewer: "Read-only access to operational and financial records.",
 };
 
-type StatusFilter = "all" | "active" | "inactive";
-type ConfirmAction = {
-  kind: "activate" | "deactivate" | "delete";
-  member: Member;
-};
-
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+  return error instanceof ApiError ? error.message : fallback;
 }
 
 function RoleBadge({ role }: { role: Role }) {
-  return <span className={"role-badge role-" + role.toLowerCase()}>{role}</span>;
+  return <span className={`role-badge role-${role.toLowerCase()}`}>{role}</span>;
+}
+
+function Pagination({
+  page,
+  count,
+  pageSize,
+  onPage,
+}: {
+  page: number;
+  count: number;
+  pageSize: number;
+  onPage: (page: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(count / pageSize));
+  return (
+    <div className="pagination" aria-label="Pagination">
+      <span>{count ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, count)} of ${count}` : "0 results"}</span>
+      <div className="flex gap-3">
+        <button className="btn btn-secondary btn-sm" type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          Previous
+        </button>
+        <span className="pagination-page">Page {page} of {pages}</span>
+        <button className="btn btn-secondary btn-sm" type="button" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+          Next
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function UserManagement() {
-  const store = useStore();
-  const { user, can } = useAuth();
-  const members = store.org.members;
-  const allowed = can("manageTeam");
-  const [query, setQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [editor, setEditor] = useState<Member | null | "new">(null);
-  const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const activeMembers = members.filter((member) => member.active);
-  const activeAdmins = activeMembers.filter((member) => member.role === "Admin");
-  const inactiveCount = members.length - activeMembers.length;
-
-  const filtered = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return members
-      .filter((member) => {
-        if (roleFilter !== "all" && member.role !== roleFilter) return false;
-        if (statusFilter === "active" && !member.active) return false;
-        if (statusFilter === "inactive" && member.active) return false;
-        return !normalizedQuery
-          || member.name.toLowerCase().includes(normalizedQuery)
-          || member.email.toLowerCase().includes(normalizedQuery);
-      })
-      .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
-  }, [members, query, roleFilter, statusFilter]);
-
-  const isProtected = (member: Member) =>
-    member.id === user?.id || (member.active && member.role === "Admin" && activeAdmins.length === 1);
-
-  const runConfirmedAction = async (action: ConfirmAction) => {
-    setBusyId(action.member.id);
-    try {
-      if (action.kind === "delete") {
-        await store.removeMember(action.member.id);
-        store.toast(`${action.member.name} was deleted`, "success");
-      } else {
-        const active = action.kind === "activate";
-        await store.updateMember(action.member.id, { active });
-        store.toast(`${action.member.name} is now ${active ? "active" : "inactive"}`, "success");
-      }
-    } catch (error: unknown) {
-      store.toast(errorMessage(error, "Could not update the user"), "error");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  if (!allowed) {
-    return (
-      <div className="content-inner">
-        <div className="page-head">
-          <div>
-            <h1 className="hide-sr">User Management</h1>
-            <p className="desc">Manage dashboard access, roles, and account status.</p>
-          </div>
-        </div>
-        <div className="card">
-          <EmptyState
-            icon="users"
-            title="Admin access required"
-            body="Only organization Admins can view or change user accounts."
-          />
-        </div>
-      </div>
-    );
-  }
-
-  const columns: Column<Member>[] = [
-    {
-      key: "name", label: "User", sortable: true,
-      render: (member) => (
-        <div className="user-cell">
-          <div className="avatar">{userInitials(member.name)}</div>
-          <div>
-            <div className="cell-primary">
-              {member.name}
-              {member.id === user?.id && <span className="tag">You</span>}
-            </div>
-            <div className="cell-sub">{member.email}</div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: "role", label: "Role", sortable: true,
-      render: (member) => <RoleBadge role={member.role} />,
-    },
-    {
-      key: "active", label: "Status", sortable: true,
-      sortVal: (member) => Number(member.active),
-      render: (member) => <StatusBadge status={member.active ? "active" : "inactive"} />,
-    },
-    {
-      key: "createdAt", label: "Joined", sortable: true,
-      render: (member) => <span className="tnum muted">{fmtDate(member.createdAt)}</span>,
-    },
-    {
-      key: "actions", label: "", num: true,
-      render: (member) => (
-        <UserActions
-          member={member}
-          protectedAccount={isProtected(member)}
-          busy={busyId === member.id}
-          onEdit={() => setEditor(member)}
-          onConfirm={(kind) => setConfirm({ kind, member })}
-        />
-      ),
-    },
+  const { can } = useAuth();
+  const [tab, setTab] = useState<ManagementTab>("users");
+  const tabs: Array<[ManagementTab, string]> = [
+    ["users", "Users"],
+    ["invitations", "Invitations"],
+    ...(can("audit.view") ? [["audit", "Audit"] as [ManagementTab, string]] : []),
   ];
-
-  const confirmCopy = confirm && {
-    activate: {
-      title: `Activate ${confirm.member.name}?`,
-      body: "This user will immediately be able to sign in again with their current password.",
-      label: "Activate user",
-      danger: false,
-    },
-    deactivate: {
-      title: `Deactivate ${confirm.member.name}?`,
-      body: "Their existing dashboard access will stop immediately. Their account and history will be retained.",
-      label: "Deactivate user",
-      danger: true,
-    },
-    delete: {
-      title: `Delete ${confirm.member.name}?`,
-      body: "This permanently removes the user account. Operational records already created by them will be retained.",
-      label: "Delete user",
-      danger: true,
-    },
-  }[confirm.kind];
 
   return (
     <div className="content-inner">
       <div className="page-head">
         <div>
           <h1 className="hide-sr">User Management</h1>
-          <p className="desc">Control who can access {store.org.name}, what they can do, and whether their account is active.</p>
+          <p className="desc">Manage access, invitations, roles, security, and organization audit history.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setEditor("new")}>
-          <Icon name="plus" size={17} strokeWidth={2.2} /> Add user
-        </button>
       </div>
-
-      <div className="kpi-strip user-kpis">
-        <StatCard label="Total users" value={members.length} sub="All dashboard accounts" />
-        <StatCard label="Active" value={activeMembers.length} sub="Can currently sign in" />
-        <StatCard label="Active admins" value={activeAdmins.length} sub="Full-access accounts" />
-        <StatCard label="Inactive" value={inactiveCount} sub="Access suspended" />
+      <div className="settings-tabs" role="tablist" aria-label="User management sections">
+        {tabs.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={tab === key ? "on" : ""}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
+      {tab === "users" && <UsersTab />}
+      {tab === "invitations" && <InvitationsTab />}
+      {tab === "audit" && <AuditTab />}
+    </div>
+  );
+}
 
-      <div className="filter-bar section-gap">
+function UsersTab() {
+  const { user: currentUser, can } = useAuth();
+  const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [role, setRole] = useState<Role | "all">("all");
+  const [status, setStatus] = useState<UserStatus | "all">("all");
+  const [editor, setEditor] = useState<User | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [confirm, setConfirm] = useState<{ action: UserAction; user: User } | null>(null);
+
+  const params = { page, pageSize: 20, search: deferredQuery, role, status };
+  const usersQuery = useQuery({
+    queryKey: ["users", params],
+    queryFn: () => api.users(params),
+    placeholderData: (previous) => previous,
+  });
+  const mutation = useMutation({
+    mutationFn: async ({ action, user }: { action: UserAction; user: User }) => {
+      if (action === "remove") return api.removeUser(user.id);
+      return api.updateUser(user.id, { status: action === "activate" ? "active" : "suspended" });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  });
+
+  const rows = usersQuery.data?.results ?? [];
+  const columns: Column<User>[] = [
+    {
+      key: "name",
+      label: "User",
+      sortable: true,
+      render: (member) => (
+        <div className="user-cell">
+          <div className="avatar">{userInitials(member.name)}</div>
+          <div>
+            <div className="cell-primary">
+              {member.name}
+              {member.id === currentUser?.id && <span className="tag">You</span>}
+            </div>
+            <div className="cell-sub">{member.email}</div>
+          </div>
+        </div>
+      ),
+    },
+    { key: "role", label: "Role", sortable: true, render: (member) => <RoleBadge role={member.role} /> },
+    { key: "status", label: "Status", sortable: true, render: (member) => <StatusBadge status={member.status} /> },
+    {
+      key: "mfaEnabled",
+      label: "MFA",
+      sortable: true,
+      sortVal: (member) => Number(member.mfaEnabled),
+      render: (member) => <span className="muted">{member.mfaEnabled ? "Enabled" : member.mfaEnrollmentRequired ? "Required" : "Not enabled"}</span>,
+    },
+    {
+      key: "lastLogin",
+      label: "Last sign-in",
+      sortable: true,
+      render: (member) => <span className="tnum muted">{member.lastLogin ? fmtDateTime(member.lastLogin) : "Never"}</span>,
+    },
+    {
+      key: "actions",
+      label: "",
+      num: true,
+      render: (member) => (
+        <div className="cell-actions" onClick={(event) => event.stopPropagation()}>
+          <button
+            className="icon-btn"
+            type="button"
+            onClick={() => setEditor(member)}
+            aria-label={`${can("users.manage") ? "Edit" : "View"} ${member.name}`}
+            title={can("users.manage") ? "Edit user" : "View user"}
+          >
+            <Icon name={can("users.manage") ? "edit" : "eye"} size={16} />
+          </button>
+          {member.status === "suspended" ? (
+            <button
+              className="icon-btn"
+              type="button"
+              disabled={!can("users.manage") || member.id === currentUser?.id}
+              onClick={() => setConfirm({ action: "activate", user: member })}
+              aria-label={`Reactivate ${member.name}`}
+              title="Reactivate user"
+            >
+              <Icon name="check" size={16} />
+            </button>
+          ) : (
+            <button
+              className="icon-btn"
+              type="button"
+              disabled={!can("users.manage") || member.id === currentUser?.id || member.status === "removed"}
+              onClick={() => setConfirm({ action: "suspend", user: member })}
+              aria-label={`Suspend ${member.name}`}
+              title="Suspend user"
+            >
+              <Icon name="x" size={16} />
+            </button>
+          )}
+          <button
+            className="icon-btn user-delete-button"
+            type="button"
+            disabled={!can("users.manage") || member.id === currentUser?.id || member.status === "removed"}
+            onClick={() => setConfirm({ action: "remove", user: member })}
+            aria-label={`Remove ${member.name}`}
+            title="Remove user"
+          >
+            <Icon name="trash" size={16} />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
+  const confirmCopy = confirm && {
+    activate: {
+      title: `Reactivate ${confirm.user.name}?`,
+      body: "The user will be able to sign in again. Previously revoked sessions remain revoked.",
+      label: "Reactivate user",
+      danger: false,
+    },
+    suspend: {
+      title: `Suspend ${confirm.user.name}?`,
+      body: "Access and all active sessions will be revoked immediately. Audit and operational history are retained.",
+      label: "Suspend user",
+      danger: true,
+    },
+    remove: {
+      title: `Remove ${confirm.user.name}?`,
+      body: "The account will be soft-removed and cannot sign in. Audit and operational history are retained.",
+      label: "Remove user",
+      danger: true,
+    },
+  }[confirm.action];
+
+  return (
+    <>
+      <div className="filter-bar">
         <div className="search-input">
           <Icon name="search" size={17} />
           <input
-            type="text"
+            type="search"
             placeholder="Search name or email…"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
             aria-label="Search users"
           />
         </div>
         <select
-          className="user-role-filter"
-          value={roleFilter}
-          onChange={(event) => setRoleFilter(event.target.value as "all" | Role)}
+          value={role}
+          onChange={(event) => {
+            setRole(event.target.value as Role | "all");
+            setPage(1);
+          }}
           aria-label="Filter users by role"
         >
           <option value="all">All roles</option>
-          {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+          {ROLES.map((option) => <option key={option}>{option}</option>)}
         </select>
-        <div className="seg" aria-label="Filter users by account status">
-          {(["all", "active", "inactive"] as StatusFilter[]).map((status) => (
-            <button
-              key={status}
-              type="button"
-              className={statusFilter === status ? "on" : ""}
-              aria-pressed={statusFilter === status}
-              onClick={() => setStatusFilter(status)}
-            >
-              {status[0].toUpperCase() + status.slice(1)}
-            </button>
-          ))}
-        </div>
+        <select
+          value={status}
+          onChange={(event) => {
+            setStatus(event.target.value as UserStatus | "all");
+            setPage(1);
+          }}
+          aria-label="Filter users by status"
+        >
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+          <option value="removed">Removed</option>
+        </select>
+        {can("users.manage") && (
+          <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}>
+            <Icon name="plus" size={17} /> Invite user
+          </button>
+        )}
       </div>
 
-      <div className="card">
+      {(usersQuery.isError || mutation.isError) && (
+        <div className="auth-error section-gap" role="alert">
+          {errorMessage(usersQuery.error || mutation.error, "Could not update users.")}
+        </div>
+      )}
+      <div className="card management-table">
         <DataTable
           columns={columns}
-          rows={filtered}
+          rows={rows}
           getKey={(member) => member.id}
+          loading={usersQuery.isPending}
           onRowClick={(member) => setEditor(member)}
-          emptyState={(
-            <EmptyState
-              icon="search"
-              title="No matching users"
-              body="Try a different name, email, role, or status filter."
-            />
-          )}
+          emptyState={<EmptyState icon="users" title="No users found" body="Try changing your search or filters." />}
         />
       </div>
+      <Pagination page={page} count={usersQuery.data?.count ?? 0} pageSize={20} onPage={setPage} />
 
-      <div className="m-cards user-mobile-cards">
-        {filtered.map((member) => (
-          <div className="m-card" key={member.id}>
-            <div className="mc-top">
-              <div className="user-cell">
-                <div className="avatar">{userInitials(member.name)}</div>
-                <div>
-                  <div className="cell-primary">{member.name}{member.id === user?.id && <span className="tag">You</span>}</div>
-                  <div className="cell-sub">{member.email}</div>
-                </div>
-              </div>
-              <StatusBadge status={member.active ? "active" : "inactive"} />
-            </div>
-            <div className="user-mobile-meta">
-              <RoleBadge role={member.role} />
-              <span>Joined {fmtDate(member.createdAt)}</span>
-            </div>
-            <UserActions
-              member={member}
-              protectedAccount={isProtected(member)}
-              busy={busyId === member.id}
-              onEdit={() => setEditor(member)}
-              onConfirm={(kind) => setConfirm({ kind, member })}
-              mobile
-            />
-          </div>
-        ))}
-      </div>
-
-      {editor && (
-        <MemberDrawer
-          key={editor === "new" ? "new" : editor.id}
-          member={editor === "new" ? null : editor}
-          currentUserId={user?.id || ""}
-          activeAdminCount={activeAdmins.length}
-          onClose={() => setEditor(null)}
-        />
-      )}
-
+      {inviteOpen && <InvitationDrawer onClose={() => setInviteOpen(false)} />}
+      {editor && <UserDrawer member={editor} onClose={() => setEditor(null)} />}
       {confirm && confirmCopy && (
         <ConfirmModal
           title={confirmCopy.title}
@@ -282,221 +314,355 @@ export function UserManagement() {
           confirmLabel={confirmCopy.label}
           danger={confirmCopy.danger}
           onClose={() => setConfirm(null)}
-          onConfirm={() => void runConfirmedAction(confirm)}
+          onConfirm={() => mutation.mutate(confirm)}
         />
       )}
-    </div>
+    </>
   );
 }
 
-function UserActions({
-  member, protectedAccount, busy, onEdit, onConfirm, mobile,
-}: {
-  member: Member;
-  protectedAccount: boolean;
-  busy: boolean;
-  onEdit: () => void;
-  onConfirm: (kind: ConfirmAction["kind"]) => void;
-  mobile?: boolean;
-}) {
-  const protectionReason = "Your own account and the last active Admin are protected";
-  return (
-    <div className={mobile ? "mc-actions" : "cell-actions"} onClick={(event) => event.stopPropagation()}>
-      <button className={mobile ? "btn btn-secondary btn-sm" : "icon-btn"} onClick={onEdit} aria-label={`Edit ${member.name}`} title="Edit user">
-        <Icon name="edit" size={16} />
-        {mobile && "Edit"}
-      </button>
-      <button
-        className={mobile ? "btn btn-secondary btn-sm" : "icon-btn"}
-        disabled={protectedAccount || busy}
-        onClick={() => onConfirm(member.active ? "deactivate" : "activate")}
-        aria-label={`${member.active ? "Deactivate" : "Activate"} ${member.name}`}
-        title={protectedAccount ? protectionReason : `${member.active ? "Deactivate" : "Activate"} user`}
-      >
-        <Icon name={member.active ? "x" : "check"} size={16} />
-        {mobile && (member.active ? "Deactivate" : "Activate")}
-      </button>
-      <button
-        className={mobile ? "btn btn-ghost btn-sm user-delete-button" : "icon-btn user-delete-button"}
-        disabled={protectedAccount || busy}
-        onClick={() => onConfirm("delete")}
-        aria-label={`Delete ${member.name}`}
-        title={protectedAccount ? protectionReason : "Delete user"}
-      >
-        <Icon name={busy ? "spinner" : "trash"} size={16} className={busy ? "spin" : ""} />
-        {mobile && "Delete"}
-      </button>
-    </div>
-  );
-}
+function UserDrawer({ member, onClose }: { member: User; onClose: () => void }) {
+  const { user: currentUser, can } = useAuth();
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(member.name);
+  const [role, setRole] = useState(member.role);
+  const [notice, setNotice] = useState<string | null>(null);
 
-interface MemberForm {
-  name: string;
-  email: string;
-  role: Role;
-  password: string;
-}
-
-function MemberDrawer({
-  member, currentUserId, activeAdminCount, onClose,
-}: {
-  member: Member | null;
-  currentUserId: string;
-  activeAdminCount: number;
-  onClose: () => void;
-}) {
-  const store = useStore();
-  const creating = member === null;
-  const isSelf = member?.id === currentUserId;
-  const lastActiveAdmin = !!member && member.active && member.role === "Admin" && activeAdminCount === 1;
-  const securityLocked = isSelf || lastActiveAdmin;
-  const [form, setForm] = useState<MemberForm>({
-    name: member?.name || "",
-    email: member?.email || "",
-    role: member?.role || "Operations",
-    password: "",
-  });
-  const [dirty, setDirty] = useState(false);
-  const [errors, setErrors] = useState<Partial<Record<keyof MemberForm, string>>>({});
-  const [saving, setSaving] = useState(false);
-
-  const set = <K extends keyof MemberForm>(key: K, value: MemberForm[K]) => {
-    setForm((current) => ({ ...current, [key]: value }));
-    setErrors((current) => ({ ...current, [key]: undefined }));
-    setDirty(true);
-  };
-
-  const save = async () => {
-    const nextErrors: Partial<Record<keyof MemberForm, string>> = {};
-    if (!form.name.trim()) nextErrors.name = "Name is required";
-    if (creating && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) {
-      nextErrors.email = "Enter a valid email address";
-    }
-    if ((creating || form.password) && form.password.length < 8) {
-      nextErrors.password = "Use at least 8 characters";
-    }
-    if (Object.keys(nextErrors).length) {
-      setErrors(nextErrors);
-      return;
-    }
-
-    setSaving(true);
-    try {
-      if (creating) {
-        await store.addMember({
-          name: form.name.trim(),
-          email: form.email.trim().toLowerCase(),
-          password: form.password,
-          role: form.role,
-        });
-        store.toast(`${form.name.trim()} can now sign in`, "success");
-      } else {
-        const patch: { name?: string; role?: Role; password?: string } = {};
-        if (!isSelf) patch.name = form.name.trim();
-        if (!securityLocked) patch.role = form.role;
-        if (form.password) patch.password = form.password;
-        await store.updateMember(member.id, patch);
-        store.toast(form.password ? "User updated and password reset" : "User updated", "success");
-      }
-      setDirty(false);
+  const updateMutation = useMutation({
+    mutationFn: () => api.updateUser(member.id, {
+      ...(member.id === currentUser?.id ? {} : { name: name.trim(), role }),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
       onClose();
-    } catch (error: unknown) {
-      store.toast(errorMessage(error, "Could not save the user"), "error");
-    } finally {
-      setSaving(false);
-    }
-  };
+    },
+  });
+  const passwordResetMutation = useMutation({
+    mutationFn: () => api.sendUserPasswordReset(member.id),
+    onSuccess: (result) => setNotice(result.detail || "Password reset instructions were sent."),
+  });
+  const mfaResetMutation = useMutation({
+    mutationFn: () => api.resetUserMfa(member.id),
+    onSuccess: (result) => {
+      setNotice(result.detail || "MFA was reset and the user’s sessions were revoked.");
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+  const error = updateMutation.error || passwordResetMutation.error || mfaResetMutation.error;
+  const canManage = can("users.manage") && member.id !== currentUser?.id;
 
   return (
     <Drawer
-      title={creating ? "Add user" : "Edit user"}
-      sub={creating ? "Create a dashboard account with a temporary password." : member.email}
+      title={canManage ? "Edit user" : "User details"}
+      sub={member.email}
       onClose={onClose}
-      guard={() => dirty && !window.confirm("Discard your unsaved user changes?")}
       footer={(
         <>
-          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => void save()} disabled={saving}>
-            {saving && <Icon name="spinner" size={16} className="spin" />}
-            {saving ? "Saving…" : creating ? "Add user" : "Save changes"}
+          <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+          {canManage && (
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={updateMutation.isPending || !name.trim()}
+              onClick={() => updateMutation.mutate()}
+            >
+              {updateMutation.isPending ? "Saving…" : "Save changes"}
+            </button>
+          )}
+        </>
+      )}
+    >
+      {member.id === currentUser?.id && (
+        <div className="user-access-note"><Icon name="info" size={16} />Manage your own name and password from Account &amp; Security.</div>
+      )}
+      {notice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{notice}</div>}
+      {error && <div className="auth-error" role="alert">{errorMessage(error, "Could not update this user.")}</div>}
+      <Field label="Full name" required>
+        <input value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage} />
+      </Field>
+      <Field label="Email" hint="Email changes are completed by the user from their profile.">
+        <input value={member.email} disabled />
+      </Field>
+      <Field label="Role" hint={ROLE_HELP[role]}>
+        <select value={role} onChange={(event) => setRole(event.target.value as Role)} disabled={!canManage}>
+          {ROLES.map((option) => <option key={option}>{option}</option>)}
+        </select>
+      </Field>
+      <div className="user-account-summary">
+        <span>Account status</span>
+        <StatusBadge status={member.status} />
+        <small>{member.emailVerified ? "Email verified" : "Email not verified"} · MFA {member.mfaEnabled ? "enabled" : "not enabled"}</small>
+      </div>
+      {canManage && (
+        <div className="drawer-action-stack">
+          <button className="btn btn-secondary" type="button" disabled={passwordResetMutation.isPending} onClick={() => passwordResetMutation.mutate()}>
+            <Icon name="mail" size={16} /> Send password reset
+          </button>
+          {member.mfaEnabled && (
+            <button className="btn btn-secondary" type="button" disabled={mfaResetMutation.isPending} onClick={() => mfaResetMutation.mutate()}>
+              <Icon name="settings" size={16} /> Reset MFA and sessions
+            </button>
+          )}
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+function InvitationDrawer({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<Role>("Operations");
+
+  const mutation = useMutation({
+    mutationFn: () => api.inviteUser({ name: name.trim(), email: email.trim().toLowerCase(), role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      onClose();
+    },
+  });
+
+  return (
+    <Drawer
+      title="Invite user"
+      sub="Send a seven-day, single-use invitation."
+      onClose={onClose}
+      footer={(
+        <>
+          <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={mutation.isPending || !name.trim() || !email.trim()}
+            onClick={() => mutation.mutate()}
+          >
+            {mutation.isPending ? "Sending…" : "Send invitation"}
           </button>
         </>
       )}
     >
-      {(isSelf || lastActiveAdmin) && (
-        <div className="user-access-note">
-          <Icon name="info" size={16} />
-          <span>
-            {isSelf
-              ? "Your own name, role, and account status are protected here. You can still reset your password."
-              : "This is the last active Admin. Add another Admin before changing this account's role or status."}
-          </span>
-        </div>
-      )}
-
-      <Field label="Full name" required error={errors.name}>
-        <input
-          type="text"
-          value={form.name}
-          disabled={isSelf}
-          onChange={(event) => set("name", event.target.value)}
-          autoComplete="name"
-          aria-label="Full name"
-        />
+      {mutation.isError && <div className="auth-error" role="alert">{errorMessage(mutation.error, "Could not send the invitation.")}</div>}
+      <Field label="Full name" required>
+        <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
       </Field>
-
-      <Field
-        label="Email"
-        required
-        error={errors.email}
-        hint={!creating ? "Email addresses cannot be changed after an account is created." : undefined}
-      >
-        <input
-          type="email"
-          value={form.email}
-          disabled={!creating}
-          onChange={(event) => set("email", event.target.value)}
-          autoComplete="email"
-          aria-label="Email"
-        />
+      <Field label="Email" required hint="The recipient chooses their own password after opening the secure link.">
+        <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
       </Field>
-
-      <Field label="Role" hint={ROLE_HELP[form.role]}>
-        <select
-          value={form.role}
-          disabled={securityLocked}
-          onChange={(event) => set("role", event.target.value as Role)}
-          aria-label="Role"
-        >
-          {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+      <Field label="Role" hint={ROLE_HELP[role]}>
+        <select value={role} onChange={(event) => setRole(event.target.value as Role)}>
+          {ROLES.map((option) => <option key={option}>{option}</option>)}
         </select>
       </Field>
+    </Drawer>
+  );
+}
 
-      <Field
-        label={creating ? "Temporary password" : "Reset password"}
-        required={creating}
-        error={errors.password}
-        hint={creating
-          ? "Share this securely. The user can sign in immediately."
-          : "Leave blank to keep the current password. Enter a new value to reset it immediately."}
-      >
-        <input
-          type="password"
-          value={form.password}
-          placeholder={creating ? "At least 8 characters" : "New password (optional)"}
-          onChange={(event) => set("password", event.target.value)}
-          autoComplete="new-password"
-          aria-label={creating ? "Temporary password" : "Reset password"}
-        />
-      </Field>
+function InvitationsTab() {
+  const queryClient = useQueryClient();
+  const { can } = useAuth();
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [revoke, setRevoke] = useState<Invitation | null>(null);
+  const params = { page, pageSize: 20, search: deferredQuery };
+  const invitationsQuery = useQuery({
+    queryKey: ["invitations", params],
+    queryFn: () => api.invitations(params),
+    placeholderData: (previous) => previous,
+  });
+  const resendMutation = useMutation({
+    mutationFn: api.resendInvitation,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+  });
+  const revokeMutation = useMutation({
+    mutationFn: api.revokeInvitation,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+  });
+  const rows = invitationsQuery.data?.results ?? [];
+  const columns: Column<Invitation>[] = [
+    {
+      key: "name",
+      label: "Recipient",
+      sortable: true,
+      render: (invitation) => <div><div className="cell-primary">{invitation.name}</div><div className="cell-sub">{invitation.email}</div></div>,
+    },
+    { key: "role", label: "Role", sortable: true, render: (invitation) => <RoleBadge role={invitation.role} /> },
+    { key: "status", label: "Status", sortable: true, render: (invitation) => <StatusBadge status={invitation.status} /> },
+    { key: "expiresAt", label: "Expires", sortable: true, render: (invitation) => <span className="tnum muted">{fmtDate(invitation.expiresAt)}</span> },
+    {
+      key: "actions",
+      label: "",
+      num: true,
+      render: (invitation) => (
+        <div className="cell-actions">
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            disabled={!can("users.manage") || resendMutation.isPending || !["pending", "expired"].includes(invitation.status)}
+            onClick={() => resendMutation.mutate(invitation.id)}
+          >
+            Resend
+          </button>
+          <button
+            className="icon-btn user-delete-button"
+            type="button"
+            disabled={!can("users.manage") || invitation.status !== "pending"}
+            onClick={() => setRevoke(invitation)}
+            aria-label={`Revoke invitation for ${invitation.email}`}
+          >
+            <Icon name="trash" size={16} />
+          </button>
+        </div>
+      ),
+    },
+  ];
 
-      {!creating && (
-        <div className="user-account-summary">
-          <span>Account status</span>
-          <StatusBadge status={member.active ? "active" : "inactive"} />
-          <small>Use the action in the user list to change account access.</small>
+  return (
+    <>
+      <div className="filter-bar">
+        <div className="search-input">
+          <Icon name="search" size={17} />
+          <input
+            type="search"
+            placeholder="Search invitation…"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
+            aria-label="Search invitations"
+          />
+        </div>
+        {can("users.manage") && (
+          <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}>
+            <Icon name="plus" size={17} /> Invite user
+          </button>
+        )}
+      </div>
+      {(invitationsQuery.isError || resendMutation.isError || revokeMutation.isError) && (
+        <div className="auth-error section-gap" role="alert">
+          {errorMessage(invitationsQuery.error || resendMutation.error || revokeMutation.error, "Could not update invitations.")}
         </div>
       )}
-    </Drawer>
+      <div className="card management-table">
+        <DataTable
+          columns={columns}
+          rows={rows}
+          getKey={(invitation) => invitation.id}
+          loading={invitationsQuery.isPending}
+          emptyState={<EmptyState icon="mail" title="No invitations found" body="Invite a colleague to give them secure access." />}
+        />
+      </div>
+      <Pagination page={page} count={invitationsQuery.data?.count ?? 0} pageSize={20} onPage={setPage} />
+      {inviteOpen && <InvitationDrawer onClose={() => setInviteOpen(false)} />}
+      {revoke && (
+        <ConfirmModal
+          title={`Revoke ${revoke.email}’s invitation?`}
+          body="The existing invitation link will stop working immediately."
+          confirmLabel="Revoke invitation"
+          danger
+          onClose={() => setRevoke(null)}
+          onConfirm={() => revokeMutation.mutate(revoke.id)}
+        />
+      )}
+    </>
+  );
+}
+
+function AuditTab() {
+  const { can } = useAuth();
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [action, setAction] = useState("");
+  const params = { page, pageSize: 20, search: deferredQuery, action };
+  const auditQuery = useQuery({
+    queryKey: ["audit", params],
+    queryFn: () => api.audit(params),
+    placeholderData: (previous) => previous,
+  });
+  const rows = auditQuery.data?.results ?? [];
+  const actions = useMemo(
+    () => Array.from(new Set(rows.map((event) => event.action))).sort(),
+    [rows],
+  );
+  const columns: Column<AuditEvent>[] = [
+    {
+      key: "occurredAt",
+      label: "Time",
+      sortable: true,
+      render: (event) => <span className="tnum muted">{fmtDateTime(event.occurredAt)}</span>,
+    },
+    {
+      key: "actor",
+      label: "Actor",
+      render: (event) => <div><div className="cell-primary">{event.actor?.name || "System"}</div><div className="cell-sub">{event.actor?.email || "Automated event"}</div></div>,
+    },
+    {
+      key: "action",
+      label: "Action",
+      sortable: true,
+      render: (event) => <span className="mono-ref audit-action">{event.action}</span>,
+    },
+    {
+      key: "targetLabel",
+      label: "Target",
+      render: (event) => <div><div>{event.targetLabel || "—"}</div><div className="cell-sub">{event.targetType || event.category || ""}</div></div>,
+    },
+    {
+      key: "requestId",
+      label: "Request ID",
+      render: (event) => <span className="mono-ref muted">{event.requestId || "—"}</span>,
+    },
+  ];
+
+  return (
+    <>
+      <div className="filter-bar">
+        <div className="search-input">
+          <Icon name="search" size={17} />
+          <input
+            type="search"
+            placeholder="Search actor, target, or request…"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
+            aria-label="Search audit events"
+          />
+        </div>
+        <select
+          value={action}
+          onChange={(event) => {
+            setAction(event.target.value);
+            setPage(1);
+          }}
+          aria-label="Filter audit events by action"
+        >
+          <option value="">All actions</option>
+          {actions.map((option) => <option key={option}>{option}</option>)}
+        </select>
+        {can("audit.export") && (
+          <a className="btn btn-secondary filter-action" href={api.auditExportUrl({ search: deferredQuery, action })} download>
+            <Icon name="download" size={16} /> Export CSV
+          </a>
+        )}
+      </div>
+      {auditQuery.isError && <div className="auth-error section-gap" role="alert">{errorMessage(auditQuery.error, "Could not load audit events.")}</div>}
+      <div className="card management-table">
+        <DataTable
+          columns={columns}
+          rows={rows}
+          getKey={(event) => event.id}
+          loading={auditQuery.isPending}
+          emptyState={<EmptyState icon="fileText" title="No audit events found" body="Events will appear as users and operational records change." />}
+        />
+      </div>
+      <Pagination page={page} count={auditQuery.data?.count ?? 0} pageSize={20} onPage={setPage} />
+    </>
   );
 }

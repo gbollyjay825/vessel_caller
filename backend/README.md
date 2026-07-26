@@ -1,97 +1,117 @@
-# Vessel Caller API
+# Vessel Caller Django API
 
-Standalone **FastAPI** backend for the Vessel Caller platform — a real REST API
-with **JWT authentication**, **server-enforced roles**, a **relational SQLite**
-schema (SQLAlchemy 2), and **analytics computed from the database**. Deployable
-independently of the frontend.
+Production API for Vessel Caller, built with Django 5.2 LTS, Django REST
+Framework 3.17, PostgreSQL, Redis/Celery, private object storage, and Resend.
+The retired FastAPI implementation is retained in `legacy_fastapi/` only for
+the controlled blue/green rollback window.
 
-## Run it
+## Local setup
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env                 # then set VC_JWT_SECRET
-uvicorn app.main:app --reload        # http://127.0.0.1:8000
-```
-
-Interactive API docs (OpenAPI/Swagger): **http://127.0.0.1:8000/docs**
-
-On first run the DB is created and seeded with a demo organization, a team
-across all four roles, and ~12 months of vessel calls / inspections / invoices.
-
-**Demo login:** `admin@calabarport.ng` / `demo1234`
-(also `operations@`, `finance@`, `viewer@calabarport.ng`, same password).
-
-## Configuration
-
-All via env vars (prefix `VC_`) or `.env` — see [.env.example](.env.example).
-The essentials for production: `VC_JWT_SECRET` (long random string),
-`VC_CORS_ORIGINS` (your frontend origin), and `VC_DATABASE_URL`.
-
-## Auth & roles
-
-- `POST /api/auth/register` creates a new organization + its first **Admin**.
-- `POST /api/auth/login` → `{ token }` (JWT bearer, send `Authorization: Bearer …`).
-- Roles **Admin / Operations / Finance / Viewer** are enforced server-side on
-  every mutating endpoint (not just in the UI). e.g. only Admin/Finance can
-  record a payment; only Admin can change settings or manage the team.
-
-## Endpoints
-
-| Method | Path | Role | Purpose |
-|---|---|---|---|
-| GET | `/api/health` | — | Liveness |
-| POST | `/api/auth/register` | — | New org + first Admin |
-| POST | `/api/auth/login` | — | Get a token |
-| GET | `/api/auth/me` | any | Current user + org |
-| GET | `/api/state[?rev=N]` | any | Org-scoped bulk state; `{changed:false}` if current |
-| PUT | `/api/organization` | Admin | Org profile / ports / logo |
-| POST·PUT·DELETE | `/api/organization/members[/id]` | Admin | Team management |
-| POST | `/api/vessel-calls` | Admin·Ops | Register a call |
-| DELETE | `/api/vessel-calls/{id}` | Admin·Ops | Cancel (cascades) |
-| POST | `/api/inspections` | Admin·Ops | Submit; issues a snapshotted invoice |
-| PUT | `/api/invoices/{id}` | Admin·Finance | Record / clear payment |
-| PUT | `/api/settings` | Admin | Charge rates / notifications / port |
-| GET | `/api/analytics[?months=12]` | any | Throughput / revenue / mix, from the DB |
-
-Harbour dues = **net tonnage × the applicable rate** (liquid by jetty class —
-Government $1.68 / Private $2.88 / International $4.23; dry $2.17). The dues,
-rate, commission and FX are **snapshotted onto the invoice at issue time**, so
-changing tariff rates never rewrites already-issued figures.
-
-## Tests
+Python 3.12 and PostgreSQL are required.
 
 ```bash
-python -m pytest        # auth, roles, vessel→invoice flow, snapshot integrity, analytics
+python3.12 -m venv .venv
+.venv/bin/pip install --require-hashes -r backend/requirements/development.txt
+cp backend/.env.example backend/.env.local
+set -a; source backend/.env.local; set +a
+.venv/bin/python backend/manage.py migrate
+.venv/bin/python backend/manage.py runserver 127.0.0.1:8000
 ```
 
-## Deploy (Docker)
+The local environment file is ignored by Git. Django does not silently load
+it; source it explicitly or let the process supervisor inject variables.
+
+Use `vessel_caller.settings.development` locally,
+`vessel_caller.settings.test` in tests, and
+`vessel_caller.settings.production` under Gunicorn. Production settings fail
+fast when PostgreSQL TLS, Redis, Resend, Spaces, release identity, MFA
+encryption, or Sentry configuration is missing.
+
+## Authentication and CSRF
+
+Authentication is a server-side Django session. The browser never receives a
+bearer token.
+
+1. `GET /api/auth/csrf` sets `csrftoken` and returns `{csrfToken}`.
+2. Send cookies on every request.
+3. Send `X-CSRFToken` on every unsafe request.
+4. Production sets a Secure, HttpOnly, SameSite=Lax `__Host-vessel_session`
+   cookie. Development uses `vessel_session` so HTTP browser tests work.
+
+Registration returns `202` and creates no session until the 24-hour email link
+is verified. Additional users join through rotating, seven-day invitations.
+Admin and Finance MFA becomes mandatory after the seven-day enrollment grace
+period. Sessions expire after 12 idle hours or 30 absolute days and are
+revoked after sensitive access changes.
+
+## API overview
+
+All JSON uses camelCase, exact no-trailing-slash routes, and errors shaped as
+`{detail, errors, requestId}`.
+
+- Identity: `/api/auth/*`, `/api/profile`, `/api/users`, `/api/invitations`
+- Security: `/api/auth/mfa/*`, `/api/auth/sessions`
+- Operations: `/api/vessel-calls`, `/api/inspections`
+- Billing: `/api/invoices/{id}/payments`, `/api/payments/{id}/reverse`
+- Evidence: `/api/evidence/presign`, `/api/evidence`
+- Documents: `/api/{vessel-calls|inspections|invoices}/{id}/document`
+- Compatibility: `/api/state` remains for one transition release
+- Monitoring: `/api/health` and `/api/readiness`
+
+The health responses contain `VC_RELEASE_SHA` and `VC_RELEASE_TAG`, never
+secrets, so promotion checks can prove artifact identity.
+
+## Tests and quality gates
+
+The isolated test database URL belongs in `VC_TEST_DATABASE_URL`.
 
 ```bash
-docker build -t vessel-caller-api .
-docker run -p 8000:8000 \
-  -e VC_JWT_SECRET="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')" \
-  -e VC_CORS_ORIGINS="https://your-frontend.example" \
-  -e VC_ENVIRONMENT=production \
-  -v vessel-data:/data -e VC_DATABASE_URL="sqlite:////data/vessel_caller.db" \
-  vessel-caller-api
+set -a; source backend/.env.local; set +a
+export DJANGO_SETTINGS_MODULE=vessel_caller.settings.test
+cd backend
+../.venv/bin/python -m pytest
+../.venv/bin/python manage.py makemigrations --check --dry-run
+../.venv/bin/python manage.py check
+../.venv/bin/ruff check .
+../.venv/bin/mypy .
+../.venv/bin/bandit -r accounts api audit billing operations organizations vessel_caller
 ```
 
-Works on any container host (Render, Railway, Fly.io, Cloud Run, a VPS). For
-higher scale point `VC_DATABASE_URL` at Postgres — no code change.
+`python manage.py seed_e2e` creates four deterministic role accounts only when
+DEBUG is enabled. The password is `E2E-only-password-2026!`; addresses are
+`admin@e2e.vesselcalls.test`, `operations@…`, `finance@…`, and `viewer@…`.
+This command is never an application startup hook and refuses non-debug
+environments unless an operator explicitly passes `--force`.
 
-## Structure
+## Legacy SQLite migration
 
+First take a consistent SQLite backup with the SQLite backup API. The importer
+also creates an internal backup snapshot so the WAL is included:
+
+```bash
+python manage.py import_legacy_sqlite /secure/path/vessel_caller.db \
+  --manifest /secure/path/import-manifest.json
 ```
-app/
-  main.py        FastAPI app: CORS, security headers, routers, lifespan seed
-  config.py      env-driven settings
-  db.py          SQLAlchemy engine/session (SQLite WAL, FKs on)
-  models.py      relational schema (users, orgs, calls, inspections, invoices, settings)
-  schemas.py     Pydantic request models
-  security.py    password hashing + JWT + role dependencies
-  services.py    dues/commission maths + serialization
-  seed.py        demo org + team + 12-month history
-  routers/       auth · state · organization · vessel_calls · inspections · invoices · settings · analytics
-tests/           pytest suite
+
+The command accepts the reviewed legacy schema fingerprint
+`031d952f0cc24632ad038e59684463d319cfe9d116e2441a4b347d8afdbafcd3`,
+rejects unknown schemas unless `--allow-unknown-schema` is explicitly used,
+preserves opaque IDs and legacy password hashes, normalizes decimal money and
+payments, rebuilds number sequences, and emits row/ID checksums, counts, and
+financial totals. Use `--dry-run` before importing and rehearse from production
+snapshots twice. Legacy Passlib PBKDF2 hashes upgrade to Argon2id at the next
+successful login.
+
+## Processes
+
+```bash
+gunicorn vessel_caller.wsgi:application \
+  --bind 127.0.0.1:8002 --workers 3 --threads 2 --timeout 60
+celery -A vessel_caller worker --loglevel=INFO
 ```
+
+Run migrations and `manage.py check --deploy` before switching the Nginx
+upstream. Build static files once with `manage.py collectstatic --noinput`.
+Production email uses a transactional database outbox; Celery retries Resend
+delivery with idempotency keys. Production evidence uses private Spaces
+objects and short-lived signed upload/download URLs.

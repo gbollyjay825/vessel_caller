@@ -1,16 +1,19 @@
 // Shared UI kit (ported from the prototype's ui.jsx) — typed for TS.
 import {
-  Fragment, useCallback, useEffect, useRef, useState,
-  type CSSProperties, type ReactNode,
+  cloneElement, Fragment, isValidElement, useCallback, useEffect, useId, useRef, useState,
+  type ReactElement, type ReactNode,
 } from "react";
 
+import { api } from "../lib/api";
 import { fmtNGN, fmtUSD } from "../lib/format";
 import { Icon } from "./Icon";
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "Pending", "in-progress": "In progress", completed: "Completed",
   paid: "Paid", unpaid: "Unpaid", overdue: "Overdue", draft: "Draft",
-  active: "Active", inactive: "Inactive",
+  active: "Active", inactive: "Inactive", invited: "Invited", suspended: "Suspended",
+  removed: "Removed", accepted: "Accepted", expired: "Expired", revoked: "Revoked",
+  cancelled: "Cancelled", void: "Void",
 };
 
 export function StatusBadge({ status }: { status: string }) {
@@ -35,24 +38,23 @@ export function Money({ usd, ngn, dp = 2, block }: { usd: number; ngn?: number |
   );
 }
 
-export function PdfButton({ kind, record, disabled }: { kind: "invoice" | "report"; record: Record<string, string>; disabled?: boolean }) {
-  const [loading, setLoading] = useState(false);
+export function PdfButton({ kind, id, disabled }: { kind: "invoice" | "report" | "call"; id?: string | null; disabled?: boolean }) {
   const label = kind === "invoice" ? "Invoice" : "Report";
   const icon = kind === "invoice" ? "receipt" : "fileText";
   const open = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (disabled || loading) return;
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      const params = new URLSearchParams({ doc: kind, ...record }).toString();
-      window.open("/pdf.html?" + params, "_blank", "noopener");
-    }, 300);
+    if (disabled || !id) return;
+    const url = kind === "invoice"
+      ? api.invoicePdfUrl(id)
+      : kind === "report"
+        ? api.inspectionPdfUrl(id)
+        : api.vesselCallPdfUrl(id);
+    window.open(url, "_blank", "noopener");
   };
   return (
-    <button className="pdf-btn" onClick={open} disabled={disabled}
+    <button className="pdf-btn" type="button" onClick={open} disabled={disabled || !id}
       title={disabled ? "Not yet generated" : `Open ${label.toLowerCase()} PDF in a new tab`} aria-label={`${label} PDF`}>
-      <Icon name={loading ? "spinner" : icon} size={14} strokeWidth={2} className={loading ? "spin" : ""} />{label}
+      <Icon name={icon} size={14} strokeWidth={2} />{label}
     </button>
   );
 }
@@ -88,11 +90,11 @@ export interface Column<T> {
   sortVal?: (r: T) => string | number | null | undefined;
   render: (r: T) => ReactNode;
 }
-export function DataTable<T>({ columns, rows, getKey, onRowClick, loading, skeletonRows = 5, emptyState, flashId }:
+export function DataTable<T>({ columns, rows, getKey, onRowClick, loading, skeletonRows = 5, emptyState, flashId, mobileCards = true }:
   {
     columns: Column<T>[]; rows: T[]; getKey: (r: T) => string;
     onRowClick?: (r: T) => void; loading?: boolean; skeletonRows?: number;
-    emptyState?: ReactNode; flashId?: string | null;
+    emptyState?: ReactNode; flashId?: string | null; mobileCards?: boolean;
   }) {
   const [sort, setSort] = useState<{ key: string | null; dir: "asc" | "desc" }>({ key: null, dir: "asc" });
   const toggleSort = (col: Column<T>) => {
@@ -128,6 +130,16 @@ export function DataTable<T>({ columns, rows, getKey, onRowClick, loading, skele
             ))}
           </tbody>
         </table>
+        {mobileCards && (
+          <div className="m-cards data-mobile-cards" aria-label="Loading records">
+            {Array.from({ length: Math.min(skeletonRows, 3) }).map((_, index) => (
+              <div className="m-card data-mobile-card" key={index}>
+                <div className="sk" style={{ width: index % 2 ? "70%" : "85%" }} />
+                <div className="sk" style={{ width: "55%", marginTop: 12 }} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -139,16 +151,27 @@ export function DataTable<T>({ columns, rows, getKey, onRowClick, loading, skele
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c.key} className={(c.num ? "num " : "") + (c.sortable ? "sortable" : "")}
-                onClick={() => toggleSort(c)}
-                aria-sort={sort.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
-                <span className="th-in" style={c.num ? { justifyContent: "flex-end", width: "100%" } : undefined}>
-                  {c.label}
-                  {c.sortable && sort.key === c.key && (
-                    <Icon name="chevronDown" size={13} strokeWidth={2.2}
-                      style={{ transform: sort.dir === "asc" ? "rotate(180deg)" : "none" }} />
-                  )}
-                </span>
+              <th
+                key={c.key}
+                className={(c.num ? "num " : "") + (c.sortable ? "sortable" : "")}
+                aria-sort={c.sortable ? (sort.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none") : undefined}
+              >
+                {c.sortable ? (
+                  <button
+                    className="th-in table-sort"
+                    type="button"
+                    onClick={() => toggleSort(c)}
+                    style={c.num ? { justifyContent: "flex-end", width: "100%" } : undefined}
+                  >
+                    {c.label}
+                    {sort.key === c.key && (
+                      <Icon name="chevronDown" size={13} strokeWidth={2.2}
+                        style={{ transform: sort.dir === "asc" ? "rotate(180deg)" : "none" }} />
+                    )}
+                  </button>
+                ) : (
+                  <span className="th-in" style={c.num ? { justifyContent: "flex-end", width: "100%" } : undefined}>{c.label}</span>
+                )}
               </th>
             ))}
           </tr>
@@ -158,13 +181,57 @@ export function DataTable<T>({ columns, rows, getKey, onRowClick, loading, skele
             const k = getKey(row);
             return (
               <tr key={k} className={(onRowClick ? "clickable " : "") + (flashId === k ? "flash" : "")}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}>
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
+                onKeyDown={onRowClick ? (event) => {
+                  if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                  event.preventDefault();
+                  onRowClick(row);
+                } : undefined}>
                 {columns.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{c.render(row)}</td>)}
               </tr>
             );
           })}
         </tbody>
       </table>
+      {mobileCards && (
+        <div className="m-cards data-mobile-cards">
+          {display.map((row) => {
+            const key = getKey(row);
+            const cardColumns = onRowClick ? columns.filter((column) => column.label) : columns;
+            const content = cardColumns.map((column) => (
+              column.label ? (
+                <div className="mobile-kv" key={column.key}>
+                  <span className="mobile-kv-label">{column.label}</span>
+                  <span className={column.num ? "mobile-kv-value num" : "mobile-kv-value"}>
+                    {column.render(row)}
+                  </span>
+                </div>
+              ) : (
+                <div className="mobile-card-actions" key={column.key}>{column.render(row)}</div>
+              )
+            ));
+            return onRowClick ? (
+              <div
+                className="m-card data-mobile-card"
+                key={key}
+                role="button"
+                tabIndex={0}
+                onClick={() => onRowClick(row)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  onRowClick(row);
+                }}
+              >
+                {content}
+              </div>
+            ) : (
+              <div className="m-card data-mobile-card" key={key}>{content}</div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -200,7 +267,14 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
 export function Drawer({ title, sub, onClose, children, footer, wide, guard }:
   { title: string; sub?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean; guard?: () => boolean }) {
   const ref = useRef<HTMLElement>(null);
-  const attemptClose = useCallback(() => { if (guard && guard()) return; onClose(); }, [guard, onClose]);
+  const guardRef = useRef(guard);
+  const onCloseRef = useRef(onClose);
+  guardRef.current = guard;
+  onCloseRef.current = onClose;
+  const attemptClose = useCallback(() => {
+    if (guardRef.current?.()) return;
+    onCloseRef.current();
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") attemptClose(); };
     document.addEventListener("keydown", onKey);
@@ -222,8 +296,16 @@ export function Drawer({ title, sub, onClose, children, footer, wide, guard }:
   );
 }
 
-export function ConfirmModal({ title, body, confirmLabel = "Confirm", danger, onConfirm, onClose }:
-  { title: string; body: ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void; onClose: () => void }) {
+export function ConfirmModal({ title, body, confirmLabel = "Confirm", confirmDisabled, danger, onConfirm, onClose }:
+  {
+    title: string;
+    body: ReactNode;
+    confirmLabel?: string;
+    confirmDisabled?: boolean;
+    danger?: boolean;
+    onConfirm: () => void;
+    onClose: () => void;
+  }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
@@ -238,6 +320,7 @@ export function ConfirmModal({ title, body, confirmLabel = "Confirm", danger, on
           <div className="modal-foot">
             <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
             <button className={"btn " + (danger ? "btn-danger" : "btn-primary")}
+              disabled={confirmDisabled}
               onClick={() => { onConfirm(); onClose(); }}>{confirmLabel}</button>
           </div>
         </div>
@@ -248,14 +331,43 @@ export function ConfirmModal({ title, body, confirmLabel = "Confirm", danger, on
 
 export function Field({ label, required, hint, error, ok, checking, children }:
   { label?: string; required?: boolean; hint?: ReactNode; error?: ReactNode; ok?: ReactNode; checking?: ReactNode; children: ReactNode }) {
+  const generatedId = useId();
+  const descriptionId = `${generatedId}-description`;
+  const nativeControl = isValidElement(children)
+    && typeof children.type === "string"
+    && ["input", "select", "textarea"].includes(children.type);
+  const element = nativeControl
+    ? children as ReactElement<{
+      id?: string;
+      "aria-describedby"?: string;
+      "aria-invalid"?: boolean;
+    }>
+    : null;
+  const controlId = element?.props.id ?? generatedId;
+  const hasDescription = Boolean(checking || error || ok || hint);
+  const control = element
+    ? cloneElement(element, {
+      id: controlId,
+      "aria-describedby": [
+        element.props["aria-describedby"],
+        hasDescription ? descriptionId : null,
+      ].filter(Boolean).join(" ") || undefined,
+      "aria-invalid": Boolean(error) || element.props["aria-invalid"] || undefined,
+    })
+    : children;
+
   return (
     <div className="field">
-      {label && <label>{label}{required && <span className="req">*</span>}</label>}
-      {children}
-      {checking && <div className="field-checking"><Icon name="spinner" size={13} className="spin" strokeWidth={2} /> {checking}</div>}
-      {!checking && error && <div className="field-err"><Icon name="alert" size={13} strokeWidth={2} /> {error}</div>}
-      {!checking && !error && ok && <div className="field-ok"><Icon name="check" size={13} strokeWidth={2.2} /> {ok}</div>}
-      {!checking && !error && !ok && hint && <div className="hint">{hint}</div>}
+      {label && (
+        nativeControl
+          ? <label htmlFor={controlId}>{label}{required && <span className="req" aria-hidden="true">*</span>}</label>
+          : <div className="field-label">{label}{required && <span className="req" aria-hidden="true">*</span>}</div>
+      )}
+      {control}
+      {checking && <div id={descriptionId} className="field-checking"><Icon name="spinner" size={13} className="spin" strokeWidth={2} /> {checking}</div>}
+      {!checking && error && <div id={descriptionId} className="field-err"><Icon name="alert" size={13} strokeWidth={2} /> {error}</div>}
+      {!checking && !error && ok && <div id={descriptionId} className="field-ok"><Icon name="check" size={13} strokeWidth={2.2} /> {ok}</div>}
+      {!checking && !error && !ok && hint && <div id={descriptionId} className="hint">{hint}</div>}
     </div>
   );
 }
@@ -277,8 +389,4 @@ export function LiveCalc({ label, value, unit, foot, flashKey }:
       {foot && <div className="lc-foot">{foot}</div>}
     </div>
   );
-}
-
-export function ToastHost() {
-  return null; // toasts are rendered by the app shell's own ToastHost
 }

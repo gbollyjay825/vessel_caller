@@ -1,8 +1,8 @@
 // Dashboard — KPI strip + cargo-throughput chart (real analytics) + recent
 // vessel calls. Ported from calabar/screens-ops.jsx (Dashboard) to an ES-module
-// TSX screen that reads useStore() and navigates via react-router.
+// TSX screen that reads useStore() and navigates through the SPA router adapter.
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "../lib/navigation";
 
 import { useStore } from "../app/store";
 import { AreaTrend, MiniSpark } from "../components/charts";
@@ -12,7 +12,7 @@ import {
 } from "../components/ui";
 import { api } from "../lib/api";
 import {
-  effectiveInvoiceStatus, fmtCompactMT, fmtCompactUSD, fmtDate, fmtNGN, fmtUSD,
+  fmtCompactMT, fmtCompactUSD, fmtDate, fmtNGN, fmtUSD,
 } from "../lib/format";
 import type { Analytics, VesselCall } from "../types";
 
@@ -158,12 +158,12 @@ export function Dashboard() {
 function RowActions({ store, call }: { store: StoreApi; call: VesselCall }) {
   const navigate = useNavigate();
   if (call.status === "completed") {
-    const f = store.financialsForCall(call);
-    const rec = pdfRecord(store, call);
+    const invoice = store.invoiceForCall(call.id);
+    const inspection = store.inspectionsForCall(call.id).find((item) => item.status === "completed");
     return (
       <div className="cell-actions">
-        <PdfButton kind="invoice" record={rec} disabled={!f} />
-        <PdfButton kind="report" record={rec} disabled={!f} />
+        <PdfButton kind="invoice" id={invoice?.id} />
+        <PdfButton kind="report" id={inspection?.id} />
       </div>
     );
   }
@@ -174,29 +174,4 @@ function RowActions({ store, call }: { store: StoreApi; call: VesselCall }) {
       </button>
     </div>
   );
-}
-
-// Build the query-param record a PDF page needs. Prefers the invoice's
-// issue-time money snapshot over recomputed figures.
-export function pdfRecord(store: StoreApi, call: VesselCall): Record<string, string> {
-  const f = store.financialsForCall(call);
-  const insp = store.inspectionsForCall(call.id).find((i) => i.status === "completed");
-  const inv = store.invoiceForCall(call.id);
-  const snap = inv && inv.dues != null ? inv : null;
-  const jetty = insp?.jetty || null;
-  const jettyLabel = jetty
-    ? (jetty.type === "International" ? "International Jetty" : `${jetty.category || ""} Jetty (Local)`.trim())
-    : "";
-  return {
-    vessel: call.vesselName, callRef: call.reference, type: call.type,
-    nrt: String(call.nrt), berth: call.berth || "", date: insp?.date || call.berthDate || "",
-    invoiceNo: inv?.invoiceNo || "—", dueDate: inv?.due || "",
-    cargoType: insp?.cargoType || "—", tonnage: insp ? String(insp.reconciledTonnage) : "0",
-    dues: String(snap ? snap.dues : (f?.dues || 0)), duesRate: String(snap ? (snap.rate || 0) : (f?.rate || 0)), commRate: String(store.settings.commissionRate),
-    commUsd: String(snap ? (snap.commissionUsd || 0) : (f?.commissionUsd || 0)), commNgn: String(snap ? (snap.commissionNgn || 0) : (f?.commissionNgn || 0)),
-    fx: String(snap && snap.fx != null ? snap.fx : store.settings.exchangeRate), port: store.org?.primaryPort || store.settings.portName,
-    jettyType: jettyLabel, jettyName: jetty?.name || "",
-    invStatus: inv ? effectiveInvoiceStatus(inv) : "",
-    paidOn: inv?.payment?.paidOn || "", payRef: inv?.payment?.reference || "", payMethod: inv?.payment?.method || "",
-  };
 }

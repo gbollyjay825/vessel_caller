@@ -2,7 +2,7 @@
 // Ported from calabar/screens-ops.jsx (VesselCalls, RegisterCall, VesselCallDetail)
 // to Vite + React + TS ES modules against the live store/api.
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "../lib/navigation";
 
 import { useStore } from "../app/store";
 import { Icon } from "../components/Icon";
@@ -11,7 +11,7 @@ import {
   type Column,
 } from "../components/ui";
 import {
-  effectiveInvoiceStatus, fmtDate, fmtDateTime, fmtNGN, fmtNum, fmtTons, fmtUSD,
+  fmtDate, fmtDateTime, fmtNGN, fmtNum, fmtTons, fmtUSD,
 } from "../lib/format";
 import type { Inspection, VesselCall } from "../types";
 
@@ -20,55 +20,17 @@ type StoreApi = ReturnType<typeof useStore>;
 // Legacy lived in data.jsx (VESSEL_TYPES); inlined here for the register form.
 const VESSEL_TYPES = ["Tanker", "Bulk Carrier", "Container", "General Cargo", "Other"];
 
-// =========================================================
-// Shared helpers
-// =========================================================
-// Build the query-param record a PDF page needs.
-function pdfRecord(store: StoreApi, call: VesselCall): Record<string, string> {
-  const f = store.financialsForCall(call);
-  const insp = store.inspectionsForCall(call.id).find((i) => i.status === "completed");
-  const inv = store.invoiceForCall(call.id);
-  // prefer the invoice's issue-time money snapshot over recomputed figures
-  const snap = inv && inv.dues != null ? inv : null;
-  const jetty = insp?.jetty || null;
-  const jettyLabel = jetty
-    ? (jetty.type === "International" ? "International Jetty" : `${jetty.category || ""} Jetty (Local)`.trim())
-    : "";
-  const port = store.org?.primaryPort || store.settings.portName;
-  return {
-    vessel: call.vesselName, callRef: call.reference, type: call.type,
-    nrt: String(call.nrt), berth: call.berth || "", date: insp?.date || call.berthDate || "",
-    invoiceNo: inv?.invoiceNo || "—", dueDate: inv?.due || "",
-    cargoType: insp?.cargoType || "—", tonnage: insp ? String(insp.reconciledTonnage) : "0",
-    dues: String(snap ? snap.dues : (f?.dues || 0)),
-    duesRate: String(snap ? (snap.rate || 0) : (f?.rate || 0)),
-    commRate: String(store.settings.commissionRate),
-    commUsd: String(snap ? (snap.commissionUsd || 0) : (f?.commissionUsd || 0)),
-    commNgn: String(snap ? (snap.commissionNgn || 0) : (f?.commissionNgn || 0)),
-    fx: String(snap && snap.fx != null ? snap.fx : store.settings.exchangeRate),
-    port,
-    jettyType: jettyLabel, jettyName: jetty?.name || "",
-    invStatus: inv ? effectiveInvoiceStatus(inv) : "",
-    paidOn: inv?.payment?.paidOn || "", payRef: inv?.payment?.reference || "", payMethod: inv?.payment?.method || "",
-  };
-}
-
-function openPdf(kind: "invoice" | "report", record: Record<string, string>) {
-  const params = new URLSearchParams({ doc: kind, ...record }).toString();
-  window.open("/pdf.html?" + params, "_blank", "noopener");
-}
-
 // Inline row actions: completed -> Invoice + Report; else -> Open
 function RowActions({ call }: { call: VesselCall }) {
   const store = useStore();
   const navigate = useNavigate();
   if (call.status === "completed") {
-    const f = store.financialsForCall(call);
-    const rec = pdfRecord(store, call);
+    const invoice = store.invoiceForCall(call.id);
+    const inspection = store.inspectionsForCall(call.id).find((item) => item.status === "completed");
     return (
       <div className="cell-actions">
-        <PdfButton kind="invoice" record={rec} disabled={!f} />
-        <PdfButton kind="report" record={rec} disabled={!f} />
+        <PdfButton kind="invoice" id={invoice?.id} />
+        <PdfButton kind="report" id={inspection?.id} />
       </div>
     );
   }
@@ -147,7 +109,13 @@ export function VesselCalls() {
     { key: "actions", label: "", num: true, render: (r) => <RowActions call={r} /> },
   ];
 
-  const STATUSES: [string, string][] = [["all", "All"], ["pending", "Pending"], ["in-progress", "In progress"], ["completed", "Completed"]];
+  const STATUSES: [string, string][] = [
+    ["all", "All"],
+    ["pending", "Pending"],
+    ["in-progress", "In progress"],
+    ["completed", "Completed"],
+    ["cancelled", "Cancelled"],
+  ];
 
   return (
     <div className="content-inner">
@@ -319,6 +287,9 @@ export function VesselCallDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
   const [confirmDel, setConfirmDel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
 
   const call = store.calls.find((c) => c.id === id);
   if (!call) return <div className="content-inner"><p className="muted">Vessel call not found.</p></div>;
@@ -326,7 +297,7 @@ export function VesselCallDetail() {
   const f = store.financialsForCall(call);
   const inspections = store.inspectionsForCall(call.id);
   const completedInsp = inspections.find((i) => i.status === "completed");
-  const rec = pdfRecord(store, call);
+  const invoice = store.invoiceForCall(call.id);
 
   const inspColumns: Column<Inspection>[] = [
     { key: "date", label: "Date", render: (r) => <span className="tnum">{fmtDate(r.date)}</span> },
@@ -356,18 +327,52 @@ export function VesselCallDetail() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-secondary btn-sm" disabled={!store.can("addInspection")}
+          {store.can("cancelCall") && call.status !== "cancelled" && call.status !== "completed" && (
+            <button className="btn btn-secondary btn-sm" type="button" onClick={() => setEditOpen(true)}>
+              <Icon name="edit" size={16} /> Edit call
+            </button>
+          )}
+          {store.can("cancelCall") && call.status === "pending" && (
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              disabled={statusBusy}
+              onClick={async () => {
+                setStatusBusy(true);
+                try {
+                  await store.updateCallStatus(call.id, "in-progress", {
+                    berth: call.berth,
+                    berthDate: new Date().toISOString().slice(0, 10),
+                  });
+                  store.toast(`${call.reference} marked in progress`, "success");
+                } catch (error) {
+                  store.toast(error instanceof Error ? error.message : "Could not update vessel status", "error");
+                } finally {
+                  setStatusBusy(false);
+                }
+              }}
+            >
+              <Icon name="anchor" size={16} /> Mark berthed
+            </button>
+          )}
+          <button className="btn btn-secondary btn-sm" disabled={!store.can("addInspection") || call.status === "cancelled" || call.status === "completed"}
             title={store.can("addInspection") ? undefined : "Requires the Admin or Operations role"}
             onClick={() => navigate("/app/inspections/new?callId=" + call.id)}>
             <Icon name="plus" size={16} strokeWidth={2.2} /> Add Inspection
           </button>
-          {store.can("cancelCall") && (
+          {store.can("cancelCall") && call.status !== "cancelled" && call.status !== "completed" && (
             <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={() => setConfirmDel(true)}>
-              <Icon name="trash" size={16} /> Cancel call
+              <Icon name="x" size={16} /> Cancel call
             </button>
           )}
         </div>
       </div>
+      {call.status === "cancelled" && (
+        <div className="auth-error section-gap" role="status">
+          Cancelled{call.cancelledAt ? ` on ${fmtDateTime(call.cancelledAt)}` : ""}
+          {call.cancellationReason ? ` — ${call.cancellationReason}` : ""}
+        </div>
+      )}
 
       <div className="card card-pad section-gap">
         <div className="card-title" style={{ marginBottom: 20 }}>Vessel particulars</div>
@@ -391,7 +396,7 @@ export function VesselCallDetail() {
       <div className="card section-gap">
         <div className="card-head">
           <div className="card-title">Inspections on this call</div>
-          <button className="btn btn-secondary btn-sm" disabled={!store.can("addInspection")}
+          <button className="btn btn-secondary btn-sm" disabled={!store.can("addInspection") || call.status === "cancelled" || call.status === "completed"}
             title={store.can("addInspection") ? undefined : "Requires the Admin or Operations role"}
             onClick={() => navigate("/app/inspections/new?callId=" + call.id)}>
             <Icon name="plus" size={16} strokeWidth={2.2} /> Add Inspection
@@ -429,27 +434,146 @@ export function VesselCallDetail() {
             </div>
           </div>
           <div className="flex gap-3 mt-6">
-            <button className="btn btn-primary" onClick={() => openPdf("invoice", rec)}><Icon name="receipt" size={17} strokeWidth={2} /> View &amp; download invoice</button>
-            <button className="btn btn-secondary" onClick={() => openPdf("report", rec)}><Icon name="fileText" size={17} strokeWidth={2} /> View &amp; download inspection report</button>
+            <PdfButton kind="invoice" id={invoice?.id} />
+            <PdfButton kind="report" id={completedInsp.id} />
           </div>
         </div>
       )}
 
       {confirmDel && (
         <ConfirmModal title="Cancel this vessel call?"
-          body={`This will remove ${call.vesselName} (${call.reference}) and any linked draft inspections. This cannot be undone.`}
+          body={(
+            <>
+              <p>
+                {call.vesselName} ({call.reference}) will be marked cancelled. Its history, inspections, invoices, and audit records remain available.
+              </p>
+              <Field label="Cancellation reason" required>
+                <textarea
+                  value={cancelReason}
+                  onChange={(event) => setCancelReason(event.target.value)}
+                  placeholder="Operational reason for cancelling this call"
+                />
+              </Field>
+            </>
+          )}
           confirmLabel="Cancel call" danger
+          confirmDisabled={cancelReason.trim().length < 3}
           onConfirm={async () => {
             try {
-              await store.deleteCall(call.id);
+              await store.cancelCall(call.id, cancelReason.trim());
               store.toast(`${call.reference} cancelled`, "info");
               navigate("/app/vessel-calls");
-            } catch (e: any) {
-              store.toast(e.message || "Could not cancel the call", "error");
+            } catch (error) {
+              store.toast(error instanceof Error ? error.message : "Could not cancel the call", "error");
             }
           }}
           onClose={() => setConfirmDel(false)} />
       )}
+      {editOpen && <EditVesselCall store={store} call={call} onClose={() => setEditOpen(false)} />}
     </div>
+  );
+}
+
+function EditVesselCall({
+  store,
+  call,
+  onClose,
+}: {
+  store: StoreApi;
+  call: VesselCall;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    vesselName: call.vesselName,
+    type: call.type,
+    flag: call.flag,
+    nrt: String(call.nrt),
+    eta: call.eta ? call.eta.slice(0, 16) : "",
+    sailingEta: call.sailingEta ? call.sailingEta.slice(0, 16) : "",
+    berth: call.berth,
+    notes: call.notes,
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (key: keyof typeof form, value: string) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+  const save = async () => {
+    if (!form.vesselName.trim() || Number(form.nrt) <= 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await store.updateCall(call.id, {
+        vesselName: form.vesselName.trim(),
+        type: form.type,
+        flag: form.flag.trim(),
+        nrt: Number(form.nrt),
+        eta: form.eta,
+        sailingEta: form.sailingEta,
+        berth: form.berth,
+        notes: form.notes.trim(),
+      });
+      store.toast(`${call.reference} updated`, "success");
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update the vessel call.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Drawer
+      title="Edit vessel call"
+      sub={call.reference}
+      onClose={onClose}
+      footer={(
+        <>
+          <button className="btn btn-secondary" type="button" disabled={busy} onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={busy || !form.vesselName.trim() || Number(form.nrt) <= 0}
+            onClick={save}
+          >
+            {busy ? "Saving…" : "Save changes"}
+          </button>
+        </>
+      )}
+    >
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <Field label="Vessel name" required>
+        <input value={form.vesselName} onChange={(event) => set("vesselName", event.target.value)} />
+      </Field>
+      <div className="field-row">
+        <Field label="Vessel type">
+          <select value={form.type} onChange={(event) => set("type", event.target.value)}>
+            {VESSEL_TYPES.map((type) => <option key={type}>{type}</option>)}
+          </select>
+        </Field>
+        <Field label="Flag">
+          <input value={form.flag} onChange={(event) => set("flag", event.target.value)} />
+        </Field>
+      </div>
+      <Field label="Net tonnage" required>
+        <input type="number" min="0.001" step="0.001" value={form.nrt} onChange={(event) => set("nrt", event.target.value)} />
+      </Field>
+      <div className="field-row">
+        <Field label="Arrival ETA">
+          <input type="datetime-local" value={form.eta} onChange={(event) => set("eta", event.target.value)} />
+        </Field>
+        <Field label="Sailing ETA">
+          <input type="datetime-local" value={form.sailingEta} onChange={(event) => set("sailingEta", event.target.value)} />
+        </Field>
+      </div>
+      <Field label="Berth terminal">
+        <select value={form.berth} onChange={(event) => set("berth", event.target.value)}>
+          {store.settings.terminals.map((terminal) => <option key={terminal}>{terminal}</option>)}
+        </select>
+      </Field>
+      <Field label="Notes">
+        <textarea value={form.notes} onChange={(event) => set("notes", event.target.value)} />
+      </Field>
+    </Drawer>
   );
 }

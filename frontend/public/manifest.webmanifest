@@ -1,0 +1,18 @@
+{
+  "name": "Vessel Caller",
+  "short_name": "Vessel Caller",
+  "description": "Vessel calls, inspections, harbour dues, invoices, and quayside capture.",
+  "start_url": "/capture",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#071525",
+  "theme_color": "#071525",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

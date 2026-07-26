@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 
 import { useStore } from "../app/store";
-import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
 import {
   CargoTag, DataTable, Drawer, EmptyState, Field, PdfButton, StatCard, StatusBadge,
@@ -23,37 +22,6 @@ type InvoiceRow = Omit<Invoice, "cargoType"> & {
   vesselName: string;
   callRef: string;
 };
-
-// Build the query-param record a PDF page needs. Prefers the invoice's
-// issue-time money snapshot over recomputed figures.
-function pdfRecord(store: Store, call: VesselCall | undefined): Record<string, string> {
-  if (!call) return {};
-  const f = store.financialsForCall(call);
-  const insp = store.inspectionsForCall(call.id).find((i) => i.status === "completed");
-  const inv = store.invoiceForCall(call.id);
-  const snap = inv && inv.dues != null ? inv : null;
-  const jetty = insp?.jetty || null;
-  const jettyLabel = jetty
-    ? (jetty.type === "International" ? "International Jetty" : `${jetty.category || ""} Jetty (Local)`.trim())
-    : "";
-  return {
-    vessel: call.vesselName, callRef: call.reference, type: call.type,
-    nrt: String(call.nrt), berth: call.berth || "", date: insp?.date || call.berthDate || "",
-    invoiceNo: inv?.invoiceNo || "—", dueDate: inv?.due || "",
-    cargoType: insp?.cargoType || "—", tonnage: insp ? String(insp.reconciledTonnage) : "0",
-    dues: String(snap ? snap.dues : (f?.dues || 0)), duesRate: String(snap ? (snap.rate || 0) : (f?.rate || 0)), commRate: String(store.settings.commissionRate),
-    commUsd: String(snap ? (snap.commissionUsd || 0) : (f?.commissionUsd || 0)), commNgn: String(snap ? (snap.commissionNgn || 0) : (f?.commissionNgn || 0)),
-    fx: String(snap && snap.fx != null ? snap.fx : store.settings.exchangeRate), port: store.org.primaryPort || store.settings.portName,
-    jettyType: jettyLabel, jettyName: jetty?.name || "",
-    invStatus: inv ? effectiveInvoiceStatus(inv) : "",
-    paidOn: inv?.payment?.paidOn || "", payRef: inv?.payment?.reference || "", payMethod: inv?.payment?.method || "",
-  };
-}
-
-function openPdf(kind: "invoice" | "report", record: Record<string, string>) {
-  const params = new URLSearchParams({ doc: kind, ...record }).toString();
-  window.open("/pdf.html?" + params, "_blank", "noopener");
-}
 
 export function Invoices() {
   const store = useStore();
@@ -84,6 +52,7 @@ export function Invoices() {
   const tracking = useMemo(() => {
     const t = { invoiced: 0, collected: 0, outstanding: 0, overdue: 0, overdueCount: 0 };
     allRows.forEach((r) => {
+      if (r.effective === "void") return;
       t.invoiced += r.dues;
       if (r.effective === "paid") t.collected += r.dues;
       else { t.outstanding += r.dues; if (r.effective === "overdue") { t.overdue += r.dues; t.overdueCount += 1; } }
@@ -110,12 +79,12 @@ export function Invoices() {
     { key: "due", label: "Due", sortable: true, sortVal: (r) => r.due, render: (r) => <span className="tnum muted">{fmtDate(r.due)}</span> },
     { key: "actions", label: "", num: true, render: (r) => (
       <div className="cell-actions">
-        <PdfButton kind="invoice" record={pdfRecord(store, r.call)} />
-        <PdfButton kind="report" record={pdfRecord(store, r.call)} />
+        <PdfButton kind="invoice" id={r.id} />
+        <PdfButton kind="report" id={r.inspectionId} />
       </div>) },
   ];
 
-  const STATUSES: [string, string][] = [["all", "All"], ["paid", "Paid"], ["unpaid", "Unpaid"], ["overdue", "Overdue"]];
+  const STATUSES: [string, string][] = [["all", "All"], ["paid", "Paid"], ["unpaid", "Unpaid"], ["overdue", "Overdue"], ["void", "Void"]];
 
   return (
     <div className="content-inner">
@@ -144,7 +113,7 @@ export function Invoices() {
       </div>
 
       <div className="card">
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} onRowClick={(r) => setDetail(r)}
+        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} onRowClick={(r) => setDetail(r)} mobileCards={false}
           emptyState={<EmptyState icon="invoice" title="No invoices found" body="Invoices appear here once an inspection is completed." />} />
         {/* mobile cards */}
         <div className="m-cards" style={{ padding: 16 }}>
@@ -156,8 +125,8 @@ export function Invoices() {
               </div>
               <div className="mc-amt tnum">{fmtUSD(r.dues)}<span className="ngn">Commission {fmtUSD(r.commissionUsd)} · {fmtNGN(r.commissionNgn)}</span></div>
               <div className="mc-actions" onClick={(e) => e.stopPropagation()}>
-                <PdfButton kind="invoice" record={pdfRecord(store, r.call)} />
-                <PdfButton kind="report" record={pdfRecord(store, r.call)} />
+                <PdfButton kind="invoice" id={r.id} />
+                <PdfButton kind="report" id={r.inspectionId} />
               </div>
             </div>
           ))}
@@ -170,38 +139,39 @@ export function Invoices() {
 }
 
 function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow; onClose: () => void }) {
-  const { user } = useAuth();
   const call = row.call;
-  const rec = pdfRecord(store, call);
   const effective = row.effective || effectiveInvoiceStatus(row as unknown as Invoice);
   const canPay = store.can("recordPayment");
   const [pay, setPay] = useState({ paidOn: new Date().toISOString().slice(0, 10), method: "Bank transfer", reference: "" });
+  const [reversalReason, setReversalReason] = useState("");
+  const [reversing, setReversing] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const recordPayment = async () => {
     setBusy(true);
     try {
-      await store.updateInvoice(row.id, {
-        status: "paid",
-        payment: { ...pay, reference: pay.reference.trim(), recordedBy: user ? user.name : "—" },
+      await store.recordPayment(row.id, {
+        ...pay,
+        reference: pay.reference.trim(),
       });
-      store.toast(`${row.invoiceNo} marked as paid`, "success");
+      store.toast(`Payment recorded for ${row.invoiceNo}`, "success");
       onClose();
-    } catch (e: any) {
-      store.toast(e.message || "Could not record the payment", "error");
+    } catch (error) {
+      store.toast(error instanceof Error ? error.message : "Could not record the payment", "error");
     } finally {
       setBusy(false);
     }
   };
 
-  const markUnpaid = async () => {
+  const reversePayment = async () => {
+    if (!row.payment || reversalReason.trim().length < 3) return;
     setBusy(true);
     try {
-      await store.updateInvoice(row.id, { status: "unpaid", payment: null });
-      store.toast(`${row.invoiceNo} marked as unpaid`, "info");
+      await store.reversePayment(row.payment.id, reversalReason.trim());
+      store.toast(`Payment reversed for ${row.invoiceNo}`, "info");
       onClose();
-    } catch (e: any) {
-      store.toast(e.message || "Could not update the invoice", "error");
+    } catch (error) {
+      store.toast(error instanceof Error ? error.message : "Could not reverse the payment", "error");
     } finally {
       setBusy(false);
     }
@@ -210,8 +180,8 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
   return (
     <Drawer title={row.invoiceNo} sub={`${row.vesselName} · ${row.callRef}`} onClose={onClose}
       footer={<>
-        <button className="btn btn-secondary" onClick={() => openPdf("report", rec)}><Icon name="fileText" size={16} strokeWidth={2} /> Report</button>
-        <button className="btn btn-primary" onClick={() => openPdf("invoice", rec)}><Icon name="receipt" size={16} strokeWidth={2} /> Open invoice</button>
+        <PdfButton kind="report" id={row.inspectionId} />
+        <PdfButton kind="invoice" id={row.id} />
       </>}>
       <div className="flex between items-center" style={{ marginBottom: 20 }}>
         <StatusBadge status={effective} />
@@ -230,13 +200,47 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
       {effective === "paid" && row.payment ? (
         <>
           <div className="fin-row"><div className="fl">Paid on</div><div className="fv tnum">{fmtDate(row.payment.paidOn)}</div></div>
+          <div className="fin-row"><div className="fl">Amount</div><div className="fv tnum">{fmtUSD(row.payment.amount)}</div></div>
           <div className="fin-row"><div className="fl">Method</div><div className="fv">{row.payment.method}</div></div>
           <div className="fin-row"><div className="fl">Reference</div><div className="fv mono-ref" style={{ color: "var(--ink)" }}>{row.payment.reference || "—"}</div></div>
           <div className="fin-row"><div className="fl">Recorded by</div><div className="fv">{row.payment.recordedBy || "—"}</div></div>
           {canPay && (
-            <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)", marginTop: 12 }} disabled={busy} onClick={markUnpaid}>
-              Mark as unpaid
-            </button>
+            <>
+              {reversing ? (
+                <div style={{ marginTop: 16 }}>
+                  <Field label="Reversal reason" required hint="The original payment remains in the immutable audit trail.">
+                    <textarea
+                      value={reversalReason}
+                      onChange={(event) => setReversalReason(event.target.value)}
+                      placeholder="Explain why this payment is being reversed"
+                    />
+                  </Field>
+                  <div className="flex gap-3">
+                    <button
+                      className="btn btn-danger btn-sm"
+                      type="button"
+                      disabled={busy || reversalReason.trim().length < 3}
+                      onClick={reversePayment}
+                    >
+                      {busy ? "Reversing…" : "Confirm reversal"}
+                    </button>
+                    <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => setReversing(false)}>
+                      Keep payment
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  style={{ color: "var(--danger)", marginTop: 12 }}
+                  disabled={busy}
+                  onClick={() => setReversing(true)}
+                >
+                  Reverse payment
+                </button>
+              )}
+            </>
           )}
         </>
       ) : canPay ? (
@@ -259,7 +263,7 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
           <Field label="Payment reference" hint="Teller / transfer reference for the audit trail.">
             <input type="text" value={pay.reference} placeholder="e.g. NPA-TRF-88214" onChange={(e) => setPay({ ...pay, reference: e.target.value })} />
           </Field>
-          <button className="btn btn-primary" disabled={busy} onClick={recordPayment}>
+          <button className="btn btn-primary" disabled={busy || !pay.paidOn || !pay.reference.trim()} onClick={recordPayment}>
             {busy ? <><Icon name="spinner" size={16} className="spin" strokeWidth={2} /> Recording…</> : <><Icon name="check" size={16} strokeWidth={2.2} /> Record payment</>}
           </button>
         </>

@@ -1,0 +1,10 @@
+all:
+  children:
+    vessel_caller:
+      hosts:
+        flexschool-droplet:
+          ansible_host: 146.190.76.23
+          ansible_user: root
+          ansible_port: 22
+          # Set the private key path only in the untracked hosts.yml.
+          # Never copy the key into this repository or GitHub.

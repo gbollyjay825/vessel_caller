@@ -1,0 +1,39 @@
+[Unit]
+Description=Dedicated authenticated Redis for Vessel Caller production
+After=network.target
+
+[Service]
+Type=notify
+User=redis-vessel-production
+Group=redis-vessel-production
+ExecStart=/usr/bin/redis-server /etc/vessel-caller/redis-production.conf --supervised systemd
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=3
+UMask=0077
+LimitNOFILE=32768
+TasksMax=256
+MemoryHigh=640M
+MemoryMax=768M
+CPUQuota=50%
+
+RuntimeDirectory=redis-vessel-caller-production
+StateDirectory=redis-vessel-caller-production
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/redis-vessel-caller-production /run/redis-vessel-caller-production
+
+[Install]
+WantedBy=multi-user.target

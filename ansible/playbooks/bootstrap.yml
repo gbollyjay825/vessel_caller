@@ -1,0 +1,131 @@
+---
+- name: Safely bootstrap Vessel Caller beside FlexSchools
+  hosts: vessel_caller
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Require explicit FlexSchools preservation guard
+      ansible.builtin.assert:
+        that:
+          - vessel_preserve_flexschools | bool
+          - vessel_domain == "vesselcalls.com"
+          - vessel_deploy_authorized_keys | length > 0
+        fail_msg: >-
+          Set vessel_preserve_flexschools=true and provide at least one
+          restricted deployment public key before bootstrap.
+
+    - name: Require non-placeholder provider configuration
+      ansible.builtin.assert:
+        that:
+          - "'CHANGE_ME' not in vessel_production_database_url"
+          - "'CHANGE_ME' not in vessel_staging_database_url"
+          - "'CHANGE_ME' not in vessel_secret_key"
+          - "'CHANGE_ME' not in vessel_staging_secret_key"
+          - "'CHANGE_ME' not in vessel_production_resend_api_key"
+          - "'CHANGE_ME' not in vessel_staging_resend_api_key"
+          - "'CHANGE_ME' not in vessel_production_spaces_key"
+          - "'CHANGE_ME' not in vessel_staging_spaces_key"
+          - "'CHANGE_ME' not in vessel_production_redis_password"
+          - "'CHANGE_ME' not in vessel_staging_redis_password"
+          - "'CHANGE_ME' not in vessel_production_mfa_encryption_key"
+          - "'CHANGE_ME' not in vessel_staging_mfa_encryption_key"
+          - "'CHANGE_ME' not in vessel_staging_proxy_secret"
+          - "'CHANGE_ME' not in vessel_production_sentry_dsn"
+          - "'CHANGE_ME' not in vessel_staging_sentry_dsn"
+          - "'CHANGE_ME' not in vessel_release_signing_public_key"
+          - vessel_production_database_url != vessel_staging_database_url
+          - vessel_secret_key != vessel_staging_secret_key
+          - vessel_production_mfa_encryption_key != vessel_staging_mfa_encryption_key
+          - vessel_production_mfa_encryption_key != vessel_secret_key
+          - vessel_staging_mfa_encryption_key != vessel_staging_secret_key
+          - vessel_production_resend_api_key != vessel_staging_resend_api_key
+          - vessel_production_spaces_key != vessel_staging_spaces_key
+          - vessel_production_spaces_secret != vessel_staging_spaces_secret
+          - vessel_production_spaces_bucket != vessel_staging_spaces_bucket
+          - vessel_production_redis_password != vessel_staging_redis_password
+          - vessel_production_sentry_dsn != vessel_staging_sentry_dsn
+          - vessel_production_redis_password | length >= 32
+          - vessel_staging_redis_password | length >= 32
+          - vessel_production_mfa_encryption_key | length >= 48
+          - vessel_staging_mfa_encryption_key | length >= 48
+          - vessel_production_mfa_encryption_key is match('^[A-Za-z0-9_+/=-]{48,}$')
+          - vessel_staging_mfa_encryption_key is match('^[A-Za-z0-9_+/=-]{48,}$')
+          - vessel_staging_proxy_secret is match('^[A-Za-z0-9_-]{43,}$')
+        fail_msg: Provision approved staging/production providers and load their values through Ansible Vault.
+      no_log: true
+
+    - name: Verify supported Ubuntu host
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "Ubuntu"
+          - ansible_facts.distribution_version is version("24.04", ">=")
+          - ansible_facts.architecture in ["x86_64", "aarch64"]
+        fail_msg: This pinned Python 3.12 playbook requires Ubuntu 24.04 or newer.
+
+    - name: Capture existing enabled Nginx sites
+      ansible.builtin.find:
+        paths: /etc/nginx/sites-enabled
+        file_type: any
+      register: nginx_sites_before
+      changed_when: false
+
+    - name: Check production TLS certificate before installing HTTPS config
+      ansible.builtin.stat:
+        path: "/etc/letsencrypt/live/{{ vessel_domain }}/fullchain.pem"
+      register: vessel_production_certificate
+      when: vessel_tls_ready | bool
+
+    - name: Require declared production certificate
+      ansible.builtin.assert:
+        that:
+          - vessel_production_certificate.stat.exists
+        fail_msg: Install/renew the production certificate or set vessel_tls_ready=false for ACME bootstrap.
+      when: vessel_tls_ready | bool
+
+  roles:
+    - role: common
+      tags: common
+    - role: security
+      tags: security
+    - role: vessel_caller
+      tags: application
+    - role: nginx
+      tags: nginx
+    - role: backups
+      tags: backups
+    - role: monitoring
+      tags: monitoring
+
+  post_tasks:
+    - name: Validate all Nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Capture enabled Nginx sites after bootstrap
+      ansible.builtin.find:
+        paths: /etc/nginx/sites-enabled
+        file_type: any
+      register: nginx_sites_after
+      changed_when: false
+
+    - name: Assert no pre-existing Nginx site was removed
+      ansible.builtin.assert:
+        that:
+          - >-
+            (nginx_sites_before.files | map(attribute='path') | difference(
+              nginx_sites_after.files | map(attribute='path')
+            ) | list | length) == 0
+        fail_msg: A pre-existing Nginx site disappeared; stop and restore it.
+
+    - name: Verify FlexSchools remained reachable
+      ansible.builtin.uri:
+        url: "{{ vessel_flexschools_health_url }}"
+        method: GET
+        status_code:
+          - 200
+          - 301
+          - 302
+        timeout: 20
+      changed_when: false

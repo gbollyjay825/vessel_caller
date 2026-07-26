@@ -1,22 +1,27 @@
-# What NOT to upload to Vercel. (Vercel reads this, not .gitignore.)
-# The deploy = frontend/ (built to dist) + api/ (Python function) + backend/ (imported by the function).
+# Vercel is a protected, static staging frontend only. The release workflow
+# deploys .vercel/output with --prebuilt. Django and all durable services stay
+# on the isolated staging backend tier.
 .git
 .gitignore
+.github
 .claude
+.env*
 *.log
 .DS_Store
-.vercel
+ansible
+artifacts
+backend
+deploy
+docs
+api
 
-# Python venv + local databases
+# Python and local databases
 .venv
-backend/.venv
 *.db
 *.db-*
-backend/tests
 
-# Node — Vercel installs deps itself
+# Node sources/dependencies are not part of the prebuilt output upload.
 node_modules
-frontend/dist
 
 # Legacy single-repo prototype (superseded by frontend/ + backend/; not served).
 # Leading "/" anchors to the repo root so these DON'T match nested frontend/ files

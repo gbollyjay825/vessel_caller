@@ -1,7 +1,7 @@
 // Inspections — list of logged inspections + the 3-step "New inspection" wizard.
 // Ported from calabar/screens-inspections.jsx (window-globals) to ES modules.
 import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "../lib/navigation";
 
 import { useStore } from "../app/store";
 import { Icon } from "../components/Icon";
@@ -10,7 +10,7 @@ import {
   type Column,
 } from "../components/ui";
 import { calcPreview, rateForInspection } from "../lib/calc";
-import { effectiveInvoiceStatus, fmtDate, fmtNGN, fmtNum, fmtTons, fmtUSD } from "../lib/format";
+import { fmtDate, fmtNGN, fmtNum, fmtTons, fmtUSD } from "../lib/format";
 import type { CargoType, Inspection, Invoice, VesselCall } from "../types";
 
 type StoreApi = ReturnType<typeof useStore>;
@@ -24,40 +24,6 @@ function computeReconciled(cargoType: string, m: any): number {
   const before = Number(m.displBefore) || 0, after = Number(m.displAfter) || 0;
   const ded = Number(m.deductibles) || 0, con = Number(m.constant) || 0;
   return Math.round((before - after - ded + con) * 100) / 100;
-}
-
-// Build the query-param record a PDF page needs (ported from screens-ops.jsx).
-function pdfRecord(store: StoreApi, call: VesselCall): Record<string, string> {
-  const f = store.financialsForCall(call);
-  const insp = store.inspectionsForCall(call.id).find((i) => i.status === "completed");
-  const inv = store.invoiceForCall(call.id);
-  // prefer the invoice's issue-time money snapshot over recomputed figures
-  const snap = inv && inv.dues != null ? inv : null;
-  const jetty = insp?.jetty || null;
-  const jettyLabel = jetty
-    ? (jetty.type === "International" ? "International Jetty" : `${jetty.category || ""} Jetty (Local)`.trim())
-    : "";
-  return {
-    vessel: call.vesselName, callRef: call.reference, type: call.type,
-    nrt: String(call.nrt), berth: call.berth || "", date: insp?.date || call.berthDate || "",
-    invoiceNo: inv?.invoiceNo || "—", dueDate: inv?.due || "",
-    cargoType: insp?.cargoType || "—", tonnage: insp ? String(insp.reconciledTonnage) : "0",
-    dues: String(snap ? snap.dues : (f?.dues || 0)),
-    duesRate: String(snap ? (snap.rate || 0) : (f?.rate || 0)),
-    commRate: String(store.settings.commissionRate),
-    commUsd: String(snap ? (snap.commissionUsd || 0) : (f?.commissionUsd || 0)),
-    commNgn: String(snap ? (snap.commissionNgn || 0) : (f?.commissionNgn || 0)),
-    fx: String(snap && snap.fx != null ? snap.fx : store.settings.exchangeRate),
-    port: store.portLabel || store.settings.portName,
-    jettyType: jettyLabel, jettyName: jetty?.name || "",
-    invStatus: inv ? effectiveInvoiceStatus(inv) : "",
-    paidOn: inv?.payment?.paidOn || "", payRef: inv?.payment?.reference || "", payMethod: inv?.payment?.method || "",
-  };
-}
-
-function openPdf(kind: "invoice" | "report", record: Record<string, string>) {
-  const params = new URLSearchParams({ doc: kind, ...record }).toString();
-  window.open("/pdf.html?" + params, "_blank", "noopener");
 }
 
 // =========================================================
@@ -86,12 +52,13 @@ export function Inspections() {
     { key: "status", label: "Status", sortable: true, render: (r) => <StatusBadge status={r.status} /> },
     {
       key: "actions", label: "", num: true, render: (r) => {
-        const call = store.calls.find((c) => c.id === r.callId);
         return (
           <div className="cell-actions">
-            {r.status === "completed" && call
-              ? <PdfButton kind="report" record={pdfRecord(store, call)} />
-              : <button className="link-btn" onClick={() => navigate("/app/inspections/new?callId=" + r.callId)}>Resume <Icon name="chevronRight" size={14} strokeWidth={2.2} style={{ verticalAlign: "-2px" }} /></button>}
+            {r.status === "completed"
+              ? <PdfButton kind="report" id={r.id} />
+              : r.status === "draft"
+                ? <button className="link-btn" onClick={() => navigate("/app/inspections/new?inspectionId=" + r.id)}>Resume <Icon name="chevronRight" size={14} strokeWidth={2.2} style={{ verticalAlign: "-2px" }} /></button>
+                : null}
           </div>
         );
       },
@@ -145,6 +112,8 @@ interface DryMeasure { displBefore: string; displAfter: string; deductibles: str
 
 interface Submitted {
   invoice: Invoice | null;
+  inspectionId: string | null;
+  queued: boolean;
   call: VesselCall;
   reconciled: number;
   financials: { dues: number; commissionUsd: number; commissionNgn: number };
@@ -154,13 +123,32 @@ export function NewInspection() {
   const store = useStore();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const lockedCallId = params.get("callId") || "";
+  const draftId = params.get("inspectionId") || "";
+  const draft = store.inspections.find((inspection) => inspection.id === draftId);
+  const lockedCallId = params.get("callId") || draft?.callId || "";
+  const text = (value: unknown, fallback = "") => (
+    value === null || value === undefined ? fallback : String(value)
+  );
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(draft ? 1 : 0);
   const [callId, setCallId] = useState(lockedCallId || "");
-  const [cargoType, setCargoType] = useState<"" | CargoType>("");
-  const [liquid, setLiquid] = useState<LiquidMeasure>({ ullage: "", observedVol: "", temp: "", blQty: "", surveyorTonnage: "", jettyType: "", jettyCategory: "", jettyName: "" });
-  const [dry, setDry] = useState<DryMeasure>({ displBefore: "", displAfter: "", deductibles: "", constant: "0" });
+  const [cargoType, setCargoType] = useState<"" | CargoType>(draft?.cargoType ?? "");
+  const [liquid, setLiquid] = useState<LiquidMeasure>({
+    ullage: text(draft?.liquid?.ullage),
+    observedVol: text(draft?.liquid?.observedVol),
+    temp: text(draft?.liquid?.temp),
+    blQty: text(draft?.liquid?.blQty),
+    surveyorTonnage: text(draft?.liquid?.surveyorTonnage, draft ? String(draft.reconciledTonnage || "") : ""),
+    jettyType: text(draft?.jetty?.type),
+    jettyCategory: text(draft?.jetty?.category),
+    jettyName: text(draft?.jetty?.name),
+  });
+  const [dry, setDry] = useState<DryMeasure>({
+    displBefore: text(draft?.dry?.displBefore),
+    displAfter: text(draft?.dry?.displAfter),
+    deductibles: text(draft?.dry?.deductibles),
+    constant: text(draft?.dry?.constant, "0"),
+  });
   const [submitted, setSubmitted] = useState<Submitted | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -181,16 +169,19 @@ export function NewInspection() {
   if (submitted) {
     // Financials are snapshotted at submit time so a cross-tab write can
     // never null them out from under this screen.
-    const { invoice, call: sc, reconciled: rec, financials: f } = submitted;
-    const insp = invoice ? store.inspections.find((i) => i.id === invoice.inspectionId) : undefined;
+    const { invoice, inspectionId, queued, call: sc, reconciled: rec, financials: f } = submitted;
+    const insp = inspectionId ? store.inspections.find((i) => i.id === inspectionId) : undefined;
     const reference = insp?.reference || invoice?.invoiceNo || "The inspection";
-    const record = pdfRecord(store, sc);
     return (
       <div className="content-inner">
         <div className="success-wrap">
           <div className="success-check"><Icon name="check" size={38} strokeWidth={2.4} /></div>
-          <h2>Inspection submitted</h2>
-          <p>{reference} for {sc.vesselName} has been recorded and the invoice generated.</p>
+          <h2>{queued ? "Inspection queued" : "Inspection submitted"}</h2>
+          <p>
+            {queued
+              ? `${sc.vesselName} is stored securely on this device and will submit when the connection returns.`
+              : `${reference} for ${sc.vesselName} has been recorded and the invoice generated.`}
+          </p>
 
           <div className="card card-pad result-card">
             <div className="fin-row"><div className="fl">Reconciled tonnage</div><div className="fv tnum">{fmtTons(rec)}</div></div>
@@ -198,10 +189,12 @@ export function NewInspection() {
             <div className="fin-row"><div className="fl">Commission · {store.settings.commissionRate}%</div><div className="fv tnum">{fmtUSD(f.commissionUsd)} <span style={{ color: "var(--slate)", fontWeight: 500 }}>· {fmtNGN(f.commissionNgn)}</span></div></div>
           </div>
 
-          <div className="success-actions">
-            <button className="btn btn-primary" onClick={() => openPdf("invoice", record)}><Icon name="receipt" size={17} strokeWidth={2} /> View &amp; download invoice</button>
-            <button className="btn btn-secondary" onClick={() => openPdf("report", record)}><Icon name="fileText" size={17} strokeWidth={2} /> View &amp; download report</button>
-          </div>
+          {!queued && (
+            <div className="success-actions">
+              <PdfButton kind="invoice" id={invoice?.id} />
+              <PdfButton kind="report" id={inspectionId} />
+            </div>
+          )}
           <button className="link-btn" style={{ marginTop: 20 }} onClick={() => navigate("/app")}>Back to dashboard</button>
         </div>
       </div>
@@ -219,14 +212,17 @@ export function NewInspection() {
         jetty: cargoType === "Liquid"
           ? { type: liquid.jettyType, category: liquid.jettyType === "Local" ? liquid.jettyCategory : null, name: liquid.jettyName.trim() }
           : null,
-      });
+        ...(draft ? { version: draft.version } : {}),
+      }, { inspectionId: draft?.id });
       if (asDraft) {
-        store.toast("Draft inspection saved", "info");
+        store.toast(result.queued ? "Draft queued and will sync when online" : "Draft inspection saved", "info");
         navigate("/app/inspections");
       } else if (call) {
         // snapshot the confirmed figures (prefer the server's issued invoice)
         setSubmitted({
           invoice: result.invoice,
+          inspectionId: result.inspectionId,
+          queued: result.queued,
           call,
           reconciled,
           financials: {
@@ -249,7 +245,7 @@ export function NewInspection() {
         <Icon name="chevronLeft" size={15} strokeWidth={2.2} style={{ verticalAlign: "-3px" }} /> {lockedCallId ? "Back to vessel call" : "Inspections"}
       </button>
       <div className="page-head" style={{ marginBottom: 24 }}>
-        <div><h1>New Inspection</h1><p className="desc">Reconcile cargo and generate the dues invoice.</p></div>
+        <div><h1>{draft ? "Resume Inspection" : "New Inspection"}</h1><p className="desc">Reconcile cargo and generate the dues invoice.</p></div>
       </div>
 
       <div className="card card-pad" style={{ marginBottom: 24 }}>
@@ -424,7 +420,7 @@ function CallCombobox({ store, value, onChange }: { store: StoreApi; value: stri
   const [q, setQ] = useState("");
   const selected = store.calls.find((c) => c.id === value);
   const options = store.calls
-    .filter((c) => c.status !== "completed")
+    .filter((c) => c.status !== "completed" && c.status !== "cancelled")
     .filter((c) => !q || c.vesselName.toLowerCase().includes(q.toLowerCase()) || c.reference.toLowerCase().includes(q.toLowerCase()));
 
   return (

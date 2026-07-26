@@ -1,0 +1,44 @@
+[Unit]
+Description=Prepare Vessel Caller release (%i)
+After=network-online.target redis-vessel-caller-production.service
+Wants=network-online.target
+ConditionPathExists=/opt/vessel-caller/slots/%i/current/backend/manage.py
+ConditionPathExists=/etc/vessel-caller/%i.env
+ConditionPathExists=/opt/vessel-caller/slots/%i/current/RELEASE.env
+
+[Service]
+Type=oneshot
+User=vessel-caller-production
+Group=vessel-caller-production
+WorkingDirectory=/opt/vessel-caller/slots/%i/current/backend
+EnvironmentFile=/etc/vessel-caller/%i.env
+EnvironmentFile=/opt/vessel-caller/slots/%i/current/RELEASE.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/vessel-caller/slots/%i/current/backend/.venv/bin/python manage.py check --deploy --fail-level WARNING
+ExecStart=/opt/vessel-caller/slots/%i/current/backend/.venv/bin/python manage.py migrate --noinput
+ExecStart=/opt/vessel-caller/slots/%i/current/backend/.venv/bin/python manage.py collectstatic --noinput --clear
+TimeoutStartSec=300
+UMask=0027
+
+StateDirectory=vessel-caller/production
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/vessel-caller/production /opt/vessel-caller/releases

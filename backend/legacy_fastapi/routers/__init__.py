@@ -1,0 +1,1 @@
+"""Legacy FastAPI routers."""

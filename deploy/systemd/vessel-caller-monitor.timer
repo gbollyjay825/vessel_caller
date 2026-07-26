@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Vessel Caller production monitor every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30
+Persistent=true
+Unit=vessel-caller-monitor.service
+
+[Install]
+WantedBy=timers.target

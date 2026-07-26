@@ -1,0 +1,25 @@
+[Unit]
+Description=Vessel Caller and FlexSchools production monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/vessel-caller/monitor.env
+ExecStart=/usr/local/lib/vessel-caller/monitor-health.sh
+TimeoutStartSec=60
+User=vessel-caller-production
+Group=vessel-caller-production
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=

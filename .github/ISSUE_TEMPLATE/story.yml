@@ -1,0 +1,50 @@
+name: Backlog story
+description: A testable product, engineering, or operational change
+title: "[E??] "
+labels:
+  - backlog
+body:
+  - type: input
+    id: epic
+    attributes:
+      label: Epic and story ID
+      placeholder: E05-S03
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: Describe the observable outcome, not an implementation task list.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] Given ... when ... then ...
+        - [ ] Evidence is attached ...
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and risks
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0
+        - P1
+        - P2
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required acceptance evidence
+      description: Tests, screenshots, query manifests, load reports, or runbook proof.
+    validations:
+      required: true

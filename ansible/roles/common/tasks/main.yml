@@ -1,0 +1,160 @@
+---
+- name: Install required operating-system packages
+  ansible.builtin.apt:
+    name:
+      - age
+      - awscli
+      - ca-certificates
+      - certbot
+      - curl
+      - fail2ban
+      - jq
+      - libpq5
+      - logrotate
+      - nginx
+      - openssl
+      - postgresql-client
+      - python3.12
+      - python3.12-venv
+      - redis-server
+      - sqlite3
+      - ufw
+      - unattended-upgrades
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    policy_rc_d: 101
+
+- name: Create isolated runtime groups
+  ansible.builtin.group:
+    name: "{{ item }}"
+    system: true
+  loop:
+    - "{{ vessel_production_group }}"
+    - "{{ vessel_staging_group }}"
+
+- name: Create isolated non-login runtime users
+  ansible.builtin.user:
+    name: "{{ item.user }}"
+    group: "{{ item.group }}"
+    home: "{{ vessel_state_root }}/{{ item.environment }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: true
+  loop:
+    - user: "{{ vessel_production_user }}"
+      group: "{{ vessel_production_group }}"
+      environment: production
+    - user: "{{ vessel_staging_user }}"
+      group: "{{ vessel_staging_group }}"
+      environment: staging
+
+- name: Create isolated Redis groups
+  ansible.builtin.group:
+    name: "{{ item }}"
+    system: true
+  loop:
+    - "{{ vessel_production_redis_group }}"
+    - "{{ vessel_staging_redis_group }}"
+
+- name: Create isolated non-login Redis users
+  ansible.builtin.user:
+    name: "{{ item.user }}"
+    group: "{{ item.group }}"
+    home: /nonexistent
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+  loop:
+    - user: "{{ vessel_production_redis_user }}"
+      group: "{{ vessel_production_redis_group }}"
+    - user: "{{ vessel_staging_redis_user }}"
+      group: "{{ vessel_staging_redis_group }}"
+
+- name: Create restricted deployment user
+  ansible.builtin.user:
+    name: "{{ vessel_deploy_user }}"
+    groups: []
+    append: false
+    shell: /bin/bash
+    create_home: true
+
+- name: Install forced deployment SSH command
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/scripts/deploy-ssh-command.sh"
+    dest: /usr/local/lib/vessel-caller/deploy-ssh-command.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install deployment public keys
+  ansible.posix.authorized_key:
+    user: "{{ vessel_deploy_user }}"
+    key: "{{ vessel_deploy_authorized_keys | join('\n') }}"
+    state: present
+    exclusive: true
+    key_options: 'command="/usr/local/lib/vessel-caller/deploy-ssh-command.sh",restrict'
+  no_log: true
+
+- name: Create isolated Vessel Caller directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ vessel_app_root }}", owner: root, group: root, mode: "0755"}
+    - {path: "{{ vessel_app_root }}/releases", owner: root, group: root, mode: "0755"}
+    - {path: "{{ vessel_app_root }}/slots", owner: root, group: root, mode: "0755"}
+    - {path: "{{ vessel_state_root }}", owner: root, group: root, mode: "0755"}
+    - {path: "{{ vessel_state_root }}/production", owner: "{{ vessel_production_user }}", group: "{{ vessel_production_group }}", mode: "0750"}
+    - {path: "{{ vessel_state_root }}/staging", owner: "{{ vessel_staging_user }}", group: "{{ vessel_staging_group }}", mode: "0750"}
+    - {path: "{{ vessel_state_root }}/backups", owner: "{{ vessel_production_user }}", group: "{{ vessel_production_group }}", mode: "0700"}
+    - {path: "{{ vessel_config_root }}", owner: root, group: root, mode: "0755"}
+    - {path: "{{ vessel_log_root }}", owner: root, group: root, mode: "0755"}
+    - {path: "{{ vessel_log_root }}/production", owner: "{{ vessel_production_user }}", group: "{{ vessel_production_group }}", mode: "0750"}
+    - {path: "{{ vessel_log_root }}/staging", owner: "{{ vessel_staging_user }}", group: "{{ vessel_staging_group }}", mode: "0750"}
+    - {path: /usr/local/lib/vessel-caller, owner: root, group: root, mode: "0755"}
+    - {path: /var/www/letsencrypt, owner: www-data, group: www-data, mode: "0755"}
+    - {path: /var/www/vessel-caller, owner: root, group: root, mode: "0755"}
+
+- name: Inspect dedicated swap file
+  ansible.builtin.stat:
+    path: /swapfile-vessel-caller
+  register: vessel_swap_file
+  when: ansible_facts.swaptotal_mb < 512
+
+- name: Allocate two-gigabyte swap file
+  ansible.builtin.command: fallocate -l 2G /swapfile-vessel-caller
+  args:
+    creates: /swapfile-vessel-caller
+  when: ansible_facts.swaptotal_mb < 512
+
+- name: Protect swap file permissions
+  ansible.builtin.file:
+    path: /swapfile-vessel-caller
+    owner: root
+    group: root
+    mode: "0600"
+  when: ansible_facts.swaptotal_mb < 512
+
+- name: Format newly created swap file
+  ansible.builtin.command: mkswap /swapfile-vessel-caller
+  when:
+    - ansible_facts.swaptotal_mb < 512
+    - not vessel_swap_file.stat.exists
+
+- name: Persist and enable dedicated swap
+  ansible.posix.mount:
+    path: none
+    src: /swapfile-vessel-caller
+    fstype: swap
+    opts: sw
+    state: present
+  when: ansible_facts.swaptotal_mb < 512
+
+- name: Activate dedicated swap
+  ansible.builtin.command: swapon /swapfile-vessel-caller
+  when: ansible_facts.swaptotal_mb < 512
+  changed_when: true

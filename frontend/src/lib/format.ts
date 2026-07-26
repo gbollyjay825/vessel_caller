@@ -45,8 +45,9 @@ export function userInitials(name: string): string {
   );
 }
 
-export function effectiveInvoiceStatus(inv: Invoice | null): "paid" | "unpaid" | "overdue" {
+export function effectiveInvoiceStatus(inv: Invoice | null): "paid" | "unpaid" | "overdue" | "void" {
   if (!inv) return "unpaid";
+  if (inv.status === "void") return "void";
   if (inv.status === "paid") return "paid";
   if (inv.due && new Date(inv.due + "T23:59:59") < new Date()) return "overdue";
   return "unpaid";

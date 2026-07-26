@@ -2,7 +2,7 @@
 // mobile/ios-frame.jsx to TSX ES modules. Data + mutations come from useStore();
 // identity from useAuth(). A minimal iOS device frame is inlined below.
 import {
-  createElement, useEffect, useMemo, useRef, useState,
+  useEffect, useMemo, useRef, useState,
   type ReactNode,
 } from "react";
 
@@ -44,15 +44,12 @@ export function MobileApp() {
   const store = useStore();
   const [tab, setTab] = useState<"tasks" | "captured" | "account">("tasks");
   const [capture, setCapture] = useState<{ callId: string } | null>(null);
-  const [syncingIds, setSyncingIds] = useState<string[]>([]); // captures still "uploading"
 
   const calls = store.calls;
   const captured = store.inspections
-    .filter((i) => i.status === "completed")
-    .map((i) => ({ ...i, synced: !syncingIds.includes(i.id) }));
+    .filter((i) => i.status === "completed");
 
-  const awaiting = calls.filter((c) => c.status !== "completed");
-  const pendingSync = syncingIds.length;
+  const awaiting = calls.filter((c) => c.status !== "completed" && c.status !== "cancelled");
   const portLabel = orgPortsLabel(store.org, "Port of Calabar");
 
   // If the call being captured vanishes from the store (cancelled on the
@@ -61,12 +58,6 @@ export function MobileApp() {
   useEffect(() => {
     if (capture && !store.calls.some((c) => c.id === capture.callId)) setCapture(null);
   }, [store.calls, capture]);
-
-  // brief "uploading" chip while the platform ingests a fresh capture
-  const markSyncing = (id: string) => {
-    setSyncingIds((ids) => [id, ...ids]);
-    setTimeout(() => setSyncingIds((ids) => ids.filter((x) => x !== id)), 2600);
-  };
 
   return (
     <div className="stage">
@@ -77,14 +68,31 @@ export function MobileApp() {
               call={calls.find((c) => c.id === capture.callId)}
               settings={store.settings}
               onClose={() => setCapture(null)}
-              onSubmitted={markSyncing}
             />
           ) : (
             <div className="mob-app">
               <div className="mob-body">
-                {tab === "tasks" && <TasksTab awaiting={awaiting} pendingSync={pendingSync} port={portLabel} onStart={(id) => setCapture({ callId: id })} />}
-                {tab === "captured" && <CapturedTab captured={captured} calls={calls} />}
-                {tab === "account" && <AccountTab pendingSync={pendingSync} port={portLabel} />}
+                {tab === "tasks" && (
+                  <TasksTab
+                    awaiting={awaiting}
+                    pendingSync={store.pendingSync}
+                    syncing={store.syncing}
+                    syncIssue={store.syncIssue}
+                    retrySync={store.retrySync}
+                    port={portLabel}
+                    onStart={(id) => setCapture({ callId: id })}
+                  />
+                )}
+                {tab === "captured" && <CapturedTab captured={captured} />}
+                {tab === "account" && (
+                  <AccountTab
+                    pendingSync={store.pendingSync}
+                    syncing={store.syncing}
+                    syncIssue={store.syncIssue}
+                    retrySync={store.retrySync}
+                    port={portLabel}
+                  />
+                )}
               </div>
               <TabBar tab={tab} setTab={setTab} />
             </div>
@@ -98,8 +106,16 @@ export function MobileApp() {
 // =========================================================
 // Tasks
 // =========================================================
-function TasksTab({ awaiting, pendingSync, port, onStart }:
-  { awaiting: VesselCall[]; pendingSync: number; port: string; onStart: (id: string) => void }) {
+function TasksTab({ awaiting, pendingSync, syncing, syncIssue, retrySync, port, onStart }:
+  {
+    awaiting: VesselCall[];
+    pendingSync: number;
+    syncing: boolean;
+    syncIssue: boolean;
+    retrySync: () => Promise<void>;
+    port: string;
+    onStart: (id: string) => void;
+  }) {
   const ready = awaiting.filter((c) => c.status === "in-progress");
   const upcoming = awaiting.filter((c) => c.status === "pending");
   return (
@@ -111,13 +127,25 @@ function TasksTab({ awaiting, pendingSync, port, onStart }:
             <h1>Inspections</h1>
           </div>
           <span className={"sync-chip " + (pendingSync ? "pending" : "")}>
-            <span className="cdot" />{pendingSync ? `${pendingSync} to sync` : "All synced"}
+            <span className="cdot" />{syncing ? "Syncing…" : pendingSync ? `${pendingSync} queued` : "Up to date"}
           </span>
         </div>
       </div>
 
       {pendingSync > 0 && (
-        <div className="offline-banner"><Icon name="info" size={16} strokeWidth={2} /> {pendingSync} capture{pendingSync > 1 ? "s" : ""} waiting to upload — will sync automatically.</div>
+        <div className={`offline-banner${syncIssue ? " has-error" : ""}`}>
+          <Icon name={syncIssue ? "alert" : "info"} size={16} strokeWidth={2} />
+          <span>
+            {syncIssue
+              ? `${pendingSync} capture${pendingSync > 1 ? "s need" : " needs"} attention before upload.`
+              : `${pendingSync} capture${pendingSync > 1 ? "s" : ""} waiting to upload — will sync automatically.`}
+          </span>
+          {syncIssue && (
+            <button type="button" disabled={syncing} onClick={() => void retrySync()}>
+              Retry
+            </button>
+          )}
+        </div>
       )}
 
       <div className="mob-section">
@@ -136,7 +164,7 @@ function TasksTab({ awaiting, pendingSync, port, onStart }:
 function TaskCard({ call, onStart }: { call: VesselCall; onStart: (id: string) => void }) {
   const berthed = call.status === "in-progress";
   return (
-    <div className="task-card" onClick={() => onStart(call.id)}>
+    <button className="task-card task-card-button" type="button" onClick={() => onStart(call.id)}>
       <div className="tc-top">
         <div>
           <div className="tc-name">{call.vesselName}</div>
@@ -149,15 +177,15 @@ function TaskCard({ call, onStart }: { call: VesselCall; onStart: (id: string) =
         <span className="mi"><Icon name="calendar" size={15} strokeWidth={2} /> {fmtDate(call.eta)}</span>
         <span className="tc-cta">{berthed ? "Capture" : "Open"} <Icon name="chevronRight" size={15} strokeWidth={2.4} /></span>
       </div>
-    </div>
+    </button>
   );
 }
 
 // =========================================================
 // Capture flow
 // =========================================================
-function CaptureFlow({ call, settings, onClose, onSubmitted }:
-  { call: VesselCall | undefined; settings: Settings; onClose: () => void; onSubmitted: (id: string) => void }) {
+function CaptureFlow({ call, settings, onClose }:
+  { call: VesselCall | undefined; settings: Settings; onClose: () => void }) {
   const store = useStore();
   const [step, setStep] = useState(0);
   const [cargo, setCargo] = useState<CargoType | "">("");
@@ -166,6 +194,9 @@ function CaptureFlow({ call, settings, onClose, onSubmitted }:
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [doneInspId, setDoneInspId] = useState<string | null>(null);
+  const [queued, setQueued] = useState(false);
+  const [savedAsDraft, setSavedAsDraft] = useState(false);
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
   const numRef = useRef<HTMLDivElement>(null);
 
   const m = cargo === "Liquid" ? liquid : dry;
@@ -203,23 +234,23 @@ function CaptureFlow({ call, settings, onClose, onSubmitted }:
 
   const preview = calcPreview(call.nrt, previewRate, settings);
 
-  const submit = async () => {
+  const submit = async (status: "draft" | "completed") => {
     setSubmitting(true);
     try {
-      const { invoice } = await store.addInspection({
+      const result = await store.addInspection({
         callId: call.id,
         cargoType: cargo,
         reconciledTonnage: tonnage,
-        status: "completed",
+        status,
         liquid: cargo === "Liquid" ? liquid : undefined,
         dry: cargo === "Dry" ? dry : undefined,
         jetty: cargo === "Liquid"
           ? { type: liquid.jettyType, category: liquid.jettyType === "Local" ? liquid.jettyCategory : null, name: (liquid.jettyName || "").trim() }
           : null,
-      });
-      const inspId = invoice?.inspectionId || null;
-      if (inspId) onSubmitted(inspId);
-      setDoneInspId(inspId);
+      }, { evidenceFiles });
+      setDoneInspId(result.inspectionId || result.invoice?.inspectionId || null);
+      setQueued(result.queued);
+      setSavedAsDraft(status === "draft");
       setDone(true);
     } catch (e: any) {
       store.toast(e?.message || "Could not submit the inspection", "error");
@@ -237,13 +268,22 @@ function CaptureFlow({ call, settings, onClose, onSubmitted }:
     return (
       <div className="mob-app"><div className="mob-body"><div className="cap-success">
         <div className="sc"><Icon name="check" size={42} strokeWidth={2.4} /></div>
-        <h2>Inspection captured</h2>
-        <p>{insp?.reference} saved for {call.vesselName}. Uploading to the platform…</p>
+        <h2>{savedAsDraft ? "Draft saved" : "Inspection captured"}</h2>
+        <p>
+          {queued
+            ? `${call.vesselName} is stored securely on this device and will sync when the connection returns.`
+            : `${insp?.reference || "Inspection"} was saved to the platform for ${call.vesselName}.`}
+        </p>
         <div className="sc-result">
           <div className="rev-row"><span className="rk">Reconciled tonnage</span><span className="rv">{fmtTons(insp ? insp.reconciledTonnage : tonnage)}</span></div>
           <div className="rev-row"><span className="rk">NPA harbour dues</span><span className="rv">{fmtUSD(preview.dues)}</span></div>
           <div className="rev-row"><span className="rk">Commission · {settings.commissionRate}%</span><span className="rv">{fmtUSD(preview.commissionUsd)}</span></div>
-          <div className="rev-row"><span className="rk">Sync status</span><span className="rv"><span className="sync-chip pending"><span className="cdot" />Uploading</span></span></div>
+          <div className="rev-row">
+            <span className="rk">Sync status</span>
+            <span className="rv">
+              <span className={`sync-chip ${queued ? "pending" : ""}`}><span className="cdot" />{queued ? "Queued offline" : "Saved"}</span>
+            </span>
+          </div>
         </div>
       </div></div>
         <div className="mob-cta"><button className="mbtn mbtn-primary" onClick={onClose}>Done</button></div>
@@ -351,26 +391,67 @@ function CaptureFlow({ call, settings, onClose, onSubmitted }:
       </div>
 
       <div className="photo-label"><span className="pl">Evidence photos</span><span style={{ fontSize: 12, color: "var(--soft)" }}>optional</span></div>
-      <div className="photo-grid">
-        {createElement("image-slot", { id: "cap-photo-1", shape: "rounded", radius: "12", placeholder: "Ullage / draft" })}
-        {createElement("image-slot", { id: "cap-photo-2", shape: "rounded", radius: "12", placeholder: "Cargo / seal" })}
-      </div>
+      <EvidencePicker files={evidenceFiles} onChange={setEvidenceFiles} />
       <div style={{ height: 12 }} />
     </>,
     <div className="mob-cta">
-      <button className="mbtn mbtn-primary" disabled={submitting} onClick={submit}>
+      <button className="mbtn mbtn-primary" disabled={submitting} onClick={() => void submit("completed")}>
         {submitting ? <><Icon name="spinner" size={18} className="spin" strokeWidth={2} /> Submitting…</> : "Submit inspection"}
       </button>
-      <button className="mbtn mbtn-ghost" disabled={submitting} onClick={onClose}>Save as draft</button>
+      <button className="mbtn mbtn-ghost" disabled={submitting} onClick={() => void submit("draft")}>Save as draft</button>
     </div>,
+  );
+}
+
+function EvidencePicker({ files, onChange }: { files: File[]; onChange: (files: File[]) => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const pick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    const invalid = selected.find((file) => !["image/jpeg", "image/png"].includes(file.type) || file.size > 10 * 1024 * 1024);
+    if (invalid) {
+      setError("Use PNG or JPEG images no larger than 10 MB each.");
+      return;
+    }
+    setError(null);
+    onChange([...files, ...selected].slice(0, 4));
+  };
+  return (
+    <div className="evidence-picker">
+      <label className="evidence-add">
+        <Icon name="plus" size={20} />
+        <span>Add photos</span>
+        <input
+          type="file"
+          accept="image/png,image/jpeg"
+          capture="environment"
+          multiple
+          onChange={pick}
+          disabled={files.length >= 4}
+        />
+      </label>
+      {files.map((file, index) => (
+        <div className="evidence-file" key={`${file.name}-${file.lastModified}-${index}`}>
+          <span>{file.name}</span>
+          <button
+            type="button"
+            aria-label={`Remove ${file.name}`}
+            onClick={() => onChange(files.filter((_, fileIndex) => fileIndex !== index))}
+          >
+            <Icon name="x" size={15} />
+          </button>
+        </div>
+      ))}
+      {error && <div className="field-err" role="alert">{error}</div>}
+      <p className="evidence-hint">Up to four PNG or JPEG photos. Files are stored in the offline queue until upload completes.</p>
+    </div>
   );
 }
 
 // =========================================================
 // Captured
 // =========================================================
-function CapturedTab({ captured, calls }:
-  { captured: (Inspection & { synced: boolean })[]; calls: VesselCall[] }) {
+function CapturedTab({ captured }: { captured: Inspection[] }) {
   return (
     <>
       <div className="mob-head"><div className="eyebrow">Recent</div><h1>Captured</h1></div>
@@ -380,7 +461,7 @@ function CapturedTab({ captured, calls }:
             <div className="task-card" key={i.id} style={{ cursor: "default" }}>
               <div className="tc-top">
                 <div><div className="tc-name">{i.vesselName}</div><div className="tc-ref">{i.reference}</div></div>
-                <MBadge status={i.synced ? "synced" : "draft"} />
+                <MBadge status="synced" />
               </div>
               <div className="tc-meta">
                 <MTag type={i.cargoType} />
@@ -399,7 +480,19 @@ function CapturedTab({ captured, calls }:
 // =========================================================
 // Account
 // =========================================================
-function AccountTab({ pendingSync, port }: { pendingSync: number; port: string }) {
+function AccountTab({
+  pendingSync,
+  syncing,
+  syncIssue,
+  retrySync,
+  port,
+}: {
+  pendingSync: number;
+  syncing: boolean;
+  syncIssue: boolean;
+  retrySync: () => Promise<void>;
+  port: string;
+}) {
   const { user, logout } = useAuth();
   return (
     <>
@@ -410,14 +503,21 @@ function AccountTab({ pendingSync, port }: { pendingSync: number; port: string }
       </div>
       <div className="acct-list">
         <div className="acct-row"><div className="ar-ic"><Icon name="anchor" size={17} strokeWidth={2} /></div> Port<span className="ar-detail">{port}</span></div>
-        <div className="acct-row"><div className="ar-ic"><Icon name="download" size={17} strokeWidth={2} /></div> Pending sync<span className="ar-detail">{pendingSync} item{pendingSync === 1 ? "" : "s"}</span></div>
+        <div className="acct-row">
+          <div className="ar-ic"><Icon name={syncIssue ? "alert" : "download"} size={17} strokeWidth={2} /></div>
+          Offline queue
+          <span className="ar-detail">
+            {syncing ? "Syncing…" : syncIssue ? "Needs attention" : `${pendingSync} item${pendingSync === 1 ? "" : "s"}`}
+          </span>
+          {syncIssue && (
+            <button className="account-retry" type="button" disabled={syncing} onClick={() => void retrySync()}>
+              Retry
+            </button>
+          )}
+        </div>
         <div className="acct-row"><div className="ar-ic"><Icon name="gauge" size={17} strokeWidth={2} /></div> Units<span className="ar-detail">Metric (MT)</span></div>
       </div>
-      <div className="acct-list">
-        <div className="acct-row"><div className="ar-ic"><Icon name="settings" size={17} strokeWidth={2} /></div> Capture settings<Icon name="chevronRight" size={16} style={{ marginLeft: "auto", color: "var(--soft)" }} /></div>
-        <div className="acct-row"><div className="ar-ic"><Icon name="info" size={17} strokeWidth={2} /></div> Help &amp; offline guide<Icon name="chevronRight" size={16} style={{ marginLeft: "auto", color: "var(--soft)" }} /></div>
-      </div>
-      <div className="mob-cta"><button className="mbtn mbtn-secondary" style={{ color: "var(--danger)" }} onClick={logout}><Icon name="logout" size={18} /> Sign out</button></div>
+      <div className="mob-cta"><button className="mbtn mbtn-secondary" style={{ color: "var(--danger)" }} onClick={() => void logout()}><Icon name="logout" size={18} /> Sign out</button></div>
     </>
   );
 }

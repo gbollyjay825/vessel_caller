@@ -1,12 +1,23 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd frontend && npm install --include=dev && npm run build",
+  "framework": null,
+  "buildCommand": "echo 'Direct Vercel builds are disabled; deploy the signed prebuilt staging artifact through GitHub Actions.' >&2 && exit 1",
   "outputDirectory": "frontend/dist",
-  "functions": {
-    "api/index.py": { "includeFiles": "backend/**", "maxDuration": 15 }
-  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/((?!api).*)", "destination": "/index.html" }
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/:path*",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow, noarchive"
+        }
+      ]
+    }
   ]
 }

@@ -1,0 +1,236 @@
+name: Promote Release to Droplet
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published signed release tag
+        required: true
+        type: string
+      target:
+        description: Protected GitHub environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vessel-caller-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.target }}
+      url: ${{ inputs.target == 'production' && 'https://vesselcalls.com' || 'https://staging.vesselcalls.com' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 1
+      - name: Validate requested release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "${RELEASE_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must use semantic vMAJOR.MINOR.PATCH syntax." >&2
+            exit 1
+          fi
+      - name: Download immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p artifacts
+          gh release download "${RELEASE_TAG}" --dir artifacts --pattern "vessel-caller-${RELEASE_TAG}.tar.gz*"
+          cd artifacts
+          sha256sum --check "vessel-caller-${RELEASE_TAG}.tar.gz.sha256"
+          gh attestation verify "vessel-caller-${RELEASE_TAG}.tar.gz" --repo "${GITHUB_REPOSITORY}"
+      - name: Require full recorded qualification before production
+        if: inputs.target == 'production'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          QUALIFICATION_SIGNING_PUBLIC_KEY: ${{ vars.QUALIFICATION_SIGNING_PUBLIC_KEY }}
+        run: |
+          evidence="vessel-caller-${RELEASE_TAG}.production-qualified.json"
+          gh release download "${RELEASE_TAG}" --dir artifacts --pattern "${evidence}*"
+          public_key="$(mktemp)"
+          trap 'rm -f "${public_key}"' EXIT
+          printf '%s' "${QUALIFICATION_SIGNING_PUBLIC_KEY}" > "${public_key}"
+          openssl dgst \
+            -sha256 \
+            -verify "${public_key}" \
+            -signature "artifacts/${evidence}.sig" \
+            "artifacts/${evidence}"
+          jq --exit-status \
+            --arg tag "${RELEASE_TAG}" \
+            --arg commit "$(git rev-parse HEAD)" \
+            '.release == $tag and
+             .commit == $commit and
+             .qualified == true and
+             (.gates | to_entries | all(.value == true))' \
+            "artifacts/${evidence}" >/dev/null
+      - name: Configure pinned SSH connection
+        env:
+          SSH_KEY: ${{ secrets.DROPLET_DEPLOY_SSH_KEY }}
+          HOST_KEY: ${{ secrets.DROPLET_HOST_KEY }}
+        run: |
+          install -d -m 0700 "${HOME}/.ssh"
+          printf '%s\n' "${SSH_KEY}" > "${HOME}/.ssh/vessel-caller-deploy"
+          chmod 0600 "${HOME}/.ssh/vessel-caller-deploy"
+          printf '%s\n' "${HOST_KEY}" > "${HOME}/.ssh/known_hosts"
+          chmod 0600 "${HOME}/.ssh/known_hosts"
+      - name: Upload and install inactive release
+        env:
+          DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          archive="vessel-caller-${RELEASE_TAG}.tar.gz"
+          ssh_options=(-i "${HOME}/.ssh/vessel-caller-deploy" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes)
+          scp "${ssh_options[@]}" \
+            "artifacts/${archive}" \
+            "artifacts/${archive}.sha256" \
+            "artifacts/${archive}.sig" \
+            "vessel-deploy@${DEPLOY_HOST}:/var/tmp/"
+          printf -v remote_command \
+            'sudo /usr/local/sbin/vessel-caller-deploy %q %q' \
+            "${TARGET}" \
+            "/var/tmp/${archive}"
+          # The fully shell-escaped command is intentionally constructed locally.
+          # shellcheck disable=SC2029
+          ssh "${ssh_options[@]}" "vessel-deploy@${DEPLOY_HOST}" \
+            "${remote_command}"
+      - name: Build immutable Vercel staging output
+        if: inputs.target == 'staging'
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: >-
+          deploy/scripts/build-vercel-preview.sh
+          "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz"
+          .vercel/output
+      - uses: actions/setup-node@v4
+        if: inputs.target == 'staging'
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Deploy prebuilt frontend to dedicated Vercel staging project
+        id: vercel_preview
+        if: inputs.target == 'staging'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          STAGING_PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
+        run: |
+          deployment_url="$(npx --yes vercel@56.4.1 deploy \
+            --prebuilt \
+            --target=preview \
+            --env STAGING_API_ORIGIN=https://staging-api.vesselcalls.com \
+            --env "STAGING_PROXY_SECRET=${STAGING_PROXY_SECRET}" \
+            --yes \
+            --token "${VERCEL_TOKEN}")"
+          case "${deployment_url}" in
+            https://*) ;;
+            *) echo "Vercel did not return a deployment URL." >&2; exit 1 ;;
+          esac
+          echo "url=${deployment_url}" >> "${GITHUB_OUTPUT}"
+      - name: Verify immutable preview or production and FlexSchools isolation
+        env:
+          TARGET: ${{ inputs.target }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          PREVIEW_URL: ${{ steps.vercel_preview.outputs.url }}
+        run: |
+          if [[ "${TARGET}" == "production" ]]; then
+            deploy/scripts/smoke-test.sh https://vesselcalls.com
+          else
+            deploy/scripts/smoke-test.sh "${PREVIEW_URL}"
+          fi
+          curl --fail --silent --show-error --location --max-time 20 https://flexschools.ng/ >/dev/null
+      - name: Run staging browser gate against the deployed preview
+        if: inputs.target == 'staging'
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.vercel_preview.outputs.url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          npm ci --prefix frontend
+          cd frontend
+          npx playwright install --with-deps
+          npm run e2e
+      - name: Promote qualified preview to stable staging hostname
+        if: inputs.target == 'staging'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          PREVIEW_URL: ${{ steps.vercel_preview.outputs.url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          alias_response="$(mktemp)"
+          alias_status="$(curl \
+            --silent \
+            --show-error \
+            --output "${alias_response}" \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" \
+            "https://api.vercel.com/v4/aliases/staging.vesselcalls.com?teamId=${VERCEL_ORG_ID}")"
+          case "${alias_status}" in
+            200)
+              previous_url="$(jq -er '.deployment.url' "${alias_response}")"
+              ;;
+            404)
+              previous_url=""
+              ;;
+            *)
+              echo "Could not resolve the current stable staging alias (HTTP ${alias_status})." >&2
+              exit 1
+              ;;
+          esac
+          npx --yes vercel@56.4.1 alias set \
+            "${PREVIEW_URL}" \
+            staging.vesselcalls.com \
+            --token "${VERCEL_TOKEN}"
+          if ! deploy/scripts/smoke-test.sh https://staging.vesselcalls.com; then
+            if [[ -n "${previous_url}" ]]; then
+              npx --yes vercel@56.4.1 alias set \
+                "https://${previous_url}" \
+                staging.vesselcalls.com \
+                --token "${VERCEL_TOKEN}"
+            else
+              npx --yes vercel@56.4.1 alias rm \
+                staging.vesselcalls.com \
+                --yes \
+                --token "${VERCEL_TOKEN}"
+            fi
+            exit 1
+          fi
+      - name: Record successful staging deployment on the immutable release
+        if: inputs.target == 'staging'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          PREVIEW_URL: ${{ steps.vercel_preview.outputs.url }}
+        run: |
+          evidence="artifacts/vessel-caller-${RELEASE_TAG}.staging-deployed.json"
+          jq -n \
+            --arg release "${RELEASE_TAG}" \
+            --arg commit "$(git rev-parse HEAD)" \
+            --arg previewUrl "${PREVIEW_URL}" \
+            --arg runId "${GITHUB_RUN_ID}" \
+            --arg qualifiedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
+              release: $release,
+              commit: $commit,
+              previewUrl: $previewUrl,
+              workflowRunId: $runId,
+              deployedAt: $qualifiedAt,
+              deployed: true
+            }' > "${evidence}"
+          gh release upload "${RELEASE_TAG}" "${evidence}" --clobber

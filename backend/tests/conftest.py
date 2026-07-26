@@ -1,33 +1,87 @@
-"""Test config: isolated temp SQLite, seeding off, fixed secret. Env is set
-BEFORE importing the app so the engine binds to the temp DB."""
-import os
-import tempfile
-
-os.environ["VC_DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/test.db"
-os.environ["VC_SEED_ON_STARTUP"] = "false"
-os.environ["VC_JWT_SECRET"] = "test-secret-please-change"
-os.environ["VC_ENVIRONMENT"] = "development"
+from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
+from django.utils import timezone
+from rest_framework.test import APIClient
 
-from app.main import app
-
-
-@pytest.fixture()
-def client():
-    with TestClient(app) as c:   # context-manager triggers startup (create_all)
-        yield c
+from accounts.models import User
+from organizations.models import Organization, OrganizationSettings
 
 
-def register(client, email="admin@acme.test", org="Acme Marine"):
-    r = client.post("/api/auth/register", json={
-        "name": "Admin One", "email": email, "password": "supersecret", "orgName": org,
-        "designatedPort": "Port of Calabar",
-    })
-    assert r.status_code == 201, r.text
-    return r.json()
+@pytest.fixture
+def api_client():
+    return APIClient()
 
 
-def auth(token):
-    return {"Authorization": f"Bearer {token}"}
+@pytest.fixture
+def organization(db):
+    organization = Organization.objects.create(
+        name="Acme Marine",
+        email="admin@acme.test",
+        registered=True,
+        primary_port="Port of Calabar",
+        ports=["Port of Calabar"],
+    )
+    OrganizationSettings.objects.create(
+        organization=organization,
+        terminals=["Government Jetty", "International Jetty"],
+    )
+    return organization
+
+
+@pytest.fixture
+def admin(organization):
+    return User.objects.create_user(
+        email="admin@acme.test",
+        password="A-strong-admin-password-2026!",
+        organization=organization,
+        name="Admin One",
+        role=User.Role.ADMIN,
+        status=User.Status.ACTIVE,
+        email_verified_at=timezone.now(),
+    )
+
+
+@pytest.fixture
+def operations(organization):
+    return User.objects.create_user(
+        email="operations@acme.test",
+        password="A-strong-operations-password-2026!",
+        organization=organization,
+        name="Operations One",
+        role=User.Role.OPERATIONS,
+        status=User.Status.ACTIVE,
+        email_verified_at=timezone.now(),
+    )
+
+
+@pytest.fixture
+def finance(organization):
+    return User.objects.create_user(
+        email="finance@acme.test",
+        password="A-strong-finance-password-2026!",
+        organization=organization,
+        name="Finance One",
+        role=User.Role.FINANCE,
+        status=User.Status.ACTIVE,
+        email_verified_at=timezone.now(),
+    )
+
+
+@pytest.fixture
+def viewer(organization):
+    return User.objects.create_user(
+        email="viewer@acme.test",
+        password="A-strong-viewer-password-2026!",
+        organization=organization,
+        name="Viewer One",
+        role=User.Role.VIEWER,
+        status=User.Status.ACTIVE,
+        email_verified_at=timezone.now(),
+    )
+
+
+def authenticated(user):
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client

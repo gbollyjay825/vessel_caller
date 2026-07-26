@@ -1,10 +1,6 @@
-// Settings — organization profile, team & roles, charge rates, notification
-// channels, port profile and data store. Ported from calabar/screens-settings.jsx
-// + the OrganizationSection/TeamSection logic in calabar/screens-org.jsx, now
-// against the typed API store (team members go through dedicated endpoints; the
-// legacy client-side "reset data" control is replaced with an admin-only note).
+// Settings — organization profile, team link, charge rates, and port profile.
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "../lib/navigation";
 
 import { useStore } from "../app/store";
 import { useAuth } from "../auth/AuthContext";
@@ -46,10 +42,8 @@ function normalizeOrg(org: Partial<Organization> | null | undefined): Organizati
 }
 
 // ---------------------------------------------------------
-// Settings form shape (concrete smtp/sms so inputs stay typed)
+// Settings form shape
 // ---------------------------------------------------------
-interface SmtpForm { host: string; port: string; user: string; from: string; connected: boolean; [k: string]: unknown; }
-interface SmsForm { sid: string; from: string; connected: boolean; [k: string]: unknown; }
 interface SettingsForm {
   commissionRate: number;
   exchangeRate: number;
@@ -57,13 +51,9 @@ interface SettingsForm {
   dryDuesRate: number;
   portName: string;
   terminals: string[];
-  smtp: SmtpForm;
-  sms: SmsForm;
 }
 
 function toSettingsForm(s: SettingsType): SettingsForm {
-  const smtp = (s.smtp || {}) as Record<string, unknown>;
-  const sms = (s.sms || {}) as Record<string, unknown>;
   const rates = s.liquidDuesRates || { government: 0, private: 0, international: 0 };
   return {
     commissionRate: s.commissionRate,
@@ -76,17 +66,6 @@ function toSettingsForm(s: SettingsType): SettingsForm {
     dryDuesRate: s.dryDuesRate,
     portName: s.portName,
     terminals: Array.isArray(s.terminals) ? [...s.terminals] : [],
-    smtp: {
-      ...smtp,
-      host: String(smtp.host ?? ""), port: String(smtp.port ?? ""),
-      user: String(smtp.user ?? ""), from: String(smtp.from ?? ""),
-      connected: !!smtp.connected,
-    } as SmtpForm,
-    sms: {
-      ...sms,
-      sid: String(sms.sid ?? ""), from: String(sms.from ?? ""),
-      connected: !!sms.connected,
-    } as SmsForm,
   };
 }
 
@@ -236,10 +215,6 @@ function OrganizationSection({ form, set, canEdit, toast }:
 // dedicated add/update/remove endpoints — applied immediately)
 // =========================================================
 function TeamSection({ canEdit }: { canEdit: boolean }) {
-  const store = useStore();
-  const members = store.org?.members || [];
-  const active = members.filter((member) => member.active).length;
-  const admins = members.filter((member) => member.active && member.role === "Admin").length;
   if (!canEdit) {
     return (
       <div className="card card-pad" style={{ maxWidth: 640 }}>
@@ -254,18 +229,8 @@ function TeamSection({ canEdit }: { canEdit: boolean }) {
     <div className="card card-pad" style={{ maxWidth: 640 }}>
       <div className="card-title">Team &amp; roles</div>
       <p className="muted" style={{ fontSize: 13, margin: "6px 0 18px" }}>
-        User accounts now have a dedicated management area with search, account status, role controls, password resets, and protected deletion.
+        Invite colleagues, manage roles and account status, review security enrollment, and inspect the audit trail.
       </p>
-      <div className="field-row" style={{ marginBottom: 20 }}>
-        <div className="user-account-summary">
-          <span>Active users</span><strong className="tnum">{active}</strong>
-          <small>{members.length} total account{members.length === 1 ? "" : "s"}</small>
-        </div>
-        <div className="user-account-summary">
-          <span>Active admins</span><strong className="tnum">{admins}</strong>
-          <small>Full-access accounts</small>
-        </div>
-      </div>
       <Link className="btn btn-primary" to="/app/users">
         <Icon name="users" size={17} /> Open User Management
       </Link>
@@ -280,7 +245,7 @@ export function Settings() {
   const store = useStore();
   const { user, can } = useAuth();
 
-  const [tab, setTab] = useState<"organization" | "team" | "charges" | "notifications" | "port" | "data">("organization");
+  const [tab, setTab] = useState<"organization" | "team" | "charges" | "port">("organization");
   const [form, setForm] = useState<SettingsForm>(() => toSettingsForm(store.settings));
   const [dirty, setDirty] = useState(false);
   const [orgForm, setOrgForm] = useState<Organization>(() => normalizeOrg(store.org));
@@ -357,14 +322,12 @@ export function Settings() {
     ["organization", "Organization"],
     ["team", "Team & roles"],
     ["charges", "Charge configuration"],
-    ["notifications", "Notifications"],
     ["port", "Port profile"],
-    ["data", "Data"],
   ];
 
   return (
     <div className="content-inner">
-      <div className="page-head"><div><h1 className="hide-sr">Settings</h1><p className="desc">Charge rates, notification channels and port profile.</p></div></div>
+      <div className="page-head"><div><h1 className="hide-sr">Settings</h1><p className="desc">Organization details, charge rates, and port profile.</p></div></div>
 
       <div className="settings-tabs" role="tablist">
         {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}
@@ -426,39 +389,6 @@ export function Settings() {
         </fieldset>
       )}
 
-      {/* ---------- Notifications ---------- */}
-      {tab === "notifications" && (
-        <fieldset disabled={!canEdit} style={{ border: "none", padding: 0, margin: 0 }}>
-          <div style={{ maxWidth: 640, display: "flex", flexDirection: "column", gap: 24 }}>
-            <div className="card card-pad">
-              <div className="flex between items-center" style={{ marginBottom: 4 }}>
-                <div className="card-title"><Icon name="mail" size={17} style={{ verticalAlign: "-3px", marginRight: 6, color: "var(--slate)" }} /> Email (SMTP)</div>
-                <span className={"channel-status " + (form.smtp.connected ? "connected" : "disconnected")}><span className="cdot" />{form.smtp.connected ? "Connected" : "Not connected"}</span>
-              </div>
-              <p className="muted" style={{ fontSize: 13, margin: "4px 0 20px" }}>Used to email invoices and inspection reports to agents.</p>
-              <div className="field-row">
-                <Field label="SMTP host"><input type="text" value={form.smtp.host} onChange={(e) => set("smtp.host", e.target.value)} /></Field>
-                <Field label="Port"><input type="text" value={form.smtp.port} onChange={(e) => set("smtp.port", e.target.value)} /></Field>
-              </div>
-              <Field label="Username"><input type="text" value={form.smtp.user} onChange={(e) => set("smtp.user", e.target.value)} /></Field>
-              <Field label="From address"><input type="text" value={form.smtp.from} onChange={(e) => set("smtp.from", e.target.value)} /></Field>
-              <button className="btn btn-secondary btn-sm" onClick={() => store.toast("Test email sent to " + form.smtp.user, "success")}><Icon name="send" size={15} strokeWidth={2} /> Send test</button>
-            </div>
-
-            <div className="card card-pad">
-              <div className="flex between items-center" style={{ marginBottom: 4 }}>
-                <div className="card-title"><Icon name="phone" size={17} style={{ verticalAlign: "-3px", marginRight: 6, color: "var(--slate)" }} /> SMS (Twilio)</div>
-                <span className={"channel-status " + (form.sms.connected ? "connected" : "disconnected")}><span className="cdot" />{form.sms.connected ? "Connected" : "Not connected"}</span>
-              </div>
-              <p className="muted" style={{ fontSize: 13, margin: "4px 0 20px" }}>Optional SMS alerts on vessel berthing and invoice issue.</p>
-              <Field label="Account SID"><input type="text" value={form.sms.sid} onChange={(e) => set("sms.sid", e.target.value)} /></Field>
-              <Field label="From number"><input type="text" value={form.sms.from} onChange={(e) => set("sms.from", e.target.value)} /></Field>
-              <button className="btn btn-secondary btn-sm" onClick={() => store.toast(form.sms.connected ? "Test SMS sent" : "Connect Twilio before sending a test", form.sms.connected ? "success" : "error")}><Icon name="send" size={15} strokeWidth={2} /> Send test</button>
-            </div>
-          </div>
-        </fieldset>
-      )}
-
       {/* ---------- Port profile ---------- */}
       {tab === "port" && (
         <div className="card card-pad" style={{ maxWidth: 640 }}>
@@ -471,28 +401,6 @@ export function Settings() {
               <textarea style={{ minHeight: 120 }} value={form.terminals.join("\n")} onChange={(e) => set("terminals", e.target.value.split("\n"))} />
             </Field>
           </fieldset>
-        </div>
-      )}
-
-      {/* ---------- Data ---------- */}
-      {tab === "data" && (
-        <div className="card card-pad" style={{ maxWidth: 640 }}>
-          <div className="card-title" style={{ marginBottom: 20 }}>Data store</div>
-          <p className="muted" style={{ fontSize: 13, margin: "-8px 0 18px" }}>
-            Connected to the backend — data persists on the server and is shared with the mobile capture app.
-          </p>
-          <div style={{ paddingTop: 4 }}>
-            <div className="card-title" style={{ fontSize: 14 }}>Reset data</div>
-            <p className="muted" style={{ fontSize: 13, margin: "6px 0 12px" }}>
-              Restoring the demo seed data is not available from the app.
-            </p>
-            <button className="btn btn-secondary btn-sm" style={{ color: "var(--danger)" }} disabled title="Data reset is managed by an administrator">
-              <Icon name="trash" size={15} /> Reset data
-            </button>
-            <div className="muted" style={{ fontSize: 13, marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
-              <Icon name="info" size={14} strokeWidth={2} /> Data reset is managed by an administrator.
-            </div>
-          </div>
         </div>
       )}
 

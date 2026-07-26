@@ -1,0 +1,56 @@
+[Unit]
+Description=Vessel Caller Celery worker (staging)
+After=network-online.target redis-vessel-caller-staging.service
+Wants=network-online.target
+ConditionPathExists=/opt/vessel-caller/slots/staging/current/backend/manage.py
+ConditionPathExists=/etc/vessel-caller/staging.env
+ConditionPathExists=/opt/vessel-caller/slots/staging/current/RELEASE.env
+
+[Service]
+Type=simple
+User=vessel-caller-staging
+Group=vessel-caller-staging
+WorkingDirectory=/opt/vessel-caller/slots/staging/current/backend
+EnvironmentFile=/etc/vessel-caller/staging.env
+EnvironmentFile=/opt/vessel-caller/slots/staging/current/RELEASE.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/celery -A vessel_caller worker --loglevel=INFO --concurrency=2 --max-tasks-per-child=500
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStartSec=60
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=5
+UMask=0027
+LimitNOFILE=32768
+TasksMax=256
+MemoryHigh=1G
+MemoryMax=1536M
+CPUQuota=100%
+
+RuntimeDirectory=vessel-caller-staging-worker
+StateDirectory=vessel-caller/staging
+LogsDirectory=vessel-caller/staging
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/vessel-caller/staging /var/log/vessel-caller/staging
+
+[Install]
+WantedBy=multi-user.target

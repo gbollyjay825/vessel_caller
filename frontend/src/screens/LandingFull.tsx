@@ -2,7 +2,7 @@
 // ported from calabar/landing.jsx to Vite + React 18 + TypeScript.
 // Styles live in styles/landing.css (imported globally in main.tsx).
 import { useEffect, useState, type SVGProps } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "../lib/navigation";
 
 // ---- tiny inline icon set (stroke, inherits currentColor) ----
 const STROKE = {
@@ -69,8 +69,8 @@ const PORTS = [
 const SMALL_FEATURES = [
   {
     icon: <IcAnchor size={22} sw={1.8} />,
-    title: "Vessel calls & tracking",
-    body: "Rotation numbers, net tonnage, arrival & sailing ETAs, berth terminals — with AIS-style voyage tracking to the berth.",
+    title: "Vessel call management",
+    body: "Rotation numbers, net tonnage, arrival and sailing ETAs, berth terminals, status changes, and cancellation history.",
   },
   {
     icon: (
@@ -166,7 +166,7 @@ const DUES_POINTS = [
 // former app.html / mobile links now route to /login.
 const FOOTER: [string, [string, string][]][] = [
   ["Platform", [["#platform", "Operations console"], ["#quayside", "Quayside capture"], ["#dues", "Harbour dues"], ["#how", "How it works"]]],
-  ["App", [["/login", "Launch console"], ["/login", "Mobile capture"], ["/login", "Sign in"]]],
+  ["App", [["/login", "Launch console"], ["/capture", "Mobile capture"], ["/login", "Sign in"]]],
   ["Operations", [["/login", "Vessel calls"], ["/login", "Inspections"], ["/login", "Invoices"], ["/login", "Analytics"]]],
 ];
 
@@ -237,7 +237,6 @@ function PortScene() {
 export function Landing() {
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = () => setMenuOpen(false);
-  const navigate = useNavigate();
 
   // Scroll-reveal: fade sections in as they enter the viewport. Content
   // is visible up-front if IntersectionObserver is unavailable.
@@ -311,16 +310,7 @@ export function Landing() {
             <a className="btn btn-line" href="#how">See how it works</a>
           </div>
 
-          <form
-            className="track"
-            aria-label="Look up a vessel call"
-            onSubmit={(e) => { e.preventDefault(); navigate("/login"); }}
-          >
-            <span className="ic"><Svg size={19}><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></Svg></span>
-            <input type="text" placeholder="Look up a rotation number — e.g. ROT-2026-0438" aria-label="Rotation number" />
-            <button className="btn btn-blue" type="submit">Track vessel</button>
-          </form>
-          <div className="track-hint"><b>Try the live demo</b> — seeded with vessel calls, inspections and invoices.</div>
+          <p className="track-hint">Organization data is private and available only to verified, authorized users.</p>
         </div>
 
         <PortScene />
@@ -357,7 +347,7 @@ export function Landing() {
             <div className="cell big reveal">
               <div className="cic"><Svg size={23} sw={1.8}><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></Svg></div>
               <h3>The operations console</h3>
-              <p>Vessel calls, inspections, invoices and analytics in one dashboard — with live voyage tracking for every inbound ship and a full audit trail behind every number.</p>
+              <p>Vessel calls, inspections, invoices and analytics in one dashboard, with role-based access and an audit trail for security and material business changes.</p>
               <div className="mini">
                 <div className="mini-frame">
                   <div className="mini-kpis">
@@ -374,8 +364,8 @@ export function Landing() {
 
             <div className="cell big reveal">
               <div className="cic" style={{ background: "var(--amber-soft)", color: "#B97F22" }}><Svg size={23} sw={1.8}><rect x="7" y="2" width="10" height="20" rx="2.5" /><line x1="11" y1="18" x2="13" y2="18" /></Svg></div>
-              <h3>Quayside capture, synced live</h3>
-              <p>Surveyors capture ullage, draft and jetty details at the berth — offline if the signal drops — and every inspection lands on the office console in seconds.</p>
+              <h3>Offline-safe quayside capture</h3>
+              <p>Surveyors capture ullage, draft, jetty details and evidence at the berth. Interrupted submissions remain on the device and retry with duplicate protection.</p>
               <div className="mini-phone">
                 <div className="mini-scr">
                   <div className="ms-top"><div className="e">Port of Calabar</div><div className="h">Inspections</div></div>
@@ -445,11 +435,11 @@ export function Landing() {
       <section id="quayside">
         <div className="wrap">
           <div className="quote reveal">
-            <span className="qmark">“</span>
-            <blockquote>We stopped arguing about figures. The surveyor submits at the jetty, the invoice issues itself at the right rate, and finance sees the payment the moment it's recorded.</blockquote>
+            <span className="qmark" aria-hidden="true">✓</span>
+            <blockquote>One issued-rate snapshot connects the surveyor’s reconciled tonnage, harbour-dues calculation, invoice, payment record, and audit history.</blockquote>
             <div className="who">
-              <span className="av">EO</span>
-              <span><span className="nm">Etim Okon</span><br /><span className="rl">Port Agent · Port of Calabar</span></span>
+              <span className="av"><IcCheck size={16} /></span>
+              <span><span className="nm">Traceable by design</span><br /><span className="rl">Operations and finance share the same source record</span></span>
             </div>
           </div>
         </div>
@@ -460,10 +450,10 @@ export function Landing() {
         <div className="wrap">
           <div className="cta reveal">
             <h2>Bring your next vessel call in<br />with Vessel Caller.</h2>
-            <p>Register your organization, add your team, and run your first inspection today — the demo is live and seeded.</p>
+            <p>Register your organization, verify the first Admin account, invite your team, and run your first inspection.</p>
             <div className="hero-cta">
-              <Link className="btn btn-amber" to="/login">Launch the app <ArrBtn /></Link>
-              <Link className="btn btn-line" to="/login">Open the quayside app</Link>
+              <Link className="btn btn-amber" to="/register">Register an organization <ArrBtn /></Link>
+              <Link className="btn btn-line" to="/login">Sign in</Link>
             </div>
           </div>
         </div>

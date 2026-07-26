@@ -1,0 +1,35 @@
+# Encrypt a copy as ansible/group_vars/all/vault.yml:
+# ansible-vault encrypt ansible/group_vars/all/vault.yml
+#
+# Placeholder values intentionally do not work in production.
+vault_vessel_release_signing_public_key: |
+  CHANGE_ME
+vault_vessel_production_database_url: CHANGE_ME
+vault_vessel_staging_database_url: CHANGE_ME
+vault_vessel_secret_key: CHANGE_ME
+vault_vessel_staging_secret_key: CHANGE_ME
+vault_vessel_production_mfa_encryption_key: CHANGE_ME
+vault_vessel_staging_mfa_encryption_key: CHANGE_ME
+vault_vessel_production_redis_password: CHANGE_ME
+vault_vessel_staging_redis_password: CHANGE_ME
+vault_vessel_staging_proxy_secret: CHANGE_ME
+vault_vessel_production_resend_api_key: CHANGE_ME
+vault_vessel_production_email_from: CHANGE_ME
+vault_vessel_staging_resend_api_key: CHANGE_ME
+vault_vessel_staging_email_from: CHANGE_ME
+vault_vessel_production_spaces_key: CHANGE_ME
+vault_vessel_production_spaces_secret: CHANGE_ME
+vault_vessel_production_spaces_bucket: CHANGE_ME
+vault_vessel_staging_spaces_key: CHANGE_ME
+vault_vessel_staging_spaces_secret: CHANGE_ME
+vault_vessel_staging_spaces_bucket: CHANGE_ME
+vault_vessel_spaces_region: CHANGE_ME
+vault_vessel_spaces_endpoint_url: CHANGE_ME
+vault_vessel_production_sentry_dsn: CHANGE_ME
+vault_vessel_staging_sentry_dsn: CHANGE_ME
+vault_vessel_backup_age_recipient: CHANGE_ME
+vault_vessel_backup_spaces_bucket: CHANGE_ME
+vault_vessel_backup_spaces_endpoint: CHANGE_ME
+vault_vessel_backup_aws_access_key_id: CHANGE_ME
+vault_vessel_backup_aws_secret_access_key: CHANGE_ME
+vault_vessel_alert_webhook_url: ""

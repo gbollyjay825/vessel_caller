@@ -1,15 +1,16 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// The API base is injected at build time via VITE_API_BASE. In dev we proxy
-// /api to the FastAPI backend so the app and API share an origin locally.
+// The API remains same-origin in every deployed environment. Development uses
+// a local reverse proxy so Django's session and CSRF cookies behave the same.
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: "127.0.0.1",
     port: 5173,
     proxy: {
       "/api": {
-        target: process.env.VITE_DEV_API ?? "http://127.0.0.1:8000",
+        target: process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:8002",
         changeOrigin: true,
       },
     },

@@ -1,0 +1,78 @@
+---
+- name: Install backup systemd units
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - vessel-caller-backup.service
+    - vessel-caller-backup.timer
+  when: vessel_backups_enabled | bool
+  notify: Reload backup units
+
+- name: Write protected backup environment
+  ansible.builtin.template:
+    src: backup.env.j2
+    dest: "{{ vessel_config_root }}/backup.env"
+    owner: root
+    group: "{{ vessel_production_group }}"
+    mode: "0640"
+  no_log: true
+  when: vessel_backups_enabled | bool
+
+- name: Install backup lifecycle policy
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/backup-lifecycle.json"
+    dest: "{{ vessel_config_root }}/backup-lifecycle.json"
+    owner: root
+    group: "{{ vessel_production_group }}"
+    mode: "0640"
+  when: vessel_backups_enabled | bool
+
+- name: Enable backup bucket versioning
+  ansible.builtin.command:
+    argv:
+      - aws
+      - --endpoint-url
+      - "{{ vessel_backup_spaces_endpoint }}"
+      - s3api
+      - put-bucket-versioning
+      - --bucket
+      - "{{ vessel_backup_spaces_bucket }}"
+      - --versioning-configuration
+      - Status=Enabled
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ vessel_backup_aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ vessel_backup_aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ vessel_spaces_region }}"
+  no_log: true
+  when: vessel_backups_enabled | bool
+
+- name: Enforce 30-day backup lifecycle
+  ansible.builtin.command:
+    argv:
+      - aws
+      - --endpoint-url
+      - "{{ vessel_backup_spaces_endpoint }}"
+      - s3api
+      - put-bucket-lifecycle-configuration
+      - --bucket
+      - "{{ vessel_backup_spaces_bucket }}"
+      - --lifecycle-configuration
+      - "file://{{ vessel_config_root }}/backup-lifecycle.json"
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ vessel_backup_aws_access_key_id }}"
+    AWS_SECRET_ACCESS_KEY: "{{ vessel_backup_aws_secret_access_key }}"
+    AWS_DEFAULT_REGION: "{{ vessel_spaces_region }}"
+  no_log: true
+  when: vessel_backups_enabled | bool
+
+- name: Enable daily encrypted backups
+  ansible.builtin.systemd:
+    name: vessel-caller-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: vessel_backups_enabled | bool

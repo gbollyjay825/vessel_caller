@@ -1,0 +1,62 @@
+vessel_preserve_flexschools: true
+vessel_domain: vesselcalls.com
+vessel_staging_domain: staging-api.vesselcalls.com
+vessel_staging_frontend_origin: https://staging.vesselcalls.com
+vessel_flexschools_health_url: https://flexschools.ng/
+
+vessel_production_user: vessel-caller-production
+vessel_production_group: vessel-caller-production
+vessel_staging_user: vessel-caller-staging
+vessel_staging_group: vessel-caller-staging
+vessel_production_redis_user: redis-vessel-production
+vessel_production_redis_group: redis-vessel-production
+vessel_staging_redis_user: redis-vessel-staging
+vessel_staging_redis_group: redis-vessel-staging
+vessel_deploy_user: vessel-deploy
+vessel_deploy_authorized_keys: []
+vessel_python_binary: /usr/bin/python3.12
+vessel_release_signing_public_key: "{{ vault_vessel_release_signing_public_key }}"
+
+vessel_app_root: /opt/vessel-caller
+vessel_state_root: /var/lib/vessel-caller
+vessel_config_root: /etc/vessel-caller
+vessel_log_root: /var/log/vessel-caller
+
+vessel_production_redis_port: 6380
+vessel_staging_redis_port: 6381
+vessel_tls_ready: true
+vessel_staging_tls_ready: true
+vessel_backups_enabled: false
+vessel_monitoring_enabled: true
+vessel_ufw_enabled: true
+
+# Secret values are defined in an Ansible Vault file, never here.
+vessel_production_database_url: "{{ vault_vessel_production_database_url }}"
+vessel_staging_database_url: "{{ vault_vessel_staging_database_url }}"
+vessel_secret_key: "{{ vault_vessel_secret_key }}"
+vessel_staging_secret_key: "{{ vault_vessel_staging_secret_key }}"
+vessel_production_mfa_encryption_key: "{{ vault_vessel_production_mfa_encryption_key }}"
+vessel_staging_mfa_encryption_key: "{{ vault_vessel_staging_mfa_encryption_key }}"
+vessel_production_resend_api_key: "{{ vault_vessel_production_resend_api_key }}"
+vessel_production_email_from: "{{ vault_vessel_production_email_from }}"
+vessel_staging_resend_api_key: "{{ vault_vessel_staging_resend_api_key }}"
+vessel_staging_email_from: "{{ vault_vessel_staging_email_from }}"
+vessel_production_spaces_key: "{{ vault_vessel_production_spaces_key }}"
+vessel_production_spaces_secret: "{{ vault_vessel_production_spaces_secret }}"
+vessel_production_spaces_bucket: "{{ vault_vessel_production_spaces_bucket }}"
+vessel_staging_spaces_key: "{{ vault_vessel_staging_spaces_key }}"
+vessel_staging_spaces_secret: "{{ vault_vessel_staging_spaces_secret }}"
+vessel_staging_spaces_bucket: "{{ vault_vessel_staging_spaces_bucket }}"
+vessel_spaces_region: "{{ vault_vessel_spaces_region }}"
+vessel_spaces_endpoint_url: "{{ vault_vessel_spaces_endpoint_url }}"
+vessel_production_sentry_dsn: "{{ vault_vessel_production_sentry_dsn }}"
+vessel_staging_sentry_dsn: "{{ vault_vessel_staging_sentry_dsn }}"
+vessel_production_redis_password: "{{ vault_vessel_production_redis_password }}"
+vessel_staging_redis_password: "{{ vault_vessel_staging_redis_password }}"
+vessel_staging_proxy_secret: "{{ vault_vessel_staging_proxy_secret }}"
+vessel_backup_age_recipient: "{{ vault_vessel_backup_age_recipient }}"
+vessel_backup_spaces_bucket: "{{ vault_vessel_backup_spaces_bucket }}"
+vessel_backup_spaces_endpoint: "{{ vault_vessel_backup_spaces_endpoint }}"
+vessel_backup_aws_access_key_id: "{{ vault_vessel_backup_aws_access_key_id }}"
+vessel_backup_aws_secret_access_key: "{{ vault_vessel_backup_aws_secret_access_key }}"
+vessel_alert_webhook_url: "{{ vault_vessel_alert_webhook_url | default('') }}"

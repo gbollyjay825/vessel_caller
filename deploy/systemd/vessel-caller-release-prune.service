@@ -1,0 +1,12 @@
+[Unit]
+Description=Prune inactive Vessel Caller releases
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/vessel-caller/prune-releases.sh
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/vessel-caller/releases

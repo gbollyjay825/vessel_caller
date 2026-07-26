@@ -3,12 +3,21 @@
 export type Role = "Admin" | "Operations" | "Finance" | "Viewer";
 export const ROLES: Role[] = ["Admin", "Operations", "Finance", "Viewer"];
 
+export type UserStatus = "invited" | "active" | "suspended" | "removed";
+
 export interface User {
   id: string;
   name: string;
   email: string;
   role: Role;
-  active: boolean;
+  status: UserStatus;
+  active?: boolean;
+  emailVerified: boolean;
+  mfaEnabled: boolean;
+  mfaRequired: boolean;
+  mfaEnrollmentRequired?: boolean;
+  mfaGraceEndsAt?: string | null;
+  lastLogin?: string | null;
   createdAt?: string | null;
 }
 export type Member = User;
@@ -26,7 +35,7 @@ export interface Organization {
   ports: string[];
   logo: string | null;
   rev: number;
-  members: Member[];
+  members?: Member[];
 }
 
 export interface Jetty {
@@ -42,11 +51,9 @@ export interface Settings {
   dryDuesRate: number;
   portName: string;
   terminals: string[];
-  smtp: Record<string, unknown> | null;
-  sms: Record<string, unknown> | null;
 }
 
-export type CallStatus = "pending" | "in-progress" | "completed";
+export type CallStatus = "pending" | "in-progress" | "completed" | "cancelled";
 export interface VesselCall {
   id: string;
   vesselName: string;
@@ -60,6 +67,9 @@ export interface VesselCall {
   berthDate: string | null;
   status: CallStatus;
   notes: string;
+  cancellationReason?: string | null;
+  cancelledAt?: string | null;
+  version: number;
   registered: string;
 }
 
@@ -76,18 +86,26 @@ export interface Inspection {
   liquid: Record<string, unknown> | null;
   dry: Record<string, unknown> | null;
   date: string;
-  status: "draft" | "completed";
+  status: "draft" | "completed" | "cancelled";
+  version: number;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface Payment {
+  id: string;
+  amount: number;
   paidOn: string;
   method: string;
   reference: string;
-  amount: number;
   recordedBy: string;
+  recordedAt: string;
+  reversedAt?: string | null;
+  reversedBy?: string | null;
+  reversalReason?: string | null;
 }
-export type InvoiceStatus = "paid" | "unpaid";
-export type EffectiveInvoiceStatus = "paid" | "unpaid" | "overdue";
+export type InvoiceStatus = "paid" | "unpaid" | "void";
+export type EffectiveInvoiceStatus = "paid" | "unpaid" | "overdue" | "void";
 export interface Invoice {
   id: string;
   invoiceNo: string;
@@ -148,8 +166,66 @@ export interface Analytics {
   totals: AnalyticsTotals;
 }
 
-export interface Session {
-  token: string;
+export interface AuthSession {
   user: User;
-  org?: Organization;
+  org: Organization;
+  permissions: string[];
+}
+
+export interface Paginated<T> {
+  results: T[];
+  count: number;
+  page: number;
+  pageSize: number;
+}
+
+export type InvitationStatus = "pending" | "accepted" | "expired" | "revoked";
+export interface Invitation {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  status: InvitationStatus;
+  invitedBy?: Pick<User, "id" | "name" | "email"> | null;
+  expiresAt: string;
+  createdAt: string;
+  acceptedAt?: string | null;
+}
+
+export interface AuditEvent {
+  id: string;
+  action: string;
+  actor?: Pick<User, "id" | "name" | "email"> | null;
+  targetType?: string | null;
+  targetId?: string | null;
+  targetLabel?: string | null;
+  category?: string | null;
+  requestId?: string | null;
+  ipAddress?: string | null;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  occurredAt: string;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  email: string;
+  pendingEmail?: string | null;
+  role: Role;
+  emailVerified: boolean;
+  mfaEnabled: boolean;
+  mfaRequired: boolean;
+  mfaEnrollmentRequired?: boolean;
+  mfaGraceEndsAt?: string | null;
+}
+
+export interface DeviceSession {
+  id: string;
+  current: boolean;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
 }

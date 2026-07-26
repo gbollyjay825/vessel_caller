@@ -1,8 +1,10 @@
 // App layout: sidebar + topbar + routed content, with a store-driven toast host.
 import { useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import type { ReactNode } from "react";
 
+import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
+import { Link, useLocation } from "../lib/navigation";
 import { Sidebar, TopBar } from "./Shell";
 import { useStore } from "./store";
 
@@ -15,20 +17,29 @@ function titleFor(pathname: string): string {
   if (p.includes("/invoices")) return "Invoices";
   if (p.includes("/analytics")) return "Analytics";
   if (p.includes("/users")) return "User Management";
+  if (p.includes("/account")) return "Account & Security";
   if (p.includes("/settings")) return "Settings";
   return "Dashboard";
 }
 
-export function AppShell() {
+export function AppShell({ children }: { children: ReactNode }) {
   const [mobileNav, setMobileNav] = useState(false);
   const loc = useLocation();
+  const { user } = useAuth();
   return (
     <div className="app">
       <Sidebar mobileOpen={mobileNav} closeMobile={() => setMobileNav(false)} />
       {mobileNav && <div className="nav-scrim" onClick={() => setMobileNav(false)} />}
       <div className="main">
         <TopBar title={titleFor(loc.pathname)} onHamburger={() => setMobileNav((o) => !o)} />
-        <div className="content scroll-host"><Outlet /></div>
+        {user?.mfaEnrollmentRequired && !user.mfaEnabled && (
+          <div className="security-banner" role="status">
+            <Icon name="alert" size={16} />
+            Authenticator enrollment is required for your role.
+            <Link to="/app/account">Set up MFA</Link>
+          </div>
+        )}
+        <div className="content scroll-host">{children}</div>
       </div>
       <ToastHost />
     </div>

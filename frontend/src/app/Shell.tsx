@@ -1,10 +1,10 @@
 // App chrome: primary Sidebar (router-driven nav) + TopBar (port, user, sign out).
 // Ported from calabar/shell.jsx — same className structure, no window globals,
-// no user-switcher (real auth), navigation via react-router NavLink.
+// no user-switcher (real auth), navigation via the local SPA router adapter.
 import { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "../lib/navigation";
 
-import { useAuth } from "../auth/AuthContext";
+import { useAuth, type Permission } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
 import { orgPortsLabel, userInitials } from "../lib/format";
 import { useStore } from "./store";
@@ -15,22 +15,22 @@ interface NavItem {
   icon: string;
   to: string;
   end?: boolean;
-  adminOnly?: boolean;
+  permission?: Permission;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { key: "dashboard",    label: "Dashboard",    icon: "dashboard", to: "/app", end: true },
-  { key: "vessel-calls", label: "Vessel Calls", icon: "ship",      to: "/app/vessel-calls" },
-  { key: "inspections",  label: "Inspections",  icon: "clipboard", to: "/app/inspections" },
-  { key: "invoices",     label: "Invoices",     icon: "invoice",   to: "/app/invoices" },
-  { key: "analytics",    label: "Analytics",    icon: "gauge",     to: "/app/analytics" },
-  { key: "users",        label: "User Management", icon: "users",  to: "/app/users", adminOnly: true },
-  { key: "settings",     label: "Settings",     icon: "settings",  to: "/app/settings" },
+  { key: "vessel-calls", label: "Vessel Calls", icon: "ship",      to: "/app/vessel-calls", permission: "calls.view" },
+  { key: "inspections",  label: "Inspections",  icon: "clipboard", to: "/app/inspections", permission: "inspections.view" },
+  { key: "invoices",     label: "Invoices",     icon: "invoice",   to: "/app/invoices", permission: "invoices.view" },
+  { key: "analytics",    label: "Analytics",    icon: "gauge",     to: "/app/analytics", permission: "analytics.view" },
+  { key: "users",        label: "User Management", icon: "users",  to: "/app/users", permission: "users.view" },
+  { key: "settings",     label: "Settings",     icon: "settings",  to: "/app/settings", permission: "settings.view" },
 ];
 
 export function Sidebar({ mobileOpen, closeMobile }: { mobileOpen?: boolean; closeMobile?: () => void }) {
   const { org } = useStore();
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const orgName = org?.name || "Vessel Caller";
   const portLine = orgPortsLabel(org, "Port of Calabar") + " · Inspection";
   return (
@@ -45,7 +45,7 @@ export function Sidebar({ mobileOpen, closeMobile }: { mobileOpen?: boolean; clo
       </div>
       <div className="sb-nav scroll-host">
         <div className="sb-nav-label">Operations</div>
-        {NAV_ITEMS.filter((item) => !item.adminOnly || user?.role === "Admin").map((item) => (
+        {NAV_ITEMS.filter((item) => !item.permission || can(item.permission)).map((item) => (
           <NavLink
             key={item.key}
             to={item.to}
@@ -64,7 +64,7 @@ export function Sidebar({ mobileOpen, closeMobile }: { mobileOpen?: boolean; clo
           <div className="nm">{user ? user.name : "No user"}</div>
           <div className="rl">{user ? user.role : "—"}</div>
         </div>
-        <button className="sb-signout" title="Sign out" aria-label="Sign out" onClick={logout}><Icon name="logout" size={17} /></button>
+        <button className="sb-signout" title="Sign out" aria-label="Sign out" onClick={() => void logout()}><Icon name="logout" size={17} /></button>
       </div>
     </nav>
   );
@@ -81,14 +81,10 @@ export function TopBar({ title, onHamburger }: { title: string; onHamburger?: ()
         <h1>{title}</h1>
       </div>
       <div className="topbar-right">
-        <button className="port-select">
+        <div className="port-select" aria-label={`Current port: ${portLabel}`}>
           <Icon name="anchor" size={15} strokeWidth={2} />
           <span className="ps-label">{portLabel}</span>
-          <Icon name="chevronDown" size={15} />
-        </button>
-        <button className="icon-btn" aria-label="Notifications" title="Notifications">
-          <Icon name="bell" size={19} /><span className="bell-dot" />
-        </button>
+        </div>
         <div style={{ position: "relative" }}>
           <button className="icon-btn" onClick={() => setMenuOpen((o) => !o)} aria-label="User menu"
             style={{ width: "auto", padding: "0 6px", gap: 6 }}>
@@ -103,8 +99,13 @@ export function TopBar({ title, onHamburger }: { title: string; onHamburger?: ()
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{user ? user.name : "No user"}</div>
                   <div style={{ fontSize: 12, color: "var(--slate-soft)" }}>{user ? `${user.role} · ${org?.name || "Vessel Caller"}` : "—"}</div>
                 </div>
+                <Link className="sb-item" style={{ borderLeft: "none" }} to="/app/account" onClick={() => setMenuOpen(false)}
+                  aria-label="Account and security">
+                  <Icon name="settings" size={17} /><span className="lbl">Account &amp; security</span>
+                </Link>
                 <button className="sb-item" style={{ borderLeft: "none", color: "var(--danger)" }}
-                  onClick={() => { setMenuOpen(false); logout(); }}>
+                  aria-label="Sign out"
+                  onClick={() => { setMenuOpen(false); void logout(); }}>
                   <Icon name="logout" size={17} /><span className="lbl">Sign out</span>
                 </button>
               </div>

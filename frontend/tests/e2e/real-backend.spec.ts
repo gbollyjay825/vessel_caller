@@ -21,7 +21,8 @@ async function navigateInWorkspace(page: Page, label: string) {
   const hamburger = page.getByRole("button", { name: "Open menu" });
   const navigation = page.getByRole("navigation", { name: "Primary" });
   const link = navigation.getByRole("link", { name: label });
-  if (await hamburger.isVisible()) {
+  if ((page.viewportSize()?.width ?? Number.POSITIVE_INFINITY) <= 767) {
+    await expect(hamburger).toBeVisible();
     await hamburger.click();
     await expect(navigation).toHaveClass(/(?:^|\s)open(?:\s|$)/);
     await expect(link).toBeInViewport();

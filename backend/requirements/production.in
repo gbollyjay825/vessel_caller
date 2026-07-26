@@ -1,0 +1,2 @@
+-r base.in
+sentry-sdk[django]==2.37.1

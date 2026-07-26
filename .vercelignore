@@ -1,14 +1,36 @@
-# Only the web app should be deployed (Vercel ignores .gitignore, not this).
+# Vercel is a protected, static staging frontend only. The release workflow
+# deploys .vercel/output with --prebuilt. Django and all durable services stay
+# on the isolated staging backend tier.
 .git
 .gitignore
+.github
 .claude
-node_modules
+.env*
 *.log
 .DS_Store
-.vercel
-
-# Local dev / tooling — not needed on the static host
-server.py
-serve.sh
+ansible
+artifacts
 backend
-*.md
+deploy
+docs
+api
+
+# Python and local databases
+.venv
+*.db
+*.db-*
+
+# Node sources/dependencies are not part of the prebuilt output upload.
+node_modules
+
+# Legacy single-repo prototype (superseded by frontend/ + backend/; not served).
+# Leading "/" anchors to the repo root so these DON'T match nested frontend/ files
+# (e.g. a bare "mobile" would wrongly exclude frontend/src/mobile/).
+/index.html
+/app.html
+/Mobile Data Capture.html
+/calabar
+/mobile
+/vendor
+/server.py
+/serve.sh

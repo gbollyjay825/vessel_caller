@@ -1,0 +1,20 @@
+{
+  "Rules": [
+    {
+      "ID": "vessel-caller-database-retention",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "database/"
+      },
+      "Expiration": {
+        "Days": 30
+      },
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 30
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 2
+      }
+    }
+  ]
+}

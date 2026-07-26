@@ -1,0 +1,31 @@
+name: External Production Synthetic
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vessel-caller-production-synthetic
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Vessel Caller externally
+        run: deploy/scripts/smoke-test.sh https://vesselcalls.com
+      - name: Verify FlexSchools isolation
+        run: >-
+          curl
+          --fail
+          --silent
+          --show-error
+          --location
+          --max-time 20
+          https://flexschools.ng/

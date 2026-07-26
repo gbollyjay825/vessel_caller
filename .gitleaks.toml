@@ -1,0 +1,17 @@
+title = "Vessel Caller Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  description = "Deterministic non-secret values used only by frontend tests"
+  condition = "AND"
+  regexTarget = "secret"
+  regexes = ['''^(idempotency-1|twelve-chars-1)$''']
+  paths = [
+    '''^frontend/src/app/store\.test\.tsx$''',
+    '''^frontend/src/screens/PublicFlows\.test\.tsx$''',
+  ]

@@ -1,0 +1,44 @@
+---
+- name: Install monitoring and pruning units
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - vessel-caller-monitor.service
+    - vessel-caller-monitor.timer
+    - vessel-caller-release-prune.service
+    - vessel-caller-release-prune.timer
+  when: vessel_monitoring_enabled | bool
+  notify: Reload monitoring units
+
+- name: Configure monitoring
+  ansible.builtin.template:
+    src: monitor.env.j2
+    dest: "{{ vessel_config_root }}/monitor.env"
+    owner: root
+    group: "{{ vessel_production_group }}"
+    mode: "0640"
+  no_log: true
+  when: vessel_monitoring_enabled | bool
+
+- name: Install log rotation
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/logrotate/vessel-caller"
+    dest: /etc/logrotate.d/vessel-caller
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable monitoring and release pruning
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - vessel-caller-monitor.timer
+    - vessel-caller-release-prune.timer
+  when: vessel_monitoring_enabled | bool

@@ -1,0 +1,64 @@
+---
+- name: Read-only shared Droplet preflight
+  hosts: vessel_caller
+  become: true
+  gather_facts: true
+  tasks:
+    - name: List enabled Nginx sites
+      ansible.builtin.find:
+        paths: /etc/nginx/sites-enabled
+        file_type: any
+      register: preflight_nginx_sites
+      changed_when: false
+
+    - name: Validate current Nginx configuration
+      ansible.builtin.command: nginx -t
+      register: preflight_nginx_test
+      changed_when: false
+
+    - name: Inspect reserved loopback ports
+      ansible.builtin.command: ss --listening --tcp --numeric
+      register: preflight_listeners
+      changed_when: false
+
+    - name: Inspect application services
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - "{{ item }}"
+      loop:
+        - nginx
+        - vessel-caller.service
+        - redis-server.service
+        - redis-vessel-caller-production.service
+        - redis-vessel-caller-staging.service
+      register: preflight_services
+      changed_when: false
+      failed_when: false
+
+    - name: Verify public applications
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        status_code:
+          - 200
+          - 301
+          - 302
+        timeout: 20
+      loop:
+        - https://vesselcalls.com/api/health
+        - https://flexschools.ng/
+      register: preflight_public
+      changed_when: false
+
+    - name: Report sanitized preflight
+      ansible.builtin.debug:
+        msg:
+          operatingSystem: "{{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}"
+          architecture: "{{ ansible_facts.architecture }}"
+          memoryMb: "{{ ansible_facts.memtotal_mb }}"
+          enabledNginxSites: "{{ preflight_nginx_sites.files | map(attribute='path') | list }}"
+          nginxValidation: "{{ preflight_nginx_test.stderr }}"
+          listeners: "{{ preflight_listeners.stdout_lines }}"
+          services: "{{ preflight_services.results | map(attribute='stdout') | list }}"
+          publicStatuses: "{{ preflight_public.results | map(attribute='status') | list }}"

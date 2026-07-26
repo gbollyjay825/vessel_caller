@@ -1,0 +1,57 @@
+[Unit]
+Description=Vessel Caller Django web (staging)
+After=network-online.target redis-vessel-caller-staging.service
+Wants=network-online.target
+ConditionPathExists=/opt/vessel-caller/slots/staging/current/backend/manage.py
+ConditionPathExists=/etc/vessel-caller/staging.env
+ConditionPathExists=/opt/vessel-caller/slots/staging/current/RELEASE.env
+
+[Service]
+Type=simple
+User=vessel-caller-staging
+Group=vessel-caller-staging
+WorkingDirectory=/opt/vessel-caller/slots/staging/current/backend
+EnvironmentFile=/etc/vessel-caller/staging.env
+EnvironmentFile=/opt/vessel-caller/slots/staging/current/RELEASE.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/gunicorn vessel_caller.wsgi:application --bind ${VC_BIND} --workers 3 --threads 2 --worker-class gthread --timeout 60 --graceful-timeout 30 --max-requests 1000 --max-requests-jitter 100 --access-logfile - --error-logfile -
+ExecReload=/bin/kill -s HUP $MAINPID
+KillSignal=SIGQUIT
+TimeoutStartSec=60
+TimeoutStopSec=45
+Restart=on-failure
+RestartSec=3
+UMask=0027
+LimitNOFILE=65536
+TasksMax=512
+MemoryHigh=1536M
+MemoryMax=2G
+CPUQuota=150%
+
+RuntimeDirectory=vessel-caller-staging
+StateDirectory=vessel-caller/staging
+LogsDirectory=vessel-caller/staging
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/vessel-caller/staging /var/log/vessel-caller/staging
+
+[Install]
+WantedBy=multi-user.target

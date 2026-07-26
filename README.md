@@ -1,95 +1,76 @@
-# Vessel Caller — Port Inspection
+# Vessel Caller
 
-The **Vessel Caller** platform for managing maritime vessel calls and cargo
-inspections across one or more designated ports — organization registration,
-multi-port setup, logo branding, role-based access, vessel registration,
-liquid/dry cargo inspections with
-jetty-based harbour dues, agency commission, invoice/payment tracking,
-analytics, printable invoice/report documents, and a mobile quayside
-data-capture app.
+Vessel Caller manages organization users, vessel calls, inspections, evidence,
+invoices, payments, and port analytics. The production application is a
+React/Vite SPA backed by Django 5.2 LTS and Django REST Framework.
 
-React 18 + Babel Standalone frontend (design-master UI, no build step,
-runtime vendored locally) wired to a **Python backend** (stdlib only, no
-dependencies) with SQLite persistence.
+## Architecture
 
----
+- `frontend/`: TypeScript React application
+- `backend/`: Django API, database sessions, role enforcement, Celery, and
+  PostgreSQL migrations
+- `compose.yml`: local PostgreSQL and Redis
+- `deploy/`: immutable release, blue-green Nginx/systemd, backup, and monitoring
+- `ansible/`: guarded FlexSchools Droplet bootstrap
+- `docs/`: architecture, RBAC, SDLC, backlog, ADRs, and operator runbooks
 
-## Running it
+Production runs only at `https://vesselcalls.com` on the FlexSchools Droplet.
+A dedicated protected Vercel project serves the static staging SPA only; it
+holds no production credentials or data and proxies same-origin `/api` requests
+to the isolated Droplet staging Django service.
+
+The root legacy HTML/Babel files and `backend/legacy_fastapi/` are migration
+compatibility sources. They are not production targets and will be removed
+after the qualified Django cutover and compatibility window. There are no
+production demo credentials or automatic seed/reset behavior.
+
+## Local development
+
+Prerequisites: Python from `.python-version`, Node from `.nvmrc`, and Docker.
 
 ```bash
-./serve.sh            # http://localhost:8000
-# or:
-python3 server.py     # PORT / HOST / VESSEL_DB env vars supported
+cp .env.example .env
+make services-up
+make bootstrap
+.venv/bin/python backend/manage.py migrate
+.venv/bin/python backend/manage.py runserver 127.0.0.1:8002
 ```
 
-One process serves everything: the static frontend, the REST API, and the
-SQLite database (`vessel_caller.db`, created on first run and seeded with
-demo data).
+In another terminal:
 
-| Entry | What it is |
-|---|---|
-| `index.html` | The marketing landing page (the site homepage) |
-| `app.html` | The desktop app |
-| `Mobile Data Capture.html` | The mobile quayside data-capture app (iOS-framed) |
-| `calabar/pdf.html` | Print-ready invoice/report document opened by the PDF buttons |
-
-The desktop and mobile apps share the same backend, so an inspection
-captured on the quayside app appears in the desktop app (clients poll a
-server `rev` counter every 5 s — it works across devices and browsers).
-
-## The API (server.py)
-
-| Endpoint | Behaviour |
-|---|---|
-| `GET /api/state[?rev=N]` | Full app state; `{changed:false}` when the client is current |
-| `POST /api/vessel-calls` | Register a call (validates rotation-number uniqueness) |
-| `DELETE /api/vessel-calls/:id` | Cancel a call, cascading its inspections and invoices |
-| `POST /api/inspections` | Submit an inspection — the server numbers it and, when completed, marks the call completed and issues the next invoice |
-| `PUT /api/organization` | Save registered organization profile, operating ports, primary port, logo, members and roles |
-| `PUT /api/invoices/:id` | Record or clear invoice payment status and audit details |
-| `PUT /api/settings` | Save charge rates / notifications / port profile |
-| `POST /api/reset` | Restore the demo seed data |
-
-Harbour dues are computed from the vessel's **net tonnage × the applicable
-rate**: liquid cargo by jetty classification (Government $1.68 · Private
-$2.88 · International $4.23) and dry/bulk at a flat $2.17. Rates are
-editable in Settings → Charge configuration.
-
-## No backend? Automatic fallback
-
-The frontend probes `/api/state` at boot (see `calabar/api.jsx`, the single
-wiring seam). When the API isn't there — e.g. the static Vercel deploy at
-**https://vessel-caller.vercel.app** — it falls back to browser
-localStorage with the same behaviour, so the hosted demo stays fully
-interactive. Settings → Port profile shows which store is active and offers
-a data reset.
-
-## Structure
-
+```bash
+cd frontend
+npm run dev
 ```
-backend/                    the Python backend project (see backend/README.md)
-  run.py                    entry: python3 backend/run.py
-  vessel_backend/           config · seeds · db · services · api (stdlib only)
-  tests/                    unittest suite: python3 -m unittest discover -s tests
-server.py                   thin launcher shim -> backend/ (kept for serve.sh)
-index.html                  landing-page shell — the site homepage (mounts landing.jsx)
-app.html                    desktop app shell (React + Babel, vendored locally)
-Mobile Data Capture.html    mobile capture entry (shares the calabar modules)
-vendor/                     react / react-dom / @babel/standalone (pinned)
-calabar/
-  landing.jsx / landing.css marketing homepage (React) + its styles
-  api.jsx                   the wiring seam: backend client + local fallback
-  styles.css                design system styles
-  data.jsx                  demo seeds + rates + formatters
-  icons.jsx / ui.jsx        icon set + shared components
-  charts.jsx                chart components
-  shell.jsx / app.jsx       sidebar + topbar shell, root app + store
-  screens-org.jsx           organization onboarding, logo upload, team roles
-  screens-ops.jsx           dashboard + vessel calls + invoice tracking
-  screens-inspections.jsx   inspections + 3-step wizard
-  screen-analytics.jsx      analytics
-  screens-settings.jsx      settings (organization, team, rates, channels, port, data store)
-  track-vessel.jsx          live voyage tracker
-  pdf.html                  printable invoice/report template
-mobile/                     mobile app modules (ios-frame, mobile-app, css)
+
+The frontend is at `http://127.0.0.1:5173`; Vite proxies `/api` to Django.
+Create test accounts through explicit test fixtures/commands only. Never copy
+production credentials or data into local, CI, Vercel, or staging.
+
+## Quality and release
+
+```bash
+make backend-check
+make backend-test
+make frontend-check
+make release-check
 ```
+
+Pull requests must pass backend, frontend, browser/accessibility, and security
+workflows. Signed semantic tags build an immutable checksummed archive with an
+offline wheelhouse, SBOM, and provenance. The same artifact is promoted to
+staging and then to the inactive production slot.
+
+Production promotion is intentionally blocked until every P0 gate in
+[the canonical backlog](docs/BACKLOG.md) is qualified, including provider
+credentials, migration parity, restore/rollback drills, security/accessibility
+tests, load targets, alerts, and FlexSchools regression checks.
+
+Start with:
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [SDLC and release policy](docs/SDLC.md)
+- [Role matrix](docs/RBAC.md)
+- [Deployment/cutover](docs/runbooks/deployment-cutover.md)
+- [Backup/restore](docs/runbooks/backup-restore.md)
+- [Incident/monitoring](docs/runbooks/monitoring-incident.md)

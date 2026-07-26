@@ -1,0 +1,28 @@
+{
+  "version": 3,
+  "routes": [
+    {
+      "src": "/(.*)",
+      "headers": {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+        "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=()",
+        "Content-Security-Policy": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; img-src 'self' data: blob: https://*.digitaloceanspaces.com; connect-src 'self' https://*.digitaloceanspaces.com https://*.ingest.sentry.io; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      },
+      "continue": true
+    },
+    {
+      "src": "/api/?(.*)",
+      "dest": "/api?path=$1"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}

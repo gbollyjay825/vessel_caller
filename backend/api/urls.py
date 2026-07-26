@@ -1,0 +1,223 @@
+from typing import cast
+
+from django.urls import path
+from rest_framework.permissions import AllowAny
+from rest_framework.renderers import BaseRenderer, JSONOpenAPIRenderer
+from rest_framework.schemas import get_schema_view
+
+from .auth_views import (
+    ChangePasswordView,
+    CsrfView,
+    ForgotPasswordView,
+    LoginView,
+    LogoutView,
+    MeView,
+    MFAConfirmView,
+    MFADisableView,
+    MFARecoveryCodesView,
+    MFASetupView,
+    MFAVerifyView,
+    ProfileView,
+    RegisterView,
+    ResendVerificationView,
+    ResetPasswordView,
+    SessionDetailView,
+    SessionListView,
+    SignOutEverywhereView,
+    VerifyEmailView,
+)
+from .operation_views import (
+    AnalyticsView,
+    EvidenceDetailView,
+    EvidenceFinalizeView,
+    EvidencePresignView,
+    InspectionDetailView,
+    InspectionDocumentView,
+    InspectionEvidenceView,
+    InspectionFinalizeView,
+    InspectionsView,
+    InvoiceDocumentView,
+    LocalEvidenceDownloadView,
+    LocalEvidenceUploadView,
+    OrganizationView,
+    PaymentCreateView,
+    PaymentReverseView,
+    SettingsView,
+    StateView,
+    VesselCallCancelView,
+    VesselCallDetailView,
+    VesselCallDocumentView,
+    VesselCallsView,
+    VesselCallStatusView,
+)
+from .system_views import HealthView, ReadinessView
+from .user_views import (
+    AuditExportView,
+    AuditView,
+    InvitationAcceptView,
+    InvitationDetailView,
+    InvitationResendView,
+    InvitationsView,
+    UserDetailView,
+    UserMFAResetView,
+    UserPasswordResetDispatchView,
+    UsersView,
+)
+
+openapi_view = get_schema_view(
+    title="Vessel Caller API",
+    description="Production API for Vessel Caller identity, operations, and billing.",
+    version="1.0.0",
+    public=True,
+    permission_classes=[AllowAny],
+    renderer_classes=cast(list[type[BaseRenderer]], [JSONOpenAPIRenderer]),
+)
+
+urlpatterns = [
+    path("health", HealthView.as_view(), name="health"),
+    path("readiness", ReadinessView.as_view(), name="readiness"),
+    path("openapi", openapi_view, name="openapi"),
+    path("auth/csrf", CsrfView.as_view(), name="auth-csrf"),
+    path("auth/register", RegisterView.as_view(), name="auth-register"),
+    path("auth/verify-email", VerifyEmailView.as_view(), name="auth-verify-email"),
+    path(
+        "auth/resend-verification",
+        ResendVerificationView.as_view(),
+        name="auth-resend-verification",
+    ),
+    path("auth/login", LoginView.as_view(), name="auth-login"),
+    path("auth/mfa/verify", MFAVerifyView.as_view(), name="auth-mfa-verify"),
+    path("auth/logout", LogoutView.as_view(), name="auth-logout"),
+    path("auth/me", MeView.as_view(), name="auth-me"),
+    path("auth/forgot-password", ForgotPasswordView.as_view(), name="auth-forgot-password"),
+    path("auth/reset-password", ResetPasswordView.as_view(), name="auth-reset-password"),
+    path("auth/change-password", ChangePasswordView.as_view(), name="auth-change-password"),
+    path("auth/sessions", SessionListView.as_view(), name="auth-sessions"),
+    path(
+        "auth/sessions/sign-out-everywhere",
+        SignOutEverywhereView.as_view(),
+        name="auth-sign-out-everywhere",
+    ),
+    path(
+        "auth/sessions/<str:session_id>",
+        SessionDetailView.as_view(),
+        name="auth-session-detail",
+    ),
+    path("auth/mfa/setup", MFASetupView.as_view(), name="auth-mfa-setup"),
+    path("auth/mfa/confirm", MFAConfirmView.as_view(), name="auth-mfa-confirm"),
+    path(
+        "auth/mfa/recovery-codes",
+        MFARecoveryCodesView.as_view(),
+        name="auth-mfa-recovery-codes",
+    ),
+    path("auth/mfa", MFADisableView.as_view(), name="auth-mfa-disable"),
+    path("profile", ProfileView.as_view(), name="profile"),
+    path("users", UsersView.as_view(), name="users"),
+    path("users/<str:user_id>", UserDetailView.as_view(), name="user-detail"),
+    path(
+        "users/<str:user_id>/send-password-reset",
+        UserPasswordResetDispatchView.as_view(),
+        name="user-password-reset",
+    ),
+    path(
+        "users/<str:user_id>/reset-mfa",
+        UserMFAResetView.as_view(),
+        name="user-mfa-reset",
+    ),
+    path("invitations", InvitationsView.as_view(), name="invitations"),
+    path(
+        "invitations/accept",
+        InvitationAcceptView.as_view(),
+        name="invitation-accept",
+    ),
+    path(
+        "invitations/<str:invitation_id>/resend",
+        InvitationResendView.as_view(),
+        name="invitation-resend",
+    ),
+    path(
+        "invitations/<str:invitation_id>",
+        InvitationDetailView.as_view(),
+        name="invitation-detail",
+    ),
+    path("audit", AuditView.as_view(), name="audit"),
+    path("audit/export", AuditExportView.as_view(), name="audit-export"),
+    path("state", StateView.as_view(), name="state"),
+    path("organization", OrganizationView.as_view(), name="organization"),
+    path("settings", SettingsView.as_view(), name="settings"),
+    path("analytics", AnalyticsView.as_view(), name="analytics"),
+    path("vessel-calls", VesselCallsView.as_view(), name="vessel-calls"),
+    path(
+        "vessel-calls/<str:call_id>",
+        VesselCallDetailView.as_view(),
+        name="vessel-call-detail",
+    ),
+    path(
+        "vessel-calls/<str:call_id>/status",
+        VesselCallStatusView.as_view(),
+        name="vessel-call-status",
+    ),
+    path(
+        "vessel-calls/<str:call_id>/cancel",
+        VesselCallCancelView.as_view(),
+        name="vessel-call-cancel",
+    ),
+    path(
+        "vessel-calls/<str:call_id>/document",
+        VesselCallDocumentView.as_view(),
+        name="vessel-call-document",
+    ),
+    path("inspections", InspectionsView.as_view(), name="inspections"),
+    path(
+        "inspections/<str:inspection_id>",
+        InspectionDetailView.as_view(),
+        name="inspection-detail",
+    ),
+    path(
+        "inspections/<str:inspection_id>/finalize",
+        InspectionFinalizeView.as_view(),
+        name="inspection-finalize",
+    ),
+    path(
+        "inspections/<str:inspection_id>/evidence",
+        InspectionEvidenceView.as_view(),
+        name="inspection-evidence",
+    ),
+    path(
+        "inspections/<str:inspection_id>/document",
+        InspectionDocumentView.as_view(),
+        name="inspection-document",
+    ),
+    path(
+        "invoices/<str:invoice_id>/payments",
+        PaymentCreateView.as_view(),
+        name="invoice-payment",
+    ),
+    path(
+        "invoices/<str:invoice_id>/document",
+        InvoiceDocumentView.as_view(),
+        name="invoice-document",
+    ),
+    path(
+        "payments/<str:payment_id>/reverse",
+        PaymentReverseView.as_view(),
+        name="payment-reverse",
+    ),
+    path("evidence/presign", EvidencePresignView.as_view(), name="evidence-presign"),
+    path("evidence", EvidenceFinalizeView.as_view(), name="evidence-finalize"),
+    path(
+        "evidence/<str:evidence_id>",
+        EvidenceDetailView.as_view(),
+        name="evidence-detail",
+    ),
+    path(
+        "evidence/upload/<path:token>",
+        LocalEvidenceUploadView.as_view(),
+        name="evidence-local-upload",
+    ),
+    path(
+        "evidence/download/<path:token>",
+        LocalEvidenceDownloadView.as_view(),
+        name="evidence-local-download",
+    ),
+]

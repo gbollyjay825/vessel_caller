@@ -17,3 +17,42 @@ vessel_caller.db-*
 # Node (not used, but standard hygiene)
 node_modules/
 *.log
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+
+# Python venv + FastAPI backend local db
+.venv/
+backend/*.db
+backend/*.db-*
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+coverage.xml
+coverage.json
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local runtime and release material
+.env
+.env.*
+!.env.example
+artifacts/
+dist/
+wheelhouse/
+.backups/
+.secrets/
+*.tar.gz
+*.tar.gz.sha256
+*.age
+*.dump
+backup-manifest.json
+
+# Ansible local state and secrets
+ansible/.vault-password
+ansible/inventory/hosts.yml
+ansible/group_vars/*/vault.yml
+*.retry

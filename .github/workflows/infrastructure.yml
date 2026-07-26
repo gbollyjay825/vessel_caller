@@ -1,0 +1,84 @@
+name: Infrastructure CI
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - ".github/**"
+      - "ansible/**"
+      - "deploy/**"
+      - "docs/**"
+      - "tests/infra/**"
+      - "compose.yml"
+      - "vercel.json"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/**"
+      - "ansible/**"
+      - "deploy/**"
+      - "docs/**"
+      - "tests/infra/**"
+      - "compose.yml"
+      - "vercel.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infrastructure-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - name: Install infrastructure validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+          python -m pip install ansible-core==2.18.18 yamllint==1.38.0
+          ansible-galaxy collection install --requirements-file ansible/requirements.yml
+      - name: Shell and YAML validation
+        run: |
+          find deploy tests/infra -type f -name '*.sh' -print0 | xargs -0 shellcheck
+          yamllint --config-file .yamllint.yml .github ansible compose.yml
+          docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint:1.7.7
+      - name: Ansible syntax
+        env:
+          ANSIBLE_CONFIG: ansible/ansible.cfg
+        run: |
+          ansible-playbook \
+            --syntax-check \
+            --inventory ansible/inventory/hosts.example.yml \
+            ansible/playbooks/preflight.yml
+          ansible-playbook \
+            --syntax-check \
+            --inventory ansible/inventory/hosts.example.yml \
+            ansible/playbooks/bootstrap.yml
+          ansible-playbook \
+            --syntax-check \
+            --inventory ansible/inventory/hosts.example.yml \
+            ansible/playbooks/verify.yml
+      - name: Compose and release-script tests
+        run: |
+          docker compose --file compose.yml config --quiet
+          tests/infra/test-release-scripts.sh
+          tests/infra/test-nginx-config.sh
+      - name: JSON validation
+        run: |
+          python -m json.tool vercel.json >/dev/null
+          python -m json.tool deploy/vercel-output-config.json >/dev/null
+          python -m json.tool deploy/backup-lifecycle.json >/dev/null

@@ -1,0 +1,3 @@
+# Compatibility entrypoint for tooling that installs from the repository root.
+# Vercel has no Python runtime; production dependencies belong to Django.
+-r backend/requirements/production.txt

@@ -1,0 +1,61 @@
+/* Base + auth-screen styles. Screen/app styles come from styles/app.css and
+   styles/landing.css (imported in main.tsx). */
+:root {
+  --vc-navy-0: #081627; --vc-navy-1: #0b1f35; --vc-blue: #1b5faa; --vc-blue-2: #15508f;
+  --vc-amber: #e8a33d; --vc-ink: #16191d; --vc-slate: #5f6b7a; --vc-hairline: #e8eaed;
+  --vc-danger: #c0392b; --vc-danger-bg: #fbeae7;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--vc-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- auth ---- */
+.auth-wrap {
+  min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  background:
+    radial-gradient(1100px 480px at 80% -10%, rgba(27, 95, 170, 0.55), transparent 62%),
+    radial-gradient(900px 420px at -10% 20%, rgba(232, 163, 61, 0.14), transparent 55%),
+    linear-gradient(180deg, var(--vc-navy-1) 0%, var(--vc-navy-0) 80%);
+}
+.auth-card {
+  width: 100%; max-width: 420px; background: #fff; border-radius: 18px; padding: 34px 30px;
+  box-shadow: 0 40px 90px -30px rgba(8, 22, 39, 0.55); display: flex; flex-direction: column; gap: 12px;
+}
+.auth-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+.auth-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--vc-blue); color: #fff; }
+.auth-title { margin: 8px 0 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+.auth-sub { margin: 0 0 6px; color: var(--vc-slate); font-size: 14.5px; }
+.auth-field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 600; color: var(--vc-slate); }
+.auth-field input, .auth-field select {
+  font: inherit; font-weight: 500; color: var(--vc-ink); padding: 11px 12px; border: 1px solid var(--vc-hairline);
+  border-radius: 9px; outline: none; background: #fff;
+}
+.auth-field input:focus, .auth-field select:focus { border-color: var(--vc-blue); box-shadow: 0 0 0 3px rgba(27, 95, 170, 0.12); }
+.auth-submit {
+  margin-top: 8px; padding: 12px; border: none; border-radius: 999px; background: var(--vc-blue); color: #fff;
+  font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; transition: background 0.15s;
+}
+.auth-submit:hover { background: var(--vc-blue-2); }
+.auth-submit:disabled { opacity: 0.6; cursor: default; }
+.auth-submit-link { display: flex; align-items: center; justify-content: center; text-decoration: none; box-sizing: border-box; }
+.auth-link-button { background: none; border: none; color: var(--vc-blue); font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; padding: 2px; }
+.auth-alt { margin: 2px 0 0; font-size: 13.5px; color: var(--vc-slate); text-align: center; }
+.auth-alt a { color: var(--vc-blue); text-decoration: none; font-weight: 600; }
+.auth-error { background: var(--vc-danger-bg); color: var(--vc-danger); border-radius: 9px; padding: 10px 12px; font-size: 13.5px; font-weight: 500; }
+.auth-notice { background: #eaf7f0; color: #176b45; border-radius: 9px; padding: 10px 12px; font-size: 13.5px; font-weight: 500; }
+
+/* ---- full-page states ---- */
+.vc-center { min-height: 100vh; display: grid; place-items: center; color: var(--vc-slate); font-size: 14px; gap: 12px; }
+.auth-service-error {
+  align-content: center;
+  padding: 24px;
+  text-align: center;
+}
+.auth-service-error strong { color: var(--vc-ink); font-size: 18px; }
+.vc-spinner { width: 26px; height: 26px; border: 3px solid var(--vc-hairline); border-top-color: var(--vc-blue); border-radius: 50%; animation: vc-spin 0.7s linear infinite; }
+@keyframes vc-spin { to { transform: rotate(360deg); } }

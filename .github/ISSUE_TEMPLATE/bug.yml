@@ -1,0 +1,43 @@
+name: Defect
+description: A reproducible product, security, or operational defect
+title: "[Bug] "
+labels:
+  - bug
+  - triage
+body:
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who is affected, in which environment, and how severely?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Include exact inputs but redact credentials and personal data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Request IDs, timestamps, logs, screenshots, and version.
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - S1 - outage, data loss, or active security incident
+        - S2 - critical workflow unavailable
+        - S3 - degraded behavior with workaround
+        - S4 - minor defect
+    validations:
+      required: true

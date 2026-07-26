@@ -1,0 +1,21 @@
+bind 127.0.0.1 ::1
+protected-mode yes
+port {{ runtime_redis_port }}
+tcp-backlog 128
+timeout 0
+tcp-keepalive 300
+supervised systemd
+daemonize no
+loglevel notice
+databases 1
+dir /var/lib/redis-vessel-caller-{{ runtime_environment }}
+dbfilename dump.rdb
+appendonly yes
+appendfilename appendonly.aof
+appendfsync everysec
+save 900 1
+save 300 10
+save 60 10000
+maxmemory {{ runtime_redis_maxmemory }}
+maxmemory-policy noeviction
+user default on >{{ runtime_redis_password }} ~* &* +@all -FLUSHALL -FLUSHDB -CONFIG -DEBUG -MODULE -SHUTDOWN

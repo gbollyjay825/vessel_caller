@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Vessel Caller PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 02:17:00 Africa/Lagos
+RandomizedDelaySec=900
+Persistent=true
+AccuracySec=1min
+Unit=vessel-caller-backup.service
+
+[Install]
+WantedBy=timers.target

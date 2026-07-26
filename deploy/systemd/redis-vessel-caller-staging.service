@@ -1,0 +1,39 @@
+[Unit]
+Description=Dedicated authenticated Redis for Vessel Caller staging
+After=network.target
+
+[Service]
+Type=notify
+User=redis-vessel-staging
+Group=redis-vessel-staging
+ExecStart=/usr/bin/redis-server /etc/vessel-caller/redis-staging.conf --supervised systemd
+ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=3
+UMask=0077
+LimitNOFILE=16384
+TasksMax=128
+MemoryHigh=256M
+MemoryMax=320M
+CPUQuota=25%
+
+RuntimeDirectory=redis-vessel-caller-staging
+StateDirectory=redis-vessel-caller-staging
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/redis-vessel-caller-staging /run/redis-vessel-caller-staging
+
+[Install]
+WantedBy=multi-user.target

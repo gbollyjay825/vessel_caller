@@ -1,0 +1,132 @@
+name: Build Immutable Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing signed v* tag to package
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  security-events: write
+
+jobs:
+  backend:
+    uses: ./.github/workflows/backend.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+  frontend:
+    uses: ./.github/workflows/frontend.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+  browser:
+    uses: ./.github/workflows/e2e.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+  infrastructure:
+    uses: ./.github/workflows/infrastructure.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+  security:
+    uses: ./.github/workflows/security.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  package:
+    needs:
+      - backend
+      - frontend
+      - browser
+      - infrastructure
+      - security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - name: Verify release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! "${RELEASE_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must use semantic vMAJOR.MINOR.PATCH syntax." >&2
+            exit 1
+          fi
+          tag_object="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object')"
+          if [[ "$(jq -r '.type' <<<"${tag_object}")" != "tag" ]]; then
+            echo "Release must use an annotated signed tag, not a lightweight tag." >&2
+            exit 1
+          fi
+          tag_sha="$(jq -r '.sha' <<<"${tag_object}")"
+          verified="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" \
+            --jq '.verification.verified')"
+          if [[ "${verified}" != "true" ]]; then
+            echo "GitHub did not verify the release tag signature." >&2
+            exit 1
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: backend/requirements/*.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build release archive
+        run: deploy/scripts/build-release.sh "${RELEASE_TAG}" artifacts
+      - name: Sign release archive
+        env:
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+          RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_SIGNING_PUBLIC_KEY }}
+        run: |
+          signing_key="$(mktemp)"
+          verification_key="$(mktemp)"
+          trap 'rm -f "${signing_key}" "${verification_key}"' EXIT
+          printf '%s' "${RELEASE_SIGNING_PRIVATE_KEY}" > "${signing_key}"
+          printf '%s' "${RELEASE_SIGNING_PUBLIC_KEY}" > "${verification_key}"
+          chmod 0600 "${signing_key}"
+          openssl dgst \
+            -sha256 \
+            -sign "${signing_key}" \
+            -out "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
+            "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz"
+          openssl dgst \
+            -sha256 \
+            -verify "${verification_key}" \
+            -signature "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
+            "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz"
+      - name: Generate release SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: artifacts/vessel-caller-${{ env.RELEASE_TAG }}.sbom.spdx.json
+      - name: Attest archive
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/vessel-caller-${{ env.RELEASE_TAG }}.tar.gz
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${RELEASE_TAG}" \
+            "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz" \
+            "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz.sha256" \
+            "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
+            "artifacts/vessel-caller-${RELEASE_TAG}.sbom.json" \
+            "artifacts/vessel-caller-${RELEASE_TAG}.sbom.spdx.json" \
+            --verify-tag \
+            --generate-notes

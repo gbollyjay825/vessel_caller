@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly inactive Vessel Caller release pruning
+
+[Timer]
+OnCalendar=Sun *-*-* 03:37:00 Africa/Lagos
+RandomizedDelaySec=1800
+Persistent=true
+Unit=vessel-caller-release-prune.service
+
+[Install]
+WantedBy=timers.target

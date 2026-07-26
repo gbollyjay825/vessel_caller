@@ -1,0 +1,69 @@
+---
+- name: Allow SSH before enabling the firewall
+  community.general.ufw:
+    rule: allow
+    port: "{{ ansible_port | default(22) }}"
+    proto: tcp
+    comment: SSH
+  when: vessel_ufw_enabled | bool
+
+- name: Allow public HTTP and HTTPS
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: Nginx
+  loop:
+    - "80"
+    - "443"
+  when: vessel_ufw_enabled | bool
+
+- name: Default-deny unsolicited inbound traffic
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+  when: vessel_ufw_enabled | bool
+
+- name: Permit outbound traffic
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+  when: vessel_ufw_enabled | bool
+
+- name: Enable UFW with logging
+  community.general.ufw:
+    state: enabled
+    logging: "on"
+  when: vessel_ufw_enabled | bool
+
+- name: Configure fail2ban without changing other applications
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.d/vessel-caller.local
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 5
+      findtime = 10m
+      bantime = 1h
+
+      [nginx-limit-req]
+      enabled = true
+      logpath = /var/log/nginx/vessel-caller*.error.log
+      maxretry = 20
+      findtime = 2m
+      bantime = 30m
+  notify: Restart fail2ban
+
+- name: Enable unattended security upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";

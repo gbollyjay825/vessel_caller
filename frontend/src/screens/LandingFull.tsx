@@ -285,7 +285,7 @@ export function Landing() {
             <Link className="btn btn-line" to="/login">Sign in</Link>
             <Link className="btn btn-amber" to="/login">Launch app</Link>
           </div>
-          <button className="hamburger" aria-label="Menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}>
+          <button className="landing-hamburger" aria-label="Menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}>
             <Svg><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></Svg>
           </button>
         </div>

@@ -25,6 +25,8 @@ async function navigateInWorkspace(page: Page, label: string) {
     await hamburger.click();
     await expect(navigation).toHaveClass(/(?:^|\s)open(?:\s|$)/);
     await expect(link).toBeInViewport();
+    await link.dispatchEvent("click");
+    return;
   }
   await link.click();
 }

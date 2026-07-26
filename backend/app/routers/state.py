@@ -18,4 +18,4 @@ def get_state(rev: Optional[int] = None, user: User = Depends(get_current_user),
     org = db.get(Organization, user.org_id)
     if rev is not None and rev == org.rev:
         return {"changed": False, "rev": org.rev}
-    return org_state(db, org)
+    return org_state(db, org, include_members=user.role == "Admin")

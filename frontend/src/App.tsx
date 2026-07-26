@@ -12,6 +12,7 @@ import { Inspections, NewInspection } from "./screens/Inspections";
 import { Invoices } from "./screens/Invoices";
 import { Landing } from "./screens/LandingFull";
 import { Settings } from "./screens/Settings";
+import { UserManagement } from "./screens/UserManagement";
 import { VesselCallDetail, VesselCalls } from "./screens/VesselCalls";
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="inspections/new" element={<NewInspection />} />
               <Route path="invoices" element={<Invoices />} />
               <Route path="analytics" element={<Analytics />} />
+              <Route path="users" element={<UserManagement />} />
               <Route path="settings" element={<Settings />} />
             </Route>
           </Route>

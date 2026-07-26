@@ -15,6 +15,7 @@ interface NavItem {
   icon: string;
   to: string;
   end?: boolean;
+  adminOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -23,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "inspections",  label: "Inspections",  icon: "clipboard", to: "/app/inspections" },
   { key: "invoices",     label: "Invoices",     icon: "invoice",   to: "/app/invoices" },
   { key: "analytics",    label: "Analytics",    icon: "gauge",     to: "/app/analytics" },
+  { key: "users",        label: "User Management", icon: "users",  to: "/app/users", adminOnly: true },
   { key: "settings",     label: "Settings",     icon: "settings",  to: "/app/settings" },
 ];
 
@@ -43,7 +45,7 @@ export function Sidebar({ mobileOpen, closeMobile }: { mobileOpen?: boolean; clo
       </div>
       <div className="sb-nav scroll-host">
         <div className="sb-nav-label">Operations</div>
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.filter((item) => !item.adminOnly || user?.role === "Admin").map((item) => (
           <NavLink
             key={item.key}
             to={item.to}

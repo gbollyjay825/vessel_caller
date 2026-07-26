@@ -214,6 +214,7 @@ button { font-family: inherit; }
   display: grid; place-items: center; color: var(--slate); position: relative;
 }
 .icon-btn:hover { background: #F4F6F8; color: var(--ink); }
+.icon-btn:disabled { opacity: 0.38; cursor: not-allowed; background: none; }
 .bell-dot { position: absolute; top: 7px; right: 8px; width: 7px; height: 7px; border-radius: 999px; background: var(--danger); border: 1.5px solid var(--canvas); }
 
 .content { flex: 1; min-height: 0; overflow-y: auto; background: var(--canvas); }
@@ -246,6 +247,7 @@ button { font-family: inherit; }
 .btn-block { width: 100%; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn .ico { flex-shrink: 0; }
+.spin { animation: spin 0.7s linear infinite; }
 
 /* compact ghost PDF button used in tables */
 .pdf-btn {
@@ -310,6 +312,8 @@ button { font-family: inherit; }
 .badge.unpaid       { color: var(--warning); background: var(--warning-bg); }
 .badge.overdue      { color: var(--danger);  background: var(--danger-bg); }
 .badge.draft        { color: var(--slate);   background: #EFF1F4; }
+.badge.active       { color: var(--success); background: var(--success-bg); }
+.badge.inactive     { color: var(--slate);   background: #EFF1F4; }
 
 .tag {
   display: inline-flex; align-items: center; gap: 5px;
@@ -540,6 +544,45 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .port-option span:first-of-type { min-width: 0; flex: 1; }
 .save-bar { position: sticky; bottom: 0; background: rgba(255,255,255,0.92); backdrop-filter: blur(6px); border-top: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; padding: var(--s5) 0; margin-top: var(--s7); }
 .save-bar .unsaved { font-size: var(--fs-meta); color: var(--warning); font-weight: 500; display: flex; align-items: center; gap: 6px; }
+
+/* user management */
+.user-kpis { margin-bottom: var(--s6); }
+.user-role-filter { width: 160px; }
+.user-cell { display: flex; align-items: center; gap: var(--s3); min-width: 220px; }
+.user-cell .cell-primary { display: flex; align-items: center; gap: var(--s2); }
+.role-badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px; border-radius: var(--r-pill);
+  font-size: var(--fs-xs); font-weight: 600;
+  color: var(--slate); background: #EFF1F4;
+}
+.role-admin { color: #7147A8; background: #F1EAF9; }
+.role-operations { color: var(--accent); background: var(--accent-tint); }
+.role-finance { color: #8A6413; background: var(--warning-bg); }
+.user-delete-button { color: var(--danger); }
+.user-access-note {
+  display: flex; align-items: flex-start; gap: var(--s2);
+  color: var(--accent); background: var(--accent-tint-2);
+  border: 1px solid var(--accent-tint); border-radius: var(--r-input);
+  padding: var(--s3); margin-bottom: var(--s5); font-size: var(--fs-meta);
+}
+.user-access-note .ico { flex-shrink: 0; margin-top: 2px; }
+.user-account-summary {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: var(--s2);
+  padding: var(--s4); border: 1px solid var(--hairline); border-radius: var(--r-input);
+}
+.user-account-summary > span:first-child { font-size: var(--fs-meta); font-weight: 600; }
+.user-account-summary small { grid-column: 1 / -1; color: var(--slate); }
+.user-mobile-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  color: var(--slate); font-size: var(--fs-meta); margin-top: var(--s4);
+}
+.user-mobile-cards .mc-actions {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.user-mobile-cards .mc-actions .btn {
+  width: 100%; min-width: 0; padding: 7px 5px; font-size: var(--fs-xs);
+}
 
 /* mobile card (table collapse) */
 .m-cards { display: none; flex-direction: column; gap: var(--s4); }

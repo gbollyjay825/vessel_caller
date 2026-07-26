@@ -49,7 +49,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     org = db.get(Organization, user.org_id)
-    members = db.query(User).filter(User.org_id == org.id).all()
+    members = db.query(User).filter(User.org_id == org.id).all() if user.role == "Admin" else []
     return {"user": user_to_dict(user), "org": org_to_dict(org, members)}
 
 

@@ -120,3 +120,138 @@ def test_last_admin_protected(client):
     admin_id = reg["user"]["id"]
     r = client.put(f"/api/organization/members/{admin_id}", headers=auth(tok), json={"role": "Viewer"})
     assert r.status_code == 409     # cannot demote the last admin
+
+
+def test_user_management_lifecycle(client):
+    reg = register(client, email="g@users.test", org="Users Co")
+    tok = reg["token"]
+
+    created = client.post("/api/organization/members", headers=auth(tok), json={
+        "name": "  Finance User  ", "email": "FINANCE@USERS.TEST",
+        "password": "temporary-pass", "role": "Finance",
+    })
+    assert created.status_code == 201, created.text
+    member = created.json()["member"]
+    assert member["name"] == "Finance User"
+    assert member["email"] == "finance@users.test"
+    assert member["active"] is True
+    assert member["createdAt"]
+
+    invalid_role = client.put(
+        f"/api/organization/members/{member['id']}",
+        headers=auth(tok),
+        json={"role": "Superuser"},
+    )
+    assert invalid_role.status_code == 422
+
+    updated = client.put(
+        f"/api/organization/members/{member['id']}",
+        headers=auth(tok),
+        json={"name": "Accounts Lead", "role": "Viewer", "password": "replacement-pass"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["member"]["name"] == "Accounts Lead"
+    assert updated.json()["member"]["role"] == "Viewer"
+    assert client.post("/api/auth/login", json={
+        "email": member["email"], "password": "temporary-pass",
+    }).status_code == 401
+    assert client.post("/api/auth/login", json={
+        "email": member["email"], "password": "replacement-pass",
+    }).status_code == 200
+
+    deactivated = client.put(
+        f"/api/organization/members/{member['id']}",
+        headers=auth(tok),
+        json={"active": False},
+    )
+    assert deactivated.status_code == 200
+    assert deactivated.json()["member"]["active"] is False
+    assert client.post("/api/auth/login", json={
+        "email": member["email"], "password": "replacement-pass",
+    }).status_code == 401
+
+    reactivated = client.put(
+        f"/api/organization/members/{member['id']}",
+        headers=auth(tok),
+        json={"active": True},
+    )
+    assert reactivated.status_code == 200
+    assert client.delete(
+        f"/api/organization/members/{member['id']}",
+        headers=auth(tok),
+    ).status_code == 200
+    assert client.post("/api/auth/login", json={
+        "email": member["email"], "password": "replacement-pass",
+    }).status_code == 401
+
+
+def test_user_management_is_admin_only_and_tenant_scoped(client):
+    first = register(client, email="h@scope.test", org="Scope One")
+    second = register(client, email="i@scope.test", org="Scope Two")
+    second_member = client.post(
+        "/api/organization/members",
+        headers=auth(second["token"]),
+        json={
+            "name": "Second Org User", "email": "member@scope-two.test",
+            "password": "member-password", "role": "Viewer",
+        },
+    ).json()["member"]
+
+    cross_org = client.put(
+        f"/api/organization/members/{second_member['id']}",
+        headers=auth(first["token"]),
+        json={"active": False},
+    )
+    assert cross_org.status_code == 404
+
+    viewer_token = client.post("/api/auth/login", json={
+        "email": second_member["email"], "password": "member-password",
+    }).json()["token"]
+    viewer_state = client.get("/api/state", headers=auth(viewer_token))
+    assert viewer_state.status_code == 200
+    assert viewer_state.json()["org"]["members"] == []
+    assert client.post(
+        "/api/organization/members",
+        headers=auth(viewer_token),
+        json={
+            "name": "Not Allowed", "email": "no@scope-two.test",
+            "password": "not-allowed-pass", "role": "Viewer",
+        },
+    ).status_code == 403
+
+
+def test_admin_cannot_change_or_delete_own_access(client):
+    reg = register(client, email="j@self.test", org="Self Protect Co")
+    tok = reg["token"]
+    admin_id = reg["user"]["id"]
+    second_admin = client.post("/api/organization/members", headers=auth(tok), json={
+        "name": "Backup Admin", "email": "backup@self.test",
+        "password": "backup-password", "role": "Admin",
+    })
+    assert second_admin.status_code == 201
+
+    assert client.put(
+        f"/api/organization/members/{admin_id}",
+        headers=auth(tok),
+        json={"role": "Viewer"},
+    ).status_code == 409
+    assert client.put(
+        f"/api/organization/members/{admin_id}",
+        headers=auth(tok),
+        json={"active": False},
+    ).status_code == 409
+    assert client.delete(
+        f"/api/organization/members/{admin_id}",
+        headers=auth(tok),
+    ).status_code == 409
+
+    backup_id = second_admin.json()["member"]["id"]
+    assert client.put(
+        f"/api/organization/members/{backup_id}",
+        headers=auth(tok),
+        json={"active": False},
+    ).status_code == 200
+    assert client.delete(
+        f"/api/organization/members/{backup_id}",
+        headers=auth(tok),
+    ).status_code == 200

@@ -10,6 +10,7 @@ import { Icon } from "./Icon";
 const STATUS_LABEL: Record<string, string> = {
   pending: "Pending", "in-progress": "In progress", completed: "Completed",
   paid: "Paid", unpaid: "Unpaid", overdue: "Overdue", draft: "Draft",
+  active: "Active", inactive: "Inactive",
 };
 
 export function StatusBadge({ status }: { status: string }) {

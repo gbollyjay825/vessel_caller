@@ -4,13 +4,14 @@
 // against the typed API store (team members go through dedicated endpoints; the
 // legacy client-side "reset data" control is replaced with an admin-only note).
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { useStore } from "../app/store";
 import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
 import { Field } from "../components/ui";
-import { fmtNum, userInitials } from "../lib/format";
-import { ROLES, type Organization, type Role, type Settings as SettingsType } from "../types";
+import { fmtNum } from "../lib/format";
+import { type Organization, type Settings as SettingsType } from "../types";
 
 // ---------------------------------------------------------
 // Constants + org normalisation (ported from calabar/data.jsx)
@@ -23,13 +24,6 @@ const NPA_PORTS = [
   "Port Harcourt Port",
   "Warri Port, Delta",
 ];
-
-const ROLE_HELP: Record<string, string> = {
-  Admin: "Full access — settings, team, operations and payments.",
-  Operations: "Register vessel calls and submit inspections.",
-  Finance: "Record and track invoice payments.",
-  Viewer: "Read-only access to every screen.",
-};
 
 function uniquePorts(ports: unknown): string[] {
   const out: string[] = [];
@@ -243,108 +237,38 @@ function OrganizationSection({ form, set, canEdit, toast }:
 // =========================================================
 function TeamSection({ canEdit }: { canEdit: boolean }) {
   const store = useStore();
-  const { user } = useAuth();
   const members = store.org?.members || [];
-  const [draft, setDraft] = useState<{ name: string; email: string; password: string; role: Role }>(
-    { name: "", email: "", password: "", role: "Operations" });
-  const [busy, setBusy] = useState(false);
-
-  const adminCount = members.filter((m) => m.role === "Admin").length;
-
-  const addMember = async () => {
-    if (!draft.name.trim() || !draft.email.trim()) {
-      store.toast("A name and email are required to add a member", "error");
-      return;
-    }
-    if (!draft.password.trim()) {
-      store.toast("A temporary password is required to add a member", "error");
-      return;
-    }
-    setBusy(true);
-    try {
-      await store.addMember({ name: draft.name.trim(), email: draft.email.trim(), password: draft.password, role: draft.role });
-      setDraft({ name: "", email: "", password: "", role: "Operations" });
-      store.toast("Member added", "success");
-    } catch (e: any) {
-      store.toast(e.message || "Could not add member", "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const setRole = async (id: string, role: Role) => {
-    try {
-      await store.updateMember(id, { role });
-    } catch (e: any) {
-      store.toast(e.message || "Could not update member", "error");
-    }
-  };
-
-  const remove = async (id: string) => {
-    try {
-      await store.removeMember(id);
-    } catch (e: any) {
-      store.toast(e.message || "Could not remove member", "error");
-    }
-  };
-
+  const active = members.filter((member) => member.active).length;
+  const admins = members.filter((member) => member.active && member.role === "Admin").length;
+  if (!canEdit) {
+    return (
+      <div className="card card-pad" style={{ maxWidth: 640 }}>
+        <div className="card-title">Team &amp; roles</div>
+        <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>
+          User account details are restricted to organization Admins.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="card card-pad" style={{ maxWidth: 640 }}>
       <div className="card-title">Team &amp; roles</div>
       <p className="muted" style={{ fontSize: 13, margin: "6px 0 18px" }}>
-        Admin — everything · Operations — vessel calls &amp; inspections · Finance — payments · Viewer — read-only.
+        User accounts now have a dedicated management area with search, account status, role controls, password resets, and protected deletion.
       </p>
-
-      {members.map((m) => {
-        const lastAdmin = m.role === "Admin" && adminCount === 1;
-        return (
-          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--hairline)" }}>
-            <div className="avatar" style={{ width: 34, height: 34, fontSize: 12, flexShrink: 0 }}>{userInitials(m.name)}</div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 13.5 }}>
-                {m.name}{user && user.id === m.id && <span className="tag" style={{ marginLeft: 8 }}>you</span>}
-              </div>
-              <div style={{ fontSize: 12.5, color: "var(--slate)", overflow: "hidden", textOverflow: "ellipsis" }}>{m.email}</div>
-            </div>
-            <select value={m.role} disabled={!canEdit || lastAdmin}
-              title={lastAdmin ? "The last Admin cannot be demoted" : ROLE_HELP[m.role]}
-              style={{ width: 140 }} onChange={(e) => setRole(m.id, e.target.value as Role)}>
-              {ROLES.map((r) => <option key={r}>{r}</option>)}
-            </select>
-            <button className="icon-btn" aria-label={"Remove " + m.name}
-              title={lastAdmin ? "The last Admin cannot be removed" : "Remove member"}
-              disabled={!canEdit || lastAdmin}
-              style={{ color: "var(--danger)" }} onClick={() => remove(m.id)}>
-              <Icon name="trash" size={16} />
-            </button>
-          </div>
-        );
-      })}
-
-      {canEdit && (
-        <div style={{ marginTop: 18 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Add member</div>
-          <div className="field-row">
-            <Field label="Name"><input type="text" value={draft.name} placeholder="Full name" onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></Field>
-            <Field label="Email"><input type="email" value={draft.email} placeholder="member@youragency.ng" onChange={(e) => setDraft({ ...draft, email: e.target.value })} /></Field>
-          </div>
-          <div className="field-row">
-            <Field label="Temporary password" hint="The member signs in with this and can change it later.">
-              <input type="password" value={draft.password} placeholder="Set a password" autoComplete="new-password" onChange={(e) => setDraft({ ...draft, password: e.target.value })} />
-            </Field>
-            <Field label="Role" hint={ROLE_HELP[draft.role]}>
-              <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value as Role })}>
-                {ROLES.map((r) => <option key={r}>{r}</option>)}
-              </select>
-            </Field>
-          </div>
-          <button className="btn btn-secondary" style={{ marginTop: 6 }} disabled={busy} onClick={addMember}>
-            {busy
-              ? <><Icon name="spinner" size={16} className="spin" strokeWidth={2} /> Adding…</>
-              : <><Icon name="plus" size={16} strokeWidth={2.2} /> Add member</>}
-          </button>
+      <div className="field-row" style={{ marginBottom: 20 }}>
+        <div className="user-account-summary">
+          <span>Active users</span><strong className="tnum">{active}</strong>
+          <small>{members.length} total account{members.length === 1 ? "" : "s"}</small>
         </div>
-      )}
+        <div className="user-account-summary">
+          <span>Active admins</span><strong className="tnum">{admins}</strong>
+          <small>Full-access accounts</small>
+        </div>
+      </div>
+      <Link className="btn btn-primary" to="/app/users">
+        <Icon name="users" size={17} /> Open User Management
+      </Link>
     </div>
   );
 }

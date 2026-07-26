@@ -62,7 +62,11 @@ def next_number(db: Session, model, column, org_id: str, prefix: str) -> str:
 
 # ---- serialization (camelCase, the shape the frontend consumes) ----
 def user_to_dict(u: User) -> dict:
-    return {"id": u.id, "name": u.name, "email": u.email, "role": u.role, "active": u.active}
+    return {
+        "id": u.id, "name": u.name, "email": u.email, "role": u.role,
+        "active": u.active,
+        "createdAt": u.created_at.isoformat() if u.created_at else None,
+    }
 
 
 def org_to_dict(o: Organization, members: list) -> dict:
@@ -110,9 +114,12 @@ def invoice_to_dict(v: Invoice) -> dict:
     }
 
 
-def org_state(db: Session, org: Organization) -> dict:
+def org_state(db: Session, org: Organization, include_members: bool = False) -> dict:
     """The bulk state payload the frontend loads/polls."""
-    members = db.query(User).filter(User.org_id == org.id).order_by(User.created_at).all()
+    members = (
+        db.query(User).filter(User.org_id == org.id).order_by(User.created_at).all()
+        if include_members else []
+    )
     settings = db.get(Settings, org.id)
     calls = db.query(VesselCall).filter(VesselCall.org_id == org.id).all()
     inspections = db.query(Inspection).filter(Inspection.org_id == org.id).all()

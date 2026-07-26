@@ -14,6 +14,7 @@ function titleFor(pathname: string): string {
   if (p.includes("/inspections")) return "Inspections";
   if (p.includes("/invoices")) return "Invoices";
   if (p.includes("/analytics")) return "Analytics";
+  if (p.includes("/users")) return "User Management";
   if (p.includes("/settings")) return "Settings";
   return "Dashboard";
 }

@@ -9,7 +9,7 @@ import { useAuth, type Action } from "../auth/AuthContext";
 import { api } from "../lib/api";
 import { calcCommission, calcDues, rateForInspection } from "../lib/calc";
 import type {
-  AppState, Inspection, Invoice, Organization, Role, Settings, VesselCall,
+  AppState, Inspection, Invoice, Member, Organization, Role, Settings, VesselCall,
 } from "../types";
 
 export interface Financials {
@@ -42,7 +42,10 @@ interface Store {
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   updateOrganization: (patch: Partial<Organization>) => Promise<void>;
   addMember: (m: { name: string; email: string; password: string; role: Role }) => Promise<void>;
-  updateMember: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  updateMember: (
+    id: string,
+    patch: Partial<Pick<Member, "name" | "role" | "active">> & { password?: string },
+  ) => Promise<void>;
   removeMember: (id: string) => Promise<void>;
 }
 
@@ -143,8 +146,11 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
     const fresh = await api.state();
     apply(fresh);
   }, [apply]);
-  const updateMember = useCallback(async (id: string, patch: Record<string, unknown>) => {
-    const { rev } = await api.updateMember(id, patch as any);
+  const updateMember = useCallback(async (
+    id: string,
+    patch: Partial<Pick<Member, "name" | "role" | "active">> & { password?: string },
+  ) => {
+    const { rev } = await api.updateMember(id, patch);
     bumpFrom(rev);
     apply(await api.state());
   }, [apply]);

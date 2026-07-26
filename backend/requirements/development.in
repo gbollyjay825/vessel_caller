@@ -4,7 +4,7 @@ coverage[toml]==7.10.6
 django-stubs==5.2.9
 djangorestframework-stubs==3.16.9
 mypy==1.18.2
-pytest==8.4.2
+pytest==9.0.3
 pytest-cov==6.2.1
 pytest-django==4.11.1
 ruff==0.13.0

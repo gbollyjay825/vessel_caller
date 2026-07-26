@@ -12,7 +12,7 @@ Status values: `Not started`, `In progress`, `Blocked`, `Qualified`, `Done`.
 | Blocker | Owner | Required resolution | Status |
 |---|---|---|---|
 | Vercel staging binding is incomplete | Product/operator | DNS already points `staging` to Vercel and `staging-api` has a valid Droplet certificate; authenticate the providers, provision isolated services, then bind the qualified Vercel Preview | Blocked |
-| Managed PostgreSQL credentials are absent | Product/operator | Provision isolated staging/production databases with TLS, PITR, and least-privilege users | Blocked |
+| Managed production PostgreSQL is not provisioned | Product/operator | Staging PostgreSQL is active and privately reachable; provision the separate production cluster only after staging qualification | Blocked |
 | Spaces credentials/buckets are absent | Product/operator | Provision separate private staging/production buckets with versioning and lifecycle policy | Blocked |
 | Resend credentials/domain are absent | Product/operator | Verify the sender domain and provide staging allow-list plus production API keys | Blocked |
 | Sentry DSN and alert route are absent | Product/operator | Create staging/production projects and test an alert end to end | Blocked |
@@ -54,10 +54,10 @@ Status values: `Not started`, `In progress`, `Blocked`, `Qualified`, `Done`.
 | E09-S01 | Backend/frontend/browser CI with enforced coverage | E01, E02 | In progress | required checks passing on `main` |
 | E09-S02 | CodeQL, SAST, secret/dependency/container scans, SBOM, and scheduled scans | E09-S01 | In progress | security workflow artifacts and zero high/critical findings |
 | E10-S01 | Idempotent Droplet bootstrap preserving FlexSchools | E00 | In progress | Ansible check-mode diff, `nginx -t`, before/after FlexSchools probes |
-| E10-S02 | Vercel staging frontend plus Droplet staging API DNS/TLS, isolated DB/bucket/Redis and deployment user | DNS/credentials | Blocked | environment registry and external staging checks |
+| E10-S02 | Vercel staging frontend plus Droplet staging API DNS/TLS, isolated DB/bucket/Redis and deployment user | DNS/credentials | In progress | environment registry and external staging checks |
 | E11-S01 | Build-once immutable release with checksums, wheelhouse, SBOM, and provenance | E09 | In progress | signed release and offline install rehearsal |
 | E11-S02 | Protected staging/production promotion with blue-green rollback | E10, E11-S01 | In progress | promotion and rollback drill logs |
-| E12-S01 | Managed PostgreSQL TLS, PITR, least privilege, and connection limits | Provider credentials | Blocked | provider configuration and privilege audit |
+| E12-S01 | Managed PostgreSQL TLS, PITR, least privilege, and connection limits | Provider credentials | In progress | provider configuration and privilege audit |
 | E12-S02 | Encrypted daily export, Spaces versioning/lifecycle, and restore automation | E12-S01 | Blocked | fresh backup marker, off-host object, quarterly restore report |
 | E13-S01 | Structured redacted logs, Sentry releases, synthetic checks, and alerts | Credentials, E10 | Blocked | injected-failure alert evidence |
 | E13-S02 | Capacity test and operational dashboards | E13-S01 | Not started | 50-user p95/p99/error-rate report |
@@ -141,3 +141,27 @@ independent security review findings:
 This qualifies the repository implementation locally. It does not qualify a
 release: the provider-backed staging, backup/restore, load, DAST, alert,
 Resend, private Spaces, rollback, and UAT gates remain mandatory.
+
+## Managed staging PostgreSQL evidence
+
+The isolated staging database was provisioned on 2026-07-26 in the same
+DigitalOcean team, project, region, and VPC as the FlexSchools Droplet:
+
+- DigitalOcean team: `Flex School`
+- Project: `first-project`
+- Region/VPC: `NYC1` / `default-nyc1`
+- Cluster: `vessel-caller-staging`
+  (`ce0c85f3-cd31-412c-a2e9-d276649f8ae3`)
+- Engine/plan: PostgreSQL 18 Standard, primary only, 1 vCPU, 1 GiB RAM,
+  10 GiB storage
+- Application database/user: `vessel_caller_staging` / `vessel_caller_app`
+- The public Droplet address and its private VPC address are the only configured
+  trusted network sources.
+- The private database endpoint is reachable from the Droplet on port `25060`.
+- The TLS connection URI is stored only in the root-owned, mode-`0600` file
+  `/etc/vessel-caller/credentials/staging-database.env`; no credential value is
+  committed to Git or stored in Vercel.
+
+This advances E10-S02 and E12-S01 but does not complete them. Credential
+authentication, Django migrations, privilege/connection-limit audit, PITR
+evidence, backup restore, and the separate production cluster remain gated.

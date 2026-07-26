@@ -36,6 +36,13 @@ As of 2026-07-26, Namecheap has:
 
 The staging API certificate was issued on 2026-07-26 and its HTTP bootstrap
 site remains fail-closed until the qualified Django release is installed.
-Vercel custom-domain/Preview binding and managed
-PostgreSQL/Spaces/Resend/Sentry credentials remain incomplete. These are
-release blockers, not reasons to reuse production or legacy credentials.
+The managed staging PostgreSQL cluster `vessel-caller-staging`
+(`ce0c85f3-cd31-412c-a2e9-d276649f8ae3`) is active in the `Flex School` team,
+`first-project`, and `default-nyc1` VPC. Its least-privilege application URI is
+held in `/etc/vessel-caller/credentials/staging-database.env` on the Droplet,
+and the private endpoint is reachable only from the allow-listed Droplet
+network addresses.
+
+Vercel custom-domain/Preview binding and Spaces/Resend/Sentry credentials remain
+incomplete. These are release blockers, not reasons to reuse production or
+legacy credentials.

@@ -8,6 +8,7 @@ vault_vessel_production_database_url: CHANGE_ME
 vault_vessel_staging_database_url: CHANGE_ME
 vault_vessel_secret_key: CHANGE_ME
 vault_vessel_staging_secret_key: CHANGE_ME
+vault_vessel_staging_e2e_password: CHANGE_ME
 vault_vessel_production_mfa_encryption_key: CHANGE_ME
 vault_vessel_staging_mfa_encryption_key: CHANGE_ME
 vault_vessel_production_redis_password: CHANGE_ME

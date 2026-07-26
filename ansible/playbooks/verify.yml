@@ -17,6 +17,7 @@
         status_code: 200
         timeout: 5
       changed_when: false
+      when: vessel_staging_runtime_enabled | bool
 
     - name: Check public sites
       ansible.builtin.uri:

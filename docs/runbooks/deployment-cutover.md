@@ -2,6 +2,9 @@
 
 ## Preconditions
 
+- Every deferred provider row in
+  `post-credential-release-checklist.md` has objective evidence for the exact
+  signed release; `Deferred` is not an acceptable production status.
 - Approved signed release; all GitHub gates green.
 - `staging.vesselcalls.com` is bound to the protected Vercel Preview deployment
   and `staging-api.vesselcalls.com` has a valid Droplet TLS certificate.

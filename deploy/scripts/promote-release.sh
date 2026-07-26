@@ -33,6 +33,7 @@ if [[ ! -L "${candidate_release}" ]]; then
   echo "Candidate slot has no installed release: ${candidate}" >&2
   exit 1
 fi
+candidate_tag="$(jq -er '.release' "${candidate_release}/RELEASE.json")"
 
 curl --fail --silent --show-error --max-time 20 "${flexschools_url}" >/dev/null
 candidate_status="$(curl \
@@ -95,7 +96,10 @@ fi
 systemctl reload nginx
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if ! "${script_dir}/smoke-test.sh" "${public_url}"; then
+if ! "${script_dir}/smoke-test.sh" \
+  --qualify-release \
+  "${public_url}" \
+  "${candidate_tag}"; then
   rollback
   exit 1
 fi

@@ -3,12 +3,12 @@
 This registry contains identifiers and ownership only. Secret values belong in
 the approved password manager/Ansible Vault and root-owned Droplet files.
 
-| Environment | Frontend | Backend | Data and integrations | Data policy |
-|---|---|---|---|---|
-| Local | Vite `127.0.0.1:5173` | Django `127.0.0.1:8002` | Compose PostgreSQL/Redis; sandbox providers | Synthetic only |
-| CI | Vite/Playwright runner | Django test process | Ephemeral PostgreSQL/Redis; no outbound production providers | Generated fixtures, destroyed per run |
-| Staging | Protected dedicated Vercel project at `staging.vesselcalls.com` | Droplet `127.0.0.1:8010` through a secret-authenticated Vercel proxy | Separate managed DB, authenticated Redis on 6381, private bucket, Resend allow-list, Sentry project | Synthetic/anonymized only; never production credentials/data |
-| Production | Droplet Nginx at `vesselcalls.com` | Active blue/green loopback slot | Managed PostgreSQL/PITR, authenticated Redis on 6380, private versioned bucket, Resend, Sentry | Live organization data |
+| Environment | Frontend | Backend | Data and integrations | Data policy | Current status |
+|---|---|---|---|---|---|
+| Local | Vite `127.0.0.1:5173` | Django `127.0.0.1:8002` | Compose PostgreSQL/Redis; sandbox providers | Synthetic only | Available for implementation verification |
+| CI | Vite/Playwright runner | Django test process | Ephemeral PostgreSQL/Redis; no outbound production providers | Generated fixtures, destroyed per run | Active; merged PR checks passed |
+| Staging | Protected dedicated Vercel project at `staging.vesselcalls.com` | Droplet `127.0.0.1:8010` through a secret-authenticated Vercel proxy | Separate managed DB, authenticated Redis on 6381, private bucket, Resend allow-list, Sentry project | Synthetic/anonymized only; never production credentials/data | **Partial:** DNS/TLS and managed PostgreSQL exist; API remains fail-closed. Vercel, Spaces, Resend, Sentry, and full provider evidence are deferred |
+| Production | Droplet Nginx at `vesselcalls.com` | Target active blue/green loopback slot | Target managed PostgreSQL/PITR, authenticated Redis on 6380, private versioned bucket, Resend, Sentry | Live organization data | **Legacy active:** FastAPI/SQLite blue remains live. Target Django/provider credentials are not qualified; production deployment is prohibited |
 
 ## Ownership
 
@@ -43,6 +43,13 @@ held in `/etc/vessel-caller/credentials/staging-database.env` on the Droplet,
 and the private endpoint is reachable only from the allow-listed Droplet
 network addresses.
 
-Vercel custom-domain/Preview binding and Spaces/Resend/Sentry credentials remain
-incomplete. These are release blockers, not reasons to reuse production or
-legacy credentials.
+Vercel custom-domain/Preview binding and Spaces/Resend/Sentry credentials are
+`Deferred`—not passed, waived, or complete. These are release blockers, not
+reasons to reuse production or legacy credentials.
+
+The exact protected inputs, evidence requirements, execution order, and owner
+sign-offs are maintained in
+`docs/runbooks/post-credential-release-checklist.md`. Until those gates have
+real provider evidence, the implementation may continue through
+credential-independent qualification, but no release may be marked
+production-qualified and no production deployment may begin.

@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Vessel Caller externally
-        run: deploy/scripts/smoke-test.sh https://vesselcalls.com
+        run: deploy/scripts/smoke-test.sh --availability-only https://vesselcalls.com
       - name: Verify FlexSchools isolation
         run: >-
           curl

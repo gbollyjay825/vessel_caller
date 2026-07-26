@@ -9,11 +9,13 @@ result. Never back up a live deployment by copying only the `.sqlite3` file.
 
 ## PostgreSQL
 
-`vessel-caller-backup.timer` runs a custom-format `pg_dump`, validates its
-catalog, encrypts it with an offline-held age recipient, uploads it plus a
-checksum to private Spaces, and updates a local success marker. The bucket must
-have versioning and a provider lifecycle retaining daily backups for at least
-30 days. Managed PostgreSQL PITR must retain at least the committed RPO window.
+When provider credentials are supplied and E12 is qualified,
+`vessel-caller-backup.timer` will run a custom-format `pg_dump`, validate its
+catalog, encrypt it with an offline-held age recipient, upload it plus a
+checksum to private Spaces, and update a local success marker. Until then,
+PostgreSQL backup/PITR qualification is deferred. The WAL-safe SQLite backup is
+not a substitute. The target bucket must have versioning and a provider
+lifecycle retaining daily backups for at least 30 days.
 
 Target objectives:
 
@@ -27,8 +29,8 @@ Target objectives:
 3. Put the age identity in a temporary root-only file outside the repository.
 4. Set `RESTORE_TARGET_ENVIRONMENT`, the independently calculated
    `TARGET_DATABASE_URL_SHA256`, and the registered
-   `PRODUCTION_DATABASE_URL_SHA256`, then run
-   Export `RESTORE_TARGET_DATABASE_URL` from the approved secret store, then run
+   `PRODUCTION_DATABASE_URL_SHA256`. Export `RESTORE_TARGET_DATABASE_URL` from
+   the approved secret store, then run
    `postgres-restore.sh <s3-uri> drill --confirm-restore`. The database URL is
    never passed in a process argument.
    Production additionally requires matching `RESTORE_CHANGE_ID` and
@@ -41,5 +43,6 @@ Target objectives:
 8. Destroy the drill database and identity material per provider policy.
 9. Attach sanitized evidence to E12; never record keys or customer data.
 
-Production restore requires incident approval and `ALLOW_PRODUCTION_RESTORE`;
-prefer restoring into a new database and switching credentials after proof.
+Production restore requires matching `RESTORE_CHANGE_ID` and
+`ALLOW_PRODUCTION_RESTORE_CHANGE_ID`; prefer restoring into a new database and
+switching credentials after proof.

@@ -3,12 +3,18 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
-- name: Restart Vessel Caller Redis
+- name: Restart Vessel Caller production Redis
   ansible.builtin.systemd:
-    name: "{{ item }}"
+    name: redis-vessel-caller-production.service
     state: restarted
     enabled: true
     daemon_reload: true
-  loop:
-    - redis-vessel-caller-production.service
-    - redis-vessel-caller-staging.service
+  when: vessel_production_runtime_enabled | bool
+
+- name: Restart Vessel Caller staging Redis
+  ansible.builtin.systemd:
+    name: redis-vessel-caller-staging.service
+    state: restarted
+    enabled: true
+    daemon_reload: true
+  when: vessel_staging_runtime_enabled | bool

@@ -3,6 +3,11 @@ import { defineConfig, devices } from "@playwright/test";
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:5173";
 const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 const realBackend = process.env.PLAYWRIGHT_REAL_BACKEND === "1";
+if (realBackend && !process.env.E2E_PASSWORD?.trim()) {
+  throw new Error(
+    "PLAYWRIGHT_REAL_BACKEND=1 requires E2E_PASSWORD from the environment; no reusable E2E password is stored in source.",
+  );
+}
 const backendPort = process.env.PLAYWRIGHT_BACKEND_PORT ?? "8000";
 const backendURL = process.env.PLAYWRIGHT_BACKEND_URL ?? `http://127.0.0.1:${backendPort}`;
 const externalBackend = Boolean(process.env.PLAYWRIGHT_BACKEND_URL);

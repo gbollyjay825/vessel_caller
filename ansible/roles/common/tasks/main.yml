@@ -78,6 +78,10 @@
     append: false
     shell: /bin/bash
     create_home: true
+  when:
+    - >-
+      (vessel_staging_runtime_enabled | bool)
+      or (vessel_production_runtime_enabled | bool)
 
 - name: Install forced deployment SSH command
   ansible.builtin.copy:
@@ -86,6 +90,10 @@
     owner: root
     group: root
     mode: "0755"
+  when:
+    - >-
+      (vessel_staging_runtime_enabled | bool)
+      or (vessel_production_runtime_enabled | bool)
 
 - name: Install deployment public keys
   ansible.posix.authorized_key:
@@ -95,6 +103,10 @@
     exclusive: true
     key_options: 'command="/usr/local/lib/vessel-caller/deploy-ssh-command.sh",restrict'
   no_log: true
+  when:
+    - >-
+      (vessel_staging_runtime_enabled | bool)
+      or (vessel_production_runtime_enabled | bool)
 
 - name: Create isolated Vessel Caller directories
   ansible.builtin.file:

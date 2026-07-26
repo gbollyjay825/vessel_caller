@@ -16,6 +16,7 @@
     "e2e:integration": "PLAYWRIGHT_REAL_BACKEND=1 playwright test"
   },
   "dependencies": {
+    "@sentry/react": "10.67.0",
     "@tanstack/react-query": "^5.101.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

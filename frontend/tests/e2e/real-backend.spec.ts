@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const password = "E2E-only-password-2026!";
+const configuredPassword = process.env.E2E_PASSWORD;
+if (!configuredPassword || !configuredPassword.trim()) {
+  throw new Error("Real-backend Playwright tests require E2E_PASSWORD from the environment.");
+}
+const password = configuredPassword;
 
 async function signIn(page: Page, email: string) {
   await page.goto("/login");

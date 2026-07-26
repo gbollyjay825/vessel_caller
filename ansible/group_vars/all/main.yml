@@ -27,6 +27,9 @@ vessel_staging_redis_port: 6381
 vessel_tls_ready: true
 vessel_staging_tls_ready: true
 vessel_staging_application_ready: false
+vessel_staging_runtime_enabled: false
+vessel_production_runtime_enabled: false
+vessel_provider_gates_deferred: true
 vessel_backups_enabled: false
 vessel_monitoring_enabled: true
 vessel_ufw_enabled: true
@@ -36,6 +39,7 @@ vessel_production_database_url: "{{ vault_vessel_production_database_url }}"
 vessel_staging_database_url: "{{ vault_vessel_staging_database_url }}"
 vessel_secret_key: "{{ vault_vessel_secret_key }}"
 vessel_staging_secret_key: "{{ vault_vessel_staging_secret_key }}"
+vessel_staging_e2e_password: "{{ vault_vessel_staging_e2e_password }}"
 vessel_production_mfa_encryption_key: "{{ vault_vessel_production_mfa_encryption_key }}"
 vessel_staging_mfa_encryption_key: "{{ vault_vessel_staging_mfa_encryption_key }}"
 vessel_production_resend_api_key: "{{ vault_vessel_production_resend_api_key }}"

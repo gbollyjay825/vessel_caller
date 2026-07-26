@@ -1,6 +1,15 @@
 import { expect, test } from "@playwright/test";
 
+function generatedMockPassword(): string {
+  return `${crypto.randomUUID()}-Aa1!`;
+}
+
 async function installAnonymousSession(page: import("@playwright/test").Page) {
+  await page.route("**/api/runtime-config", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ sentry: { dsn: "", environment: "test", release: "mocked" } }),
+  }));
   await page.route("**/api/auth/me", (route) => route.fulfill({
     status: 401,
     contentType: "application/json",
@@ -28,7 +37,7 @@ test("login completes an MFA challenge", async ({ page }) => {
 
   await page.goto("/login");
   await page.getByLabel("Email").fill("admin@example.com");
-  await page.getByLabel("Password").fill("correct horse battery staple");
+  await page.getByLabel("Password").fill(generatedMockPassword());
   await page.getByRole("button", { name: "Sign in" }).click();
 
   await expect(page.getByRole("heading", { name: "Two-factor verification" })).toBeVisible();
@@ -47,7 +56,7 @@ test("registration waits for verified email", async ({ page }) => {
   await page.getByLabel("Your name").fill("Ada Admin");
   await page.getByLabel("Organization name").fill("Ada Marine");
   await page.getByLabel("Email").fill("ada@example.com");
-  await page.getByLabel("Password").fill("a unique secure password");
+  await page.getByLabel("Password").fill(generatedMockPassword());
   await page.getByRole("button", { name: "Create organization" }).click();
 
   await expect(page.getByRole("heading", { name: "Verify your email" })).toBeVisible();

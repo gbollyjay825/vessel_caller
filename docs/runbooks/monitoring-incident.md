@@ -2,6 +2,11 @@
 
 ## Signals and alert thresholds
 
+These signals are required target-state evidence before production
+qualification. Sentry, provider dashboards, and alert routes remain deferred
+until a real injected staging event is received and acknowledged. On-host log
+output alone is not alert-channel proof.
+
 - GitHub-hosted external `/`, `/api/health`, and `/api/readiness` checks every
   five minutes, plus on-Droplet checks. The external failure must notify the
   engineering on-call through protected workflow notifications.

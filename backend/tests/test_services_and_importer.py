@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from django.core.cache import cache
-from django.core.management import call_command
+from django.core.management import call_command, CommandError
 
 from accounts.models import EmailOutbox, User
 from accounts.services import queue_email
@@ -246,8 +246,43 @@ def test_wal_safe_legacy_import_and_reconciliation(tmp_path):
     }
 
 
-def test_seed_e2e_is_idempotent(settings):
+def test_seed_e2e_is_idempotent_with_explicit_local_password(settings):
     settings.DEBUG = True
-    call_command("seed_e2e")
-    call_command("seed_e2e")
+    settings.ENVIRONMENT = "test"
+    password = "Local-E2E-Strong-Password-2026!"
+    call_command("seed_e2e", password=password)
+    call_command("seed_e2e", password=password)
     assert User.objects.filter(email__endswith="@e2e.vesselcalls.test").count() == 4
+    assert User.objects.get(email="admin@e2e.vesselcalls.test").check_password(password)
+
+
+def test_seed_e2e_requires_strong_protected_password(settings, monkeypatch):
+    settings.DEBUG = False
+    settings.ENVIRONMENT = "staging"
+    monkeypatch.delenv("VC_E2E_PASSWORD", raising=False)
+    with pytest.raises(CommandError, match="disabled outside DEBUG"):
+        call_command("seed_e2e")
+
+    with pytest.raises(CommandError, match="VC_E2E_PASSWORD is required"):
+        call_command("seed_e2e", force=True)
+
+    monkeypatch.setenv("VC_E2E_PASSWORD", "weak")
+    with pytest.raises(CommandError, match="strength policy"):
+        call_command("seed_e2e", force=True)
+
+    with pytest.raises(CommandError, match="allowed only for local DEBUG"):
+        call_command("seed_e2e", force=True, password="Local-E2E-Strong-Password-2026!")
+
+    password = "Staging-E2E-Strong-Password-2026!"
+    monkeypatch.setenv("VC_E2E_PASSWORD", password)
+    call_command("seed_e2e", force=True)
+    assert User.objects.get(email="admin@e2e.vesselcalls.test").check_password(password)
+
+
+def test_seed_e2e_is_permanently_disabled_in_production(settings, monkeypatch):
+    settings.DEBUG = True
+    settings.ENVIRONMENT = "production"
+    monkeypatch.setenv("VC_E2E_PASSWORD", "Production-E2E-Strong-Password-2026!")
+
+    with pytest.raises(CommandError, match="permanently disabled in production"):
+        call_command("seed_e2e", force=True)

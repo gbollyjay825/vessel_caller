@@ -1,10 +1,11 @@
 # Vessel Caller Droplet deployment
 
-Vessel Caller uses immutable, offline-installable releases and isolated Django
-blue/green services. Production is hosted only on the shared FlexSchools
-Droplet. A dedicated protected Vercel project serves the staging SPA and a
-narrow API proxy; it contains no production credentials/data and authenticates
-every origin request to the isolated Droplet staging backend.
+Vessel Caller’s target deployment uses immutable, offline-installable releases
+and isolated Django blue/green services. Production is hosted only on the
+shared FlexSchools Droplet, but the live service remains legacy FastAPI blue
+until the provider-backed Django cutover is qualified. The dedicated protected
+Vercel staging SPA and its narrow authenticated API proxy are also target
+state; missing provider credentials keep those gates deferred and fail-closed.
 
 ## Layout
 
@@ -32,7 +33,9 @@ both public health checks.
 
 Read [the SDLC](../docs/SDLC.md), [deployment/cutover
 runbook](../docs/runbooks/deployment-cutover.md), and [rollback
-runbook](../docs/runbooks/rollback.md) before operating production.
+runbook](../docs/runbooks/rollback.md) before operating production. The
+[post-credential checklist](../docs/runbooks/post-credential-release-checklist.md)
+must have no deferred rows before any production operation.
 
 The previously checked-in FastAPI installer/systemd definition and Vercel
 serverless demo function were removed. Existing FastAPI blue on the Droplet is

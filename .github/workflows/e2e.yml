@@ -80,6 +80,15 @@ jobs:
           npm ci --prefix frontend
           cd frontend
           npx playwright install --with-deps
+      - name: Generate isolated E2E credential
+        shell: bash
+        run: |
+          password="$(openssl rand -base64 36 | tr -d '\n')Aa1!"
+          echo "::add-mask::${password}"
+          {
+            echo "VC_E2E_PASSWORD=${password}"
+            echo "E2E_PASSWORD=${password}"
+          } >> "${GITHUB_ENV}"
       - name: Prepare database
         working-directory: backend
         run: |

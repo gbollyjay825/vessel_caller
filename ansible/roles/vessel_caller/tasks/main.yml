@@ -1,5 +1,5 @@
 ---
-- name: Create release slots
+- name: Create production release slots
   ansible.builtin.file:
     path: "{{ vessel_app_root }}/slots/{{ item.name }}"
     state: directory
@@ -13,9 +13,16 @@
     - name: production-green
       user: "{{ vessel_production_user }}"
       group: "{{ vessel_production_group }}"
-    - name: staging
-      user: "{{ vessel_staging_user }}"
-      group: "{{ vessel_staging_group }}"
+  when: vessel_production_runtime_enabled | bool
+
+- name: Create staging release slot
+  ansible.builtin.file:
+    path: "{{ vessel_app_root }}/slots/staging"
+    state: directory
+    owner: "{{ vessel_staging_user }}"
+    group: "{{ vessel_staging_group }}"
+    mode: "0750"
+  when: vessel_staging_runtime_enabled | bool
 
 - name: Install release and operational scripts
   ansible.builtin.copy:
@@ -52,8 +59,13 @@
     mode: "0440"
     validate: /usr/sbin/visudo -cf %s
     content: |
+      # Managed by Vessel Caller Ansible; disabled runtimes receive no sudo rule.
+      {% if vessel_staging_runtime_enabled | bool %}
       {{ vessel_deploy_user }} ALL=(root) NOPASSWD: /usr/local/sbin/vessel-caller-deploy staging /var/tmp/vessel-caller-v*.tar.gz
+      {% endif %}
+      {% if vessel_production_runtime_enabled | bool %}
       {{ vessel_deploy_user }} ALL=(root) NOPASSWD: /usr/local/sbin/vessel-caller-deploy production /var/tmp/vessel-caller-v*.tar.gz
+      {% endif %}
 
 - name: Pin release-signing public key
   ansible.builtin.copy:
@@ -62,8 +74,12 @@
     group: root
     mode: "0644"
     content: "{{ vessel_release_signing_public_key }}"
+  when:
+    - >-
+      (vessel_staging_runtime_enabled | bool)
+      or (vessel_production_runtime_enabled | bool)
 
-- name: Install systemd units
+- name: Install production systemd units
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../deploy/systemd/{{ item }}"
     dest: "/etc/systemd/system/{{ item }}"
@@ -74,38 +90,56 @@
     - vessel-caller-web@.service
     - vessel-caller-worker@.service
     - vessel-caller-prepare@.service
+    - redis-vessel-caller-production.service
+  when: vessel_production_runtime_enabled | bool
+  notify: Reload systemd
+
+- name: Install staging systemd units
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
     - vessel-caller-staging-web.service
     - vessel-caller-staging-worker.service
     - vessel-caller-staging-prepare.service
-    - redis-vessel-caller-production.service
     - redis-vessel-caller-staging.service
+  when: vessel_staging_runtime_enabled | bool
   notify: Reload systemd
 
-- name: Configure isolated authenticated Redis instances
+- name: Configure isolated authenticated production Redis
   ansible.builtin.template:
     src: redis.conf.j2
-    dest: "{{ vessel_config_root }}/redis-{{ item.environment }}.conf"
+    dest: "{{ vessel_config_root }}/redis-production.conf"
     owner: root
-    group: "{{ item.group }}"
+    group: "{{ vessel_production_redis_group }}"
     mode: "0640"
   vars:
-    runtime_environment: "{{ item.environment }}"
-    runtime_redis_port: "{{ item.port }}"
-    runtime_redis_password: "{{ item.password }}"
-    runtime_redis_maxmemory: "{{ item.maxmemory }}"
-  loop:
-    - environment: production
-      port: "{{ vessel_production_redis_port }}"
-      password: "{{ vessel_production_redis_password }}"
-      maxmemory: 512mb
-      group: "{{ vessel_production_redis_group }}"
-    - environment: staging
-      port: "{{ vessel_staging_redis_port }}"
-      password: "{{ vessel_staging_redis_password }}"
-      maxmemory: 192mb
-      group: "{{ vessel_staging_redis_group }}"
+    runtime_environment: production
+    runtime_redis_port: "{{ vessel_production_redis_port }}"
+    runtime_redis_password: "{{ vessel_production_redis_password }}"
+    runtime_redis_maxmemory: 512mb
   no_log: true
-  notify: Restart Vessel Caller Redis
+  when: vessel_production_runtime_enabled | bool
+  notify: Restart Vessel Caller production Redis
+
+- name: Configure isolated authenticated staging Redis
+  ansible.builtin.template:
+    src: redis.conf.j2
+    dest: "{{ vessel_config_root }}/redis-staging.conf"
+    owner: root
+    group: "{{ vessel_staging_redis_group }}"
+    mode: "0640"
+  vars:
+    runtime_environment: staging
+    runtime_redis_port: "{{ vessel_staging_redis_port }}"
+    runtime_redis_password: "{{ vessel_staging_redis_password }}"
+    runtime_redis_maxmemory: 192mb
+  no_log: true
+  when: vessel_staging_runtime_enabled | bool
+  notify: Restart Vessel Caller staging Redis
 
 - name: Write production slot environments
   ansible.builtin.template:
@@ -135,6 +169,7 @@
     - {name: production-blue, bind: "127.0.0.1:8001"}
     - {name: production-green, bind: "127.0.0.1:8002"}
   no_log: true
+  when: vessel_production_runtime_enabled | bool
 
 - name: Write staging environment
   ansible.builtin.template:
@@ -161,13 +196,30 @@
     runtime_sentry_dsn: "{{ vessel_staging_sentry_dsn }}"
     runtime_mfa_encryption_key: "{{ vessel_staging_mfa_encryption_key }}"
   no_log: true
+  when: vessel_staging_runtime_enabled | bool
 
-- name: Enable isolated Redis instances
+- name: Write staging E2E seed environment
+  ansible.builtin.template:
+    src: e2e.env.j2
+    dest: "{{ vessel_config_root }}/staging-e2e.env"
+    owner: root
+    group: "{{ vessel_staging_group }}"
+    mode: "0640"
+  no_log: true
+  when: vessel_staging_runtime_enabled | bool
+
+- name: Enable isolated production Redis
   ansible.builtin.systemd:
-    name: "{{ item }}"
+    name: redis-vessel-caller-production.service
     enabled: true
     state: started
     daemon_reload: true
-  loop:
-    - redis-vessel-caller-production.service
-    - redis-vessel-caller-staging.service
+  when: vessel_production_runtime_enabled | bool
+
+- name: Enable isolated staging Redis
+  ansible.builtin.systemd:
+    name: redis-vessel-caller-staging.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: vessel_staging_runtime_enabled | bool

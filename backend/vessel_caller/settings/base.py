@@ -49,6 +49,7 @@ def database_from_url(url: str) -> dict:
 
 
 SECRET_KEY = env("VC_SECRET_KEY", "development-only-not-for-production")
+ENVIRONMENT = env("VC_ENVIRONMENT", "development")
 DEBUG = env_bool("VC_DEBUG", False)
 ALLOWED_HOSTS = env_list("VC_ALLOWED_HOSTS", "localhost,127.0.0.1,testserver")
 CSRF_TRUSTED_ORIGINS = env_list("VC_CSRF_TRUSTED_ORIGINS")
@@ -182,6 +183,7 @@ SESSION_ABSOLUTE_AGE = 60 * 60 * 24 * 30
 MFA_GRACE_DAYS = 7
 RELEASE_SHA = env("VC_RELEASE_SHA", "development")
 RELEASE_TAG = env("VC_RELEASE_TAG", "")
+SENTRY_DSN = env("VC_SENTRY_DSN")
 
 CELERY_BROKER_URL = env("VC_REDIS_URL", "redis://127.0.0.1:6379/0")
 CELERY_RESULT_BACKEND = env("VC_REDIS_URL", "redis://127.0.0.1:6379/1")

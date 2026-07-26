@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import logging
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
+from rest_framework.exceptions import ErrorDetail, NotFound, ValidationError
 
 from accounts.backends import EmailBackend
 from accounts.emailing import deliver
@@ -22,8 +24,10 @@ from accounts.middleware import ManagedSessionMiddleware
 from accounts.models import User, UserSession
 from accounts.security import decrypt_secret, use_recovery_code, verify_password_compat
 from api.domain import rate_for_inspection
+from api.exceptions import _plain, api_exception_handler, csrf_failure
 from api.management.commands.import_legacy_sqlite import as_json, aware_datetime
 from api.permissions import HasVesselPermission, effective_permissions
+from api.serializers import number
 from api.storage import (
     delete_object,
     object_exists,
@@ -35,10 +39,54 @@ from api.storage import (
 from audit.services import _sanitize
 from operations.models import Inspection
 from organizations.models import OrganizationSettings
+from vessel_caller.logging import JsonFormatter
 
 from .test_services_and_importer import create_legacy_database
 
 pytestmark = pytest.mark.django_db
+
+
+def test_api_exception_normalization_branches():
+    assert _plain({"field": (ErrorDetail("bad"), 1)}) == {"field": ["bad", 1]}
+    assert api_exception_handler(RuntimeError("internal"), {}) is None
+
+    missing = api_exception_handler(NotFound("Missing"), {})
+    assert missing.data == {
+        "detail": "Missing",
+        "errors": None,
+        "requestId": "",
+    }
+
+    request = SimpleNamespace(request_id="request-123")
+    invalid = api_exception_handler(
+        ValidationError({"field": [ErrorDetail("Invalid")]}),
+        {"request": request},
+    )
+    assert invalid.data == {
+        "detail": "The request could not be completed",
+        "errors": {"field": ["Invalid"]},
+        "requestId": "request-123",
+    }
+
+    csrf = csrf_failure(request, reason="test")
+    assert csrf.status_code == 403
+    assert json.loads(csrf.content)["requestId"] == "request-123"
+
+
+def test_optional_serialization_and_logging_branches():
+    assert number(None) is None
+    record = logging.LogRecord(
+        name="vessel-caller-test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="message",
+        args=(),
+        exc_info=None,
+    )
+    record.request_id = "request-123"
+    payload = json.loads(JsonFormatter().format(record))
+    assert payload["requestId"] == "request-123"
 
 
 def test_auth_backend_permission_and_security_branches(admin, viewer):

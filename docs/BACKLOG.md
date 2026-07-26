@@ -5,19 +5,22 @@ story must link a pull request and retain test, staging, migration, and operator
 evidence. `Done` means the stated exit evidence exists; merged code alone is not
 enough.
 
-Status values: `Not started`, `In progress`, `Blocked`, `Qualified`, `Done`.
+Status values: `Not started`, `In progress`, `Blocked`, `Deferred`,
+`Qualified`, `Done`. `Deferred` means required provider credential or
+provisioning evidence is unavailable. It is not passed, waived, or complete,
+and downstream qualification/cutover remains prohibited.
 
 ## Release blockers
 
 | Blocker | Owner | Required resolution | Status |
 |---|---|---|---|
-| Vercel staging binding is incomplete | Product/operator | DNS already points `staging` to Vercel and `staging-api` has a valid Droplet certificate; authenticate the providers, provision isolated services, then bind the qualified Vercel Preview | Blocked |
-| Managed production PostgreSQL is not provisioned | Product/operator | Staging PostgreSQL is active and privately reachable; provision the separate production cluster only after staging qualification | Blocked |
-| Spaces credentials/buckets are absent | Product/operator | Provision separate private staging/production buckets with versioning and lifecycle policy | Blocked |
-| Resend credentials/domain are absent | Product/operator | Verify the sender domain and provide staging allow-list plus production API keys | Blocked |
-| Sentry DSN and alert route are absent | Product/operator | Create staging/production projects and test an alert end to end | Blocked |
+| Vercel staging binding is incomplete | Product/operator | DNS already points `staging` to Vercel and `staging-api` has a valid Droplet certificate; authenticate the providers, provision isolated services, then bind the signed candidate Preview | Deferred |
+| Managed production PostgreSQL is not provisioned | Product/operator | Staging PostgreSQL is active and privately reachable; provision the separate production cluster only after staging qualification | Deferred |
+| Spaces credentials/buckets are absent | Product/operator | Provision separate private staging/production buckets with versioning and lifecycle policy | Deferred |
+| Resend credentials/domain are absent | Product/operator | Verify the sender domain and provide staging allow-list plus production API keys | Deferred |
+| Sentry DSN and alert route are absent | Product/operator | Create staging/production projects and test an alert end to end | Deferred |
 | GitHub Project/branch environments are not configured | Repository admin | Configure `main` protection and staging/production environment approvals from `docs/SDLC.md` | Blocked |
-| Full qualification has not run | Release owner | Meet every gate in E14 against PostgreSQL staging | Not started |
+| Full qualification has not run | Release owner | Meet every gate in E14 against PostgreSQL staging | Deferred |
 
 ## Backlog
 
@@ -38,7 +41,7 @@ Status values: `Not started`, `In progress`, `Blocked`, `Qualified`, `Done`.
 | E03-S03 | Soft cancellation/removal and payment reversal | E03-S01 | In progress | state-transition and authorization tests |
 | E04-S01 | SQLite schema fingerprint and deterministic importer | E03 | In progress | importer tests against frozen snapshots |
 | E04-S02 | Reconciliation counts, IDs, FKs, totals, sequences, and object manifest | E04-S01 | In progress | signed reconciliation manifest |
-| E04-S03 | Complete two staging migration rehearsals | E04-S02, E10, E12 | Blocked | two timestamped parity reports and durations |
+| E04-S03 | Complete two staging migration rehearsals | E04-S02, E10, E12 | Deferred | two timestamped parity reports and durations |
 | E05-S01 | Registration verification, invitations, recovery, and email changes | E02 | In progress | API, email sandbox, expiry/replay tests |
 | E05-S02 | Session security, password hashing, MFA, and recovery codes | E05-S01 | In progress | security tests and session-revocation proof |
 | E05-S03 | Fixed-role RBAC and last-active-Admin concurrency | E05-S01 | In progress | complete role matrix and race tests |
@@ -46,7 +49,7 @@ Status values: `Not started`, `In progress`, `Blocked`, `Qualified`, `Done`.
 | E06-S01 | Vessel editing, status transitions, and cancellation | E03 | In progress | API/UI transition tests |
 | E06-S02 | Inspection draft/resume/finalize and exactly-one invoice | E03, E04 | In progress | idempotency and concurrency tests |
 | E06-S03 | Normalized payments, reversal, and server-generated PDFs | E03 | In progress | accounting, authorization, and snapshot tests |
-| E06-S04 | Private evidence uploads | E03, Spaces | Blocked | MIME/size/tenant tests and signed-URL expiry proof |
+| E06-S04 | Private evidence uploads | E03, Spaces | Deferred | MIME/size/tenant tests and signed-URL expiry proof |
 | E06-S05 | Real IndexedDB PWA queue and conflict recovery | E06-S02 | In progress | offline browser journeys |
 | E07-S01 | Remove every fake control, simulated success, demo credential, and unsupported claim | E05, E06 | In progress | repository search manifest and UAT checklist |
 | E08-S01 | Cookie/CSRF client, effective permissions, and expiry handling | E05 | In progress | role/session component and browser tests |
@@ -54,19 +57,19 @@ Status values: `Not started`, `In progress`, `Blocked`, `Qualified`, `Done`.
 | E09-S01 | Backend/frontend/browser CI with enforced coverage | E01, E02 | In progress | required checks passing on `main` |
 | E09-S02 | CodeQL, SAST, secret/dependency/container scans, SBOM, and scheduled scans | E09-S01 | In progress | security workflow artifacts and zero high/critical findings |
 | E10-S01 | Idempotent Droplet bootstrap preserving FlexSchools | E00 | In progress | Ansible check-mode diff, `nginx -t`, before/after FlexSchools probes |
-| E10-S02 | Vercel staging frontend plus Droplet staging API DNS/TLS, isolated DB/bucket/Redis and deployment user | DNS/credentials | In progress | environment registry and external staging checks |
+| E10-S02 | Vercel staging frontend plus Droplet staging API DNS/TLS, isolated DB/bucket/Redis and deployment user | DNS/credentials | Deferred | environment registry and external staging checks |
 | E11-S01 | Build-once immutable release with checksums, wheelhouse, SBOM, and provenance | E09 | In progress | signed release and offline install rehearsal |
-| E11-S02 | Protected staging/production promotion with blue-green rollback | E10, E11-S01 | In progress | promotion and rollback drill logs |
-| E12-S01 | Managed PostgreSQL TLS, PITR, least privilege, and connection limits | Provider credentials | In progress | provider configuration and privilege audit |
-| E12-S02 | Encrypted daily export, Spaces versioning/lifecycle, and restore automation | E12-S01 | Blocked | fresh backup marker, off-host object, quarterly restore report |
-| E13-S01 | Structured redacted logs, Sentry releases, synthetic checks, and alerts | Credentials, E10 | Blocked | injected-failure alert evidence |
-| E13-S02 | Capacity test and operational dashboards | E13-S01 | Not started | 50-user p95/p99/error-rate report |
+| E11-S02 | Protected staging/production promotion with blue-green rollback | E10, E11-S01 | Deferred | promotion and rollback drill logs |
+| E12-S01 | Managed PostgreSQL TLS, PITR, least privilege, and connection limits | Provider credentials | Deferred | provider configuration and privilege audit |
+| E12-S02 | Encrypted daily export, Spaces versioning/lifecycle, and restore automation | E12-S01 | Deferred | fresh backup marker, off-host object, quarterly restore report |
+| E13-S01 | Structured redacted logs, Sentry releases, synthetic checks, and alerts | Credentials, E10 | Deferred | injected-failure alert evidence |
+| E13-S02 | Capacity test and operational dashboards | E13-S01 | Deferred | 50-user p95/p99/error-rate report |
 | E13-S03 | Incident, deploy, rollback, backup, and DR runbooks | E10–E13 | In progress | tabletop sign-off |
-| E14-S01 | Full UAT/security/accessibility/browser qualification | All P0 implementation | Not started | signed qualification report |
-| E14-S02 | Migration/restore/rollback rehearsals | E04, E11, E12 | Blocked | rehearsal evidence |
-| E14-S03 | FastAPI blue stabilization and Django green cutover | E14-S01, E14-S02 | Blocked | approved change record and 30-minute observation report |
-| E14-S04 | Seven-day hypercare and FastAPI retirement | E14-S03 | Blocked | seven-day SLO report and service removal evidence |
-| E14-S05 | Retire Vercel production/demo use; retain protected staging only | E14-S04 | Blocked | production routing proof, staging isolation proof, and no production secrets/data in Vercel |
+| E14-S01 | Full UAT/security/accessibility/browser qualification | All P0 implementation | Deferred | signed qualification report |
+| E14-S02 | Migration/restore/rollback rehearsals | E04, E11, E12 | Deferred | rehearsal evidence |
+| E14-S03 | FastAPI blue stabilization and Django green cutover | E14-S01, E14-S02 | Deferred | approved change record and 30-minute observation report |
+| E14-S04 | Seven-day hypercare and FastAPI retirement | E14-S03 | Deferred | seven-day SLO report and service removal evidence |
+| E14-S05 | Retire Vercel production/demo use; retain protected staging only | E14-S04 | Deferred | production routing proof, staging isolation proof, and no production secrets/data in Vercel |
 | E15-S01 | Architecture, API, RBAC, privacy, support, and operator handoff | Updated continuously | In progress | documentation review and named operator sign-off |
 
 ## E00 backup acceptance evidence
@@ -111,9 +114,9 @@ do not close E04-S03 or E14-S02: the same two-run proof must still be repeated
 against the isolated managed staging PostgreSQL service, followed by the backup
 restore and release rollback drills.
 
-## Local implementation qualification evidence
+## Local implementation verification evidence
 
-The final local code qualification completed on 2026-07-26 after closing the
+The latest local code verification completed on 2026-07-26 after closing the
 independent security review findings:
 
 - Django/PostgreSQL: `43` tests passed; line coverage `96.28%`; branch coverage
@@ -122,7 +125,7 @@ independent security review findings:
 - React: `113` tests passed; line coverage `89.34%`; branch coverage `80.19%`;
   ESLint, TypeScript, production build, and `npm audit` passed with zero known
   vulnerabilities.
-- Browser qualification: mocked and real Django/PostgreSQL journeys passed in
+- Browser verification: mocked and real Django/PostgreSQL journeys passed in
   Chromium, Firefox, WebKit, and mobile emulation (`8/8` in each suite).
 - Deployment controls: Actionlint, ShellCheck, immutable release tamper tests,
   JSON validation, and production/HTTP-bootstrap/TLS-bootstrap Nginx
@@ -141,6 +144,19 @@ independent security review findings:
 This qualifies the repository implementation locally. It does not qualify a
 release: the provider-backed staging, backup/restore, load, DAST, alert,
 Resend, private Spaces, rollback, and UAT gates remain mandatory.
+
+Mocked tests prove UI behavior only. Local PostgreSQL and production-shaped
+configuration checks use synthetic credentials and cannot satisfy a provider
+or production gate.
+
+Missing provider credentials are now handled by the canonical
+[post-credential release checklist](runbooks/post-credential-release-checklist.md).
+Credential-dependent rows remain explicitly deferred; they do not block
+independent repository, packaging, migration-tooling, infrastructure dry-run,
+documentation, or release-evidence work. They still block provider
+qualification, signed production qualification evidence, and production
+deployment. A mock adapter or placeholder credential cannot close any deferred
+row.
 
 ## Managed staging PostgreSQL evidence
 

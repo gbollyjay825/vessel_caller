@@ -16,6 +16,7 @@ on:
           - production
 
 permissions:
+  attestations: read
   contents: write
 
 concurrency:
@@ -42,9 +43,59 @@ jobs:
             echo "Release tag must use semantic vMAJOR.MINOR.PATCH syntax." >&2
             exit 1
           fi
+      - name: Require deployment credentials before any server mutation
+        env:
+          DEPLOY_TARGET: ${{ inputs.target }}
+          DROPLET_DEPLOY_SSH_KEY: ${{ secrets.DROPLET_DEPLOY_SSH_KEY }}
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_HOST_KEY: ${{ secrets.DROPLET_HOST_KEY }}
+          OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY: ${{ vars.OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY }}
+          QUALIFICATION_SIGNING_PUBLIC_KEY: ${{ vars.QUALIFICATION_SIGNING_PUBLIC_KEY }}
+          RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_SIGNING_PUBLIC_KEY }}
+          STAGING_E2E_PASSWORD: ${{ secrets.STAGING_E2E_PASSWORD }}
+          STAGING_PROXY_SECRET: ${{ secrets.STAGING_PROXY_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          required=(
+            DROPLET_DEPLOY_SSH_KEY
+            DROPLET_HOST
+            DROPLET_HOST_KEY
+            RELEASE_SIGNING_PUBLIC_KEY
+          )
+          if [[ "${DEPLOY_TARGET}" == "staging" ]]; then
+            required+=(
+              STAGING_PROXY_SECRET
+              STAGING_E2E_PASSWORD
+              VERCEL_AUTOMATION_BYPASS_SECRET
+              VERCEL_ORG_ID
+              VERCEL_PROJECT_ID
+              VERCEL_TOKEN
+            )
+          else
+            required+=(
+              OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY
+              QUALIFICATION_SIGNING_PUBLIC_KEY
+            )
+          fi
+          missing=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'DEFERRED: missing required %s deployment configuration: %s\n' \
+              "${DEPLOY_TARGET}" \
+              "$(IFS=', '; echo "${missing[*]}")" >&2
+            exit 1
+          fi
       - name: Download immutable release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_SIGNING_PUBLIC_KEY }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           mkdir -p artifacts
@@ -52,10 +103,19 @@ jobs:
           cd artifacts
           sha256sum --check "vessel-caller-${RELEASE_TAG}.tar.gz.sha256"
           gh attestation verify "vessel-caller-${RELEASE_TAG}.tar.gz" --repo "${GITHUB_REPOSITORY}"
+          public_key="$(mktemp)"
+          trap 'rm -f "${public_key}"' EXIT
+          printf '%s' "${RELEASE_SIGNING_PUBLIC_KEY}" > "${public_key}"
+          openssl dgst \
+            -sha256 \
+            -verify "${public_key}" \
+            -signature "vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
+            "vessel-caller-${RELEASE_TAG}.tar.gz"
       - name: Require full recorded qualification before production
         if: inputs.target == 'production'
         env:
           GH_TOKEN: ${{ github.token }}
+          OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY: ${{ vars.OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY }}
           RELEASE_TAG: ${{ inputs.tag }}
           QUALIFICATION_SIGNING_PUBLIC_KEY: ${{ vars.QUALIFICATION_SIGNING_PUBLIC_KEY }}
         run: |
@@ -72,11 +132,93 @@ jobs:
           jq --exit-status \
             --arg tag "${RELEASE_TAG}" \
             --arg commit "$(git rev-parse HEAD)" \
-            '.release == $tag and
-             .commit == $commit and
-             .qualified == true and
-             (.gates | to_entries | all(.value == true))' \
+            '
+              .schemaVersion == 1 and
+              .evidenceType == "vessel-caller-production-qualification" and
+              .release == $tag and
+              .commit == $commit and
+              (.operatorEvidenceSha256 | test("^[0-9a-f]{64}$")) and
+              .qualified == true and
+              (.gates | type == "object") and
+              (.gates | keys == [
+                "accessibility",
+                "backupVersioningAndPitr",
+                "dast",
+                "flexschoolsRegression",
+                "load",
+                "migrationParity",
+                "privateSpacesAuthorization",
+                "resendDelivery",
+                "restore",
+                "rollbackAndRecovery",
+                "sentryAlert",
+                "stagingReleaseIdentity",
+                "uat"
+              ]) and
+              ([.gates[]] | all(. == true))
+            ' \
             "artifacts/${evidence}" >/dev/null
+          operator_evidence="vessel-caller-${RELEASE_TAG}.operator-evidence.json"
+          gh release download "${RELEASE_TAG}" \
+            --dir artifacts \
+            --pattern "${operator_evidence}"
+          gh release download "${RELEASE_TAG}" \
+            --dir artifacts \
+            --pattern "${operator_evidence}.sig"
+          operator_public_key="$(mktemp)"
+          trap 'rm -f "${public_key}" "${operator_public_key}"' EXIT
+          printf '%s' "${OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY}" > "${operator_public_key}"
+          openssl dgst \
+            -sha256 \
+            -verify "${operator_public_key}" \
+            -signature "artifacts/${operator_evidence}.sig" \
+            "artifacts/${operator_evidence}"
+          operator_evidence_sha256="$(
+            sha256sum "artifacts/${operator_evidence}" | awk '{print $1}'
+          )"
+          expected_operator_evidence_sha256="$(
+            jq -r '.operatorEvidenceSha256' "artifacts/${evidence}"
+          )"
+          test "${operator_evidence_sha256}" = "${expected_operator_evidence_sha256}"
+          jq --exit-status \
+            --arg release "${RELEASE_TAG}" \
+            --arg commit "$(git rev-parse HEAD)" \
+            '
+              keys == ["commit", "controls", "evidenceType", "release", "schemaVersion"] and
+              .schemaVersion == 1 and
+              .evidenceType == "vessel-caller-operator-evidence" and
+              .release == $release and
+              .commit == $commit and
+              (.controls | keys == [
+                "applicationResendJourneys",
+                "flexschoolsRegressionReviewed",
+                "operatorChecklistSigned",
+                "pitrPointInTimeRestore",
+                "privateSpacesApplicationAuthorization",
+                "productUatSigned",
+                "resendForcedFailureVisibility",
+                "resendRetryIdempotency",
+                "rpoMinutes",
+                "sentryBackendFrontendMetadataRedaction",
+                "sentryOnCallAcknowledged",
+                "stagingE2eAccountsProtected"
+              ]) and
+              (.controls.rpoMinutes | type == "number" and . >= 0 and . <= 15) and
+              ([
+                .controls.applicationResendJourneys,
+                .controls.flexschoolsRegressionReviewed,
+                .controls.operatorChecklistSigned,
+                .controls.pitrPointInTimeRestore,
+                .controls.privateSpacesApplicationAuthorization,
+                .controls.productUatSigned,
+                .controls.resendForcedFailureVisibility,
+                .controls.resendRetryIdempotency,
+                .controls.sentryBackendFrontendMetadataRedaction,
+                .controls.sentryOnCallAcknowledged,
+                .controls.stagingE2eAccountsProtected
+              ] | all(. == true))
+            ' \
+            "artifacts/${operator_evidence}" >/dev/null
       - name: Configure pinned SSH connection
         env:
           SSH_KEY: ${{ secrets.DROPLET_DEPLOY_SSH_KEY }}
@@ -146,19 +288,28 @@ jobs:
       - name: Verify immutable preview or production and FlexSchools isolation
         env:
           TARGET: ${{ inputs.target }}
+          RELEASE_TAG: ${{ inputs.tag }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           PREVIEW_URL: ${{ steps.vercel_preview.outputs.url }}
         run: |
           if [[ "${TARGET}" == "production" ]]; then
-            deploy/scripts/smoke-test.sh https://vesselcalls.com
+            deploy/scripts/smoke-test.sh \
+              --qualify-release \
+              https://vesselcalls.com \
+              "${RELEASE_TAG}"
           else
-            deploy/scripts/smoke-test.sh "${PREVIEW_URL}"
+            deploy/scripts/smoke-test.sh \
+              --qualify-release \
+              "${PREVIEW_URL}" \
+              "${RELEASE_TAG}"
           fi
           curl --fail --silent --show-error --location --max-time 20 https://flexschools.ng/ >/dev/null
       - name: Run staging browser gate against the deployed preview
         if: inputs.target == 'staging'
         env:
+          E2E_PASSWORD: ${{ secrets.STAGING_E2E_PASSWORD }}
           PLAYWRIGHT_BASE_URL: ${{ steps.vercel_preview.outputs.url }}
+          PLAYWRIGHT_REAL_BACKEND: "1"
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           npm ci --prefix frontend
@@ -171,6 +322,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           PREVIEW_URL: ${{ steps.vercel_preview.outputs.url }}
+          RELEASE_TAG: ${{ inputs.tag }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           alias_response="$(mktemp)"
@@ -197,7 +349,10 @@ jobs:
             "${PREVIEW_URL}" \
             staging.vesselcalls.com \
             --token "${VERCEL_TOKEN}"
-          if ! deploy/scripts/smoke-test.sh https://staging.vesselcalls.com; then
+          if ! deploy/scripts/smoke-test.sh \
+            --qualify-release \
+            https://staging.vesselcalls.com \
+            "${RELEASE_TAG}"; then
             if [[ -n "${previous_url}" ]]; then
               npx --yes vercel@56.4.1 alias set \
                 "https://${previous_url}" \

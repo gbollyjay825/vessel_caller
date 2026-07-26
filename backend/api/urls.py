@@ -50,7 +50,7 @@ from .operation_views import (
     VesselCallsView,
     VesselCallStatusView,
 )
-from .system_views import HealthView, ReadinessView
+from .system_views import HealthView, ReadinessView, RuntimeConfigView
 from .user_views import (
     AuditExportView,
     AuditView,
@@ -76,6 +76,7 @@ openapi_view = get_schema_view(
 urlpatterns = [
     path("health", HealthView.as_view(), name="health"),
     path("readiness", ReadinessView.as_view(), name="readiness"),
+    path("runtime-config", RuntimeConfigView.as_view(), name="runtime-config"),
     path("openapi", openapi_view, name="openapi"),
     path("auth/csrf", CsrfView.as_view(), name="auth-csrf"),
     path("auth/register", RegisterView.as_view(), name="auth-register"),

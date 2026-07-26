@@ -71,6 +71,15 @@ it through a dual-key release/change procedure before revoking the old key.
 Runtime application and backup secrets remain in root-owned files under
 `/etc/vessel-caller`; they are provisioned through Ansible Vault, not GitHub.
 
+A missing provider credential makes its gate `Deferred`, never `Pass`,
+`Qualified`, or `Skipped`. Console/memory email, local filesystem or S3 mocks,
+mocked browser responses, seeded UI state, and synthetic localhost checks do
+not satisfy provider gates. Production approval remains unavailable until
+root-owned production runtime credentials pass non-mutating authentication
+checks and the signed qualification artifact contains every mandatory
+real-provider gate listed in
+`runbooks/post-credential-release-checklist.md`.
+
 ## Definition of done
 
 - Acceptance criteria and documentation are current.
@@ -95,10 +104,11 @@ Runtime application and backup secrets remain in root-owned files under
    archive, offline wheelhouse, release manifest, SBOM, and provenance
    attestation. The Droplet refuses archives that do not verify against its
    independently pinned release public key.
-4. Promote the backend to the isolated Droplet staging service and the exact
-   frontend build to the protected Vercel staging project; run migration
+4. Promote the signed candidate backend to the isolated Droplet staging service
+   and the exact frontend build to the protected Vercel staging project; run migration
    reconciliation, browser UAT, restore, rollback, load, and alert drills.
-5. Approve the protected production environment.
+5. Produce and verify complete signed production-qualification evidence, then
+   approve the protected production environment.
 6. Install into the inactive slot, run migrations/checks/readiness, switch only
    the Vessel Caller Nginx upstream, and verify FlexSchools.
 7. Observe for 30 minutes before completing the change. Retain the compatible

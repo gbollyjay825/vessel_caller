@@ -4,6 +4,7 @@ After=network-online.target redis-vessel-caller-staging.service
 Wants=network-online.target
 ConditionPathExists=/opt/vessel-caller/slots/staging/current/backend/manage.py
 ConditionPathExists=/etc/vessel-caller/staging.env
+ConditionPathExists=/etc/vessel-caller/staging-e2e.env
 ConditionPathExists=/opt/vessel-caller/slots/staging/current/RELEASE.env
 
 [Service]
@@ -12,6 +13,7 @@ User=vessel-caller-staging
 Group=vessel-caller-staging
 WorkingDirectory=/opt/vessel-caller/slots/staging/current/backend
 EnvironmentFile=/etc/vessel-caller/staging.env
+EnvironmentFile=/etc/vessel-caller/staging-e2e.env
 EnvironmentFile=/opt/vessel-caller/slots/staging/current/RELEASE.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1

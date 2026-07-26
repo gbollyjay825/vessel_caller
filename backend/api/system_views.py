@@ -11,6 +11,24 @@ from rest_framework.views import APIView
 from vessel_caller import __version__
 
 
+class RuntimeConfigView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        response = Response(
+            {
+                "sentry": {
+                    "dsn": settings.SENTRY_DSN,
+                    "environment": settings.ENVIRONMENT,
+                    "release": settings.RELEASE_TAG or settings.RELEASE_SHA,
+                }
+            }
+        )
+        response["Cache-Control"] = "no-store"
+        return response
+
+
 class HealthView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]

@@ -77,7 +77,7 @@ if (
     )
 if RELEASE_SHA == "development":
     raise ImproperlyConfigured("VC_RELEASE_SHA is required")
-if not env("VC_SENTRY_DSN"):  # noqa: F405
+if not SENTRY_DSN:
     raise ImproperlyConfigured("VC_SENTRY_DSN is required")
 
 from vessel_caller.sentry import initialize_sentry  # noqa: E402

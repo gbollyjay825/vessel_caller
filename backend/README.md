@@ -77,11 +77,13 @@ cd backend
 ../.venv/bin/bandit -r accounts api audit billing operations organizations vessel_caller
 ```
 
-`python manage.py seed_e2e` creates four deterministic role accounts only when
-DEBUG is enabled. The password is `E2E-only-password-2026!`; addresses are
-`admin@e2e.vesselcalls.test`, `operations@…`, `finance@…`, and `viewer@…`.
-This command is never an application startup hook and refuses non-debug
-environments unless an operator explicitly passes `--force`.
+`python manage.py seed_e2e --password '<local-strong-password>'` creates four
+deterministic role accounts only for local DEBUG use. Staging or isolated CI
+must pass `--force` and obtain a strong `VC_E2E_PASSWORD` from protected
+configuration. The command contains no reusable password and is permanently
+disabled when `VC_ENVIRONMENT=production`. Ansible Vault writes the staging
+value to a prepare-only environment file; the web and worker services do not
+receive it.
 
 ## Legacy SQLite migration
 

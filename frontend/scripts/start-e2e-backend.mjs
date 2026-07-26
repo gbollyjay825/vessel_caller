@@ -34,6 +34,7 @@ const environment = {
   VC_SESSION_COOKIE_SECURE: "false",
   VC_CELERY_EAGER: "true",
   VC_EMAIL_DELIVERY_BACKEND: "memory",
+  VC_E2E_PASSWORD: process.env.VC_E2E_PASSWORD ?? process.env.E2E_PASSWORD,
   VC_ALLOWED_HOSTS: "127.0.0.1,localhost",
   VC_CSRF_TRUSTED_ORIGINS: "http://127.0.0.1:5173,http://localhost:5173",
 };

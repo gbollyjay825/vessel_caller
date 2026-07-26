@@ -40,6 +40,7 @@
     group: www-data
     mode: "0640"
   no_log: true
+  when: vessel_staging_runtime_enabled | bool
   notify: Validate and reload Nginx
 
 - name: Install maintenance page

@@ -1,4 +1,13 @@
 ---
+- name: Require the production runtime before enabling backups
+  ansible.builtin.assert:
+    that:
+      - vessel_production_runtime_enabled | bool
+    fail_msg: >-
+      vessel_backups_enabled=true requires
+      vessel_production_runtime_enabled=true.
+  when: vessel_backups_enabled | bool
+
 - name: Install backup systemd units
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../deploy/systemd/{{ item }}"

@@ -893,7 +893,7 @@ class LocalEvidenceUploadView(APIView):
         try:
             local_upload(token, request.body, request.content_type or "")
         except (signing.BadSignature, ValueError) as exc:
-            raise ValidationError(str(exc)) from exc
+            raise ValidationError("Upload is invalid or expired") from exc
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

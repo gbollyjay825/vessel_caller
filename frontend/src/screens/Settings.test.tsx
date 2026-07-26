@@ -95,11 +95,29 @@ describe("Settings", () => {
     const government = screen.getByLabelText("Government jetty");
     await userEvent.clear(government);
     await userEvent.type(government, "2.25");
+    const exchangeRate = screen.getByLabelText("USD → ₦ exchange rate");
+    await userEvent.clear(exchangeRate);
+    await userEvent.type(exchangeRate, "1600");
+    const privateJetty = screen.getByLabelText("Private jetty");
+    await userEvent.clear(privateJetty);
+    await userEvent.type(privateJetty, "3.1");
+    const internationalJetty = screen.getByLabelText("International jetty");
+    await userEvent.clear(internationalJetty);
+    await userEvent.type(internationalJetty, "4.5");
+    const dryCargo = screen.getByLabelText("Dry cargo rate (USD per NT ton)");
+    await userEvent.clear(dryCargo);
+    await userEvent.type(dryCargo, "2.4");
     expect(screen.getByText("Worked example · 50,000 NT vessel").closest(".live-calc")).toHaveTextContent("$112,500.00");
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(mocks.store.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       commissionRate: 7.5,
-      liquidDuesRates: expect.objectContaining({ government: 2.25 }),
+      exchangeRate: 1_600,
+      liquidDuesRates: {
+        government: 2.25,
+        private: 3.1,
+        international: 4.5,
+      },
+      dryDuesRate: 2.4,
     })));
 
     await userEvent.click(screen.getByRole("tab", { name: "Port profile" }));

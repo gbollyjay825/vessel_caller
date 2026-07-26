@@ -1,10 +1,10 @@
 """Legacy organization profile + team management (Admin-gated)."""
-import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..email_validation import is_valid_email
 from ..ids import new_id
 from ..models import ROLES, Organization, User
 from ..schemas import MemberCreate, MemberUpdate, OrgUpdate
@@ -12,7 +12,6 @@ from ..security import hash_password, require_roles
 from ..services import bump_rev, org_to_dict, user_to_dict
 
 router = APIRouter(prefix="/api/organization", tags=["organization"])
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _members(db, org_id):
@@ -44,7 +43,7 @@ def add_member(body: MemberCreate, user: User = Depends(require_roles("Admin")),
     email = body.email.strip().lower()
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Name is required")
-    if not EMAIL_RE.fullmatch(email):
+    if not is_valid_email(email):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Enter a valid email address")
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with that email already exists")

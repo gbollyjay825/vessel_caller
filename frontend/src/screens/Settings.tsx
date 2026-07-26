@@ -53,6 +53,49 @@ interface SettingsForm {
   terminals: string[];
 }
 
+type SettingsFormUpdate =
+  | { field: "commissionRate"; value: number }
+  | { field: "exchangeRate"; value: number }
+  | { field: "liquidDuesRate"; rate: "government" | "private" | "international"; value: number }
+  | { field: "dryDuesRate"; value: number }
+  | { field: "portName"; value: string }
+  | { field: "terminals"; value: string[] };
+
+function applySettingsFormUpdate(form: SettingsForm, update: SettingsFormUpdate): SettingsForm {
+  switch (update.field) {
+    case "commissionRate":
+      return { ...form, commissionRate: update.value };
+    case "exchangeRate":
+      return { ...form, exchangeRate: update.value };
+    case "liquidDuesRate":
+      switch (update.rate) {
+        case "government":
+          return {
+            ...form,
+            liquidDuesRates: { ...form.liquidDuesRates, government: update.value },
+          };
+        case "private":
+          return {
+            ...form,
+            liquidDuesRates: { ...form.liquidDuesRates, private: update.value },
+          };
+        case "international":
+          return {
+            ...form,
+            liquidDuesRates: { ...form.liquidDuesRates, international: update.value },
+          };
+        default:
+          throw new Error("Unsupported liquid dues rate");
+      }
+    case "dryDuesRate":
+      return { ...form, dryDuesRate: update.value };
+    case "portName":
+      return { ...form, portName: update.value };
+    case "terminals":
+      return { ...form, terminals: update.value };
+  }
+}
+
 function toSettingsForm(s: SettingsType): SettingsForm {
   const rates = s.liquidDuesRates || { government: 0, private: 0, international: 0 };
   return {
@@ -264,15 +307,8 @@ export function Settings() {
     if (!orgDirty) setOrgForm(normalizeOrg(store.org));
   }, [store.org, orgDirty]);
 
-  const set = (path: string, val: unknown) => {
-    setForm((f) => {
-      const next: any = JSON.parse(JSON.stringify(f));
-      const keys = path.split(".");
-      let o: any = next;
-      for (let i = 0; i < keys.length - 1; i++) o = o[keys[i]];
-      o[keys[keys.length - 1]] = val;
-      return next;
-    });
+  const updateForm = (update: SettingsFormUpdate) => {
+    setForm((current) => applySettingsFormUpdate(current, update));
     setDirty(true);
   };
 
@@ -357,23 +393,23 @@ export function Settings() {
             <p className="muted" style={{ fontSize: 13, margin: "6px 0 24px" }}>Changes affect future calculations only. Existing invoices keep the rate they were issued under.</p>
             <div className="field-row">
               <Field label="Commission rate (%)" hint="Agency commission on harbour dues.">
-                <input type="number" step="0.1" value={form.commissionRate} onChange={(e) => set("commissionRate", Number(e.target.value))} />
+                <input type="number" step="0.1" value={form.commissionRate} onChange={(e) => updateForm({ field: "commissionRate", value: Number(e.target.value) })} />
               </Field>
               <Field label="USD → ₦ exchange rate" hint="Used for the naira commission figure.">
-                <input type="number" step="1" value={form.exchangeRate} onChange={(e) => set("exchangeRate", Number(e.target.value))} />
+                <input type="number" step="1" value={form.exchangeRate} onChange={(e) => updateForm({ field: "exchangeRate", value: Number(e.target.value) })} />
               </Field>
             </div>
             <div className="card-title" style={{ fontSize: 14, margin: "8px 0 4px" }}>Liquid cargo — harbour dues by jetty</div>
             <p className="muted" style={{ fontSize: 13, margin: "0 0 14px" }}>USD per net-tonnage ton. The rate is selected by the jetty recorded during inspection.</p>
             <div className="field-row">
-              <Field label="Government jetty"><input type="number" step="0.01" value={form.liquidDuesRates.government} onChange={(e) => set("liquidDuesRates.government", Number(e.target.value))} /></Field>
-              <Field label="Private jetty"><input type="number" step="0.01" value={form.liquidDuesRates.private} onChange={(e) => set("liquidDuesRates.private", Number(e.target.value))} /></Field>
+              <Field label="Government jetty"><input type="number" step="0.01" value={form.liquidDuesRates.government} onChange={(e) => updateForm({ field: "liquidDuesRate", rate: "government", value: Number(e.target.value) })} /></Field>
+              <Field label="Private jetty"><input type="number" step="0.01" value={form.liquidDuesRates.private} onChange={(e) => updateForm({ field: "liquidDuesRate", rate: "private", value: Number(e.target.value) })} /></Field>
             </div>
-            <Field label="International jetty"><input type="number" step="0.01" value={form.liquidDuesRates.international} onChange={(e) => set("liquidDuesRates.international", Number(e.target.value))} /></Field>
+            <Field label="International jetty"><input type="number" step="0.01" value={form.liquidDuesRates.international} onChange={(e) => updateForm({ field: "liquidDuesRate", rate: "international", value: Number(e.target.value) })} /></Field>
 
             <div className="card-title" style={{ fontSize: 14, margin: "20px 0 4px" }}>Dry / bulk cargo — harbour dues</div>
             <Field label="Dry cargo rate (USD per NT ton)" hint="Flat rate applied to all dry / bulk cargo.">
-              <input type="number" step="0.01" value={form.dryDuesRate} onChange={(e) => set("dryDuesRate", Number(e.target.value))} />
+              <input type="number" step="0.01" value={form.dryDuesRate} onChange={(e) => updateForm({ field: "dryDuesRate", value: Number(e.target.value) })} />
             </Field>
 
             <div className="live-calc" style={{ marginTop: 8 }}>
@@ -398,7 +434,7 @@ export function Settings() {
           </p>
           <fieldset disabled={!canEdit} style={{ border: "none", padding: 0, margin: 0 }}>
             <Field label="Default terminals" hint="One per line. Offered when registering a vessel call.">
-              <textarea style={{ minHeight: 120 }} value={form.terminals.join("\n")} onChange={(e) => set("terminals", e.target.value.split("\n"))} />
+              <textarea style={{ minHeight: 120 }} value={form.terminals.join("\n")} onChange={(e) => updateForm({ field: "terminals", value: e.target.value.split("\n") })} />
             </Field>
           </fieldset>
         </div>

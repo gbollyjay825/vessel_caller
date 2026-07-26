@@ -248,7 +248,7 @@ def test_operational_conflicts_missing_and_idempotency(admin):
     )
 
 
-def test_evidence_and_document_error_paths(admin, viewer):
+def test_evidence_and_document_error_paths(admin, viewer, monkeypatch):
     client = authenticated(admin)
     _, inspection, invoice = create_flow(client, "ROT-EVIDENCE-ERROR")
     assert (
@@ -273,6 +273,19 @@ def test_evidence_and_document_error_paths(admin, viewer):
         "PUT", "/api/evidence/upload/not-a-token", b"x", content_type="image/png"
     )
     assert bad_upload.status_code == 400
+    assert bad_upload.json()["errors"] == ["Upload is invalid or expired"]
+    assert "Signature" not in str(bad_upload.json())
+
+    def fail_upload(*_args):
+        raise ValueError("sensitive internal storage detail")
+
+    monkeypatch.setattr("api.operation_views.local_upload", fail_upload)
+    failed_upload = client.generic(
+        "PUT", "/api/evidence/upload/valid-looking-token", b"x", content_type="image/png"
+    )
+    assert failed_upload.status_code == 400
+    assert failed_upload.json()["errors"] == ["Upload is invalid or expired"]
+    assert "sensitive internal storage detail" not in str(failed_upload.json())
     assert client.get("/api/evidence/download/not-a-token").status_code == 404
     presigned = client.post(
         "/api/evidence/presign",
@@ -291,6 +304,26 @@ def test_evidence_and_document_error_paths(admin, viewer):
     assert client.generic("PUT", upload_path, b"x", content_type="image/png").status_code == 400
     viewer_client = authenticated(viewer)
     assert viewer_client.delete("/api/evidence/missing").status_code == 404
+
+
+def test_local_evidence_upload_preserves_internal_exception_chain(monkeypatch):
+    from types import SimpleNamespace
+
+    from rest_framework.exceptions import ValidationError
+
+    from api.operation_views import LocalEvidenceUploadView
+
+    internal_error = ValueError("sensitive internal storage detail")
+
+    def fail_upload(*_args):
+        raise internal_error
+
+    monkeypatch.setattr("api.operation_views.local_upload", fail_upload)
+    request = SimpleNamespace(body=b"x", content_type="image/png")
+    with pytest.raises(ValidationError, match="Upload is invalid or expired") as caught:
+        LocalEvidenceUploadView().put(request, "valid-looking-token")
+
+    assert caught.value.__cause__ is internal_error
 
 
 def test_void_invoice_rejects_payment(admin):

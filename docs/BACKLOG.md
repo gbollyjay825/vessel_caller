@@ -11,7 +11,7 @@ Status values: `Not started`, `In progress`, `Blocked`, `Qualified`, `Done`.
 
 | Blocker | Owner | Required resolution | Status |
 |---|---|---|---|
-| Vercel staging binding is incomplete | Product/operator | DNS points `staging` to Vercel and `staging-api` has a valid Droplet certificate; bind only the qualified Vercel Preview after provider-backed staging passes | Blocked |
+| Vercel staging binding is incomplete | Product/operator | DNS already points `staging` to Vercel and `staging-api` has a valid Droplet certificate; authenticate the providers, provision isolated services, then bind the qualified Vercel Preview | Blocked |
 | Managed PostgreSQL credentials are absent | Product/operator | Provision isolated staging/production databases with TLS, PITR, and least-privilege users | Blocked |
 | Spaces credentials/buckets are absent | Product/operator | Provision separate private staging/production buckets with versioning and lifecycle policy | Blocked |
 | Resend credentials/domain are absent | Product/operator | Verify the sender domain and provide staging allow-list plus production API keys | Blocked |
@@ -110,3 +110,34 @@ These runs qualify the deterministic importer and reconciliation controls. They
 do not close E04-S03 or E14-S02: the same two-run proof must still be repeated
 against the isolated managed staging PostgreSQL service, followed by the backup
 restore and release rollback drills.
+
+## Local implementation qualification evidence
+
+The final local code qualification completed on 2026-07-26 after closing the
+independent security review findings:
+
+- Django/PostgreSQL: `43` tests passed; line coverage `96.28%`; branch coverage
+  `85.23%`; Ruff format/lint, mypy, Bandit, migration drift, Django system
+  checks, and production-shaped `check --deploy` passed.
+- React: `113` tests passed; line coverage `89.34%`; branch coverage `80.19%`;
+  ESLint, TypeScript, production build, and `npm audit` passed with zero known
+  vulnerabilities.
+- Browser qualification: mocked and real Django/PostgreSQL journeys passed in
+  Chromium, Firefox, WebKit, and mobile emulation (`8/8` in each suite).
+- Deployment controls: Actionlint, ShellCheck, immutable release tamper tests,
+  JSON validation, and production/HTTP-bootstrap/TLS-bootstrap Nginx
+  configurations passed.
+- Database exports and reconciliation manifests now use the same exported
+  PostgreSQL snapshot. Restore qualification compares stable controls again
+  after release migrations before evidence can be signed.
+- Finalized evidence is copied from the temporary upload namespace to a new
+  server-controlled evidence key, verified again, and only then referenced by
+  the database.
+- `staging-api.vesselcalls.com` presents its own valid Let's Encrypt certificate
+  and deliberately returns `503` until the isolated staging application and
+  managed services are ready. Production Vessel Caller and `flexschools.ng`
+  both returned `200` after the Nginx change.
+
+This qualifies the repository implementation locally. It does not qualify a
+release: the provider-backed staging, backup/restore, load, DAST, alert,
+Resend, private Spaces, rollback, and UAT gates remain mandatory.

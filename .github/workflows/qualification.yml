@@ -91,6 +91,7 @@ jobs:
           export BACKUP_AGE_IDENTITY_FILE="${identity_file}"
           export RESTORE_TARGET_ENVIRONMENT=drill
           export RESTORE_TARGET_DATABASE_URL="${RESTORE_DRILL_DATABASE_URL}"
+          export RESTORE_RECONCILIATION_OUTPUT="${RUNNER_TEMP}/restore-source-manifest.json"
           export TARGET_DATABASE_URL_SHA256
           TARGET_DATABASE_URL_SHA256="$(
             printf '%s' "${RESTORE_DRILL_DATABASE_URL}" | sha256sum | awk '{print $1}'
@@ -116,6 +117,26 @@ jobs:
           "${RUNNER_TEMP}/restore-venv/bin/python" "${payload}/backend/manage.py" migrate --check
           "${RUNNER_TEMP}/restore-venv/bin/python" "${payload}/backend/manage.py" check
           "${RUNNER_TEMP}/restore-venv/bin/python" "${payload}/backend/manage.py" makemigrations --check --dry-run
+          reconciliation_state="${RUNNER_TEMP}/restore-reconciliation-state"
+          mkdir -m 0700 "${reconciliation_state}"
+          source "${payload}/deploy/scripts/libpq-env.sh"
+          configure_libpq_from_env RESTORE_DRILL_DATABASE_URL "${reconciliation_state}"
+          "${payload}/deploy/scripts/database-manifest.sh" \
+            > "${RUNNER_TEMP}/restore-post-migration-manifest.json"
+          jq --sort-keys \
+            '{counts, financialTotals, foreignKeyOrphans}' \
+            "${RUNNER_TEMP}/restore-source-manifest.json" \
+            > "${RUNNER_TEMP}/restore-source-controls.json"
+          jq --sort-keys \
+            '{counts, financialTotals, foreignKeyOrphans}' \
+            "${RUNNER_TEMP}/restore-post-migration-manifest.json" \
+            > "${RUNNER_TEMP}/restore-post-migration-controls.json"
+          diff -u \
+            "${RUNNER_TEMP}/restore-source-controls.json" \
+            "${RUNNER_TEMP}/restore-post-migration-controls.json"
+          jq --exit-status \
+            '([.foreignKeyOrphans[]] | all(. == 0))' \
+            "${RUNNER_TEMP}/restore-post-migration-manifest.json" >/dev/null
       - name: Exercise full staging backend and frontend rollback and recovery
         env:
           DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}

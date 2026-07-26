@@ -80,4 +80,7 @@ validate_variant() {
 
 validate_variant nginx-vessel-caller.conf nginx-vessel-caller-staging.conf
 validate_variant nginx-vessel-caller-bootstrap.conf nginx-vessel-caller-staging-bootstrap.conf
-echo "Production and bootstrap Nginx configurations passed nginx -t."
+validate_variant \
+  nginx-vessel-caller-bootstrap.conf \
+  nginx-vessel-caller-staging-tls-bootstrap.conf
+echo "Production and all staging bootstrap Nginx configurations passed nginx -t."

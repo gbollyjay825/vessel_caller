@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import uuid
 from datetime import timedelta
@@ -10,6 +11,8 @@ from django.core.files.storage import default_storage
 from django.urls import reverse
 from django.utils import timezone
 
+logger = logging.getLogger(__name__)
+
 
 def safe_name(file_name: str) -> str:
     base = os.path.basename(file_name).replace(" ", "-")
@@ -18,7 +21,14 @@ def safe_name(file_name: str) -> str:
 
 def object_key(organization_id: str, inspection_id: str, file_name: str) -> str:
     return (
-        f"organizations/{organization_id}/inspections/{inspection_id}/"
+        f"organizations/{organization_id}/inspections/{inspection_id}/uploads/"
+        f"{uuid.uuid4().hex}-{safe_name(file_name)}"
+    )
+
+
+def permanent_object_key(organization_id: str, inspection_id: str, file_name: str) -> str:
+    return (
+        f"organizations/{organization_id}/inspections/{inspection_id}/evidence/"
         f"{uuid.uuid4().hex}-{safe_name(file_name)}"
     )
 
@@ -174,6 +184,51 @@ def object_metadata(key: str) -> dict | None:
 
 def object_exists(key: str) -> bool:
     return object_metadata(key) is not None
+
+
+def promote_object(source_key: str, destination_key: str) -> dict | None:
+    client = _s3_client()
+    if client:
+        try:
+            client.copy_object(
+                Bucket=os.environ["VC_SPACES_BUCKET"],
+                CopySource={
+                    "Bucket": os.environ["VC_SPACES_BUCKET"],
+                    "Key": source_key,
+                },
+                Key=destination_key,
+                MetadataDirective="COPY",
+            )
+            metadata = object_metadata(destination_key)
+            if not metadata:
+                raise RuntimeError("Promoted evidence object could not be verified")
+            client.delete_object(Bucket=os.environ["VC_SPACES_BUCKET"], Key=source_key)
+            return metadata
+        except Exception:
+            try:
+                client.delete_object(
+                    Bucket=os.environ["VC_SPACES_BUCKET"],
+                    Key=destination_key,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to remove partial evidence object after promotion error",
+                    extra={"object_key": destination_key},
+                    exc_info=True,
+                )
+            return None
+    if not default_storage.exists(source_key) or default_storage.exists(destination_key):
+        return None
+    with default_storage.open(source_key, "rb") as source:
+        from django.core.files.base import File
+
+        default_storage.save(destination_key, File(source))
+    metadata = object_metadata(destination_key)
+    if not metadata:
+        default_storage.delete(destination_key)
+        return None
+    default_storage.delete(source_key)
+    return metadata
 
 
 def delete_object(key: str) -> None:

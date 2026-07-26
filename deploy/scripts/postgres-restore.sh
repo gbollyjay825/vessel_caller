@@ -105,4 +105,7 @@ if ! diff -u \
   echo "Restored database does not match the source reconciliation manifest." >&2
   exit 1
 fi
+if [[ -n "${RESTORE_RECONCILIATION_OUTPUT:-}" ]]; then
+  install -m 0600 "${expected_manifest}" "${RESTORE_RECONCILIATION_OUTPUT}"
+fi
 echo "Restore and database reconciliation completed; run release-specific application checks."

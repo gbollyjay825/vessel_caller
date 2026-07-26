@@ -6,11 +6,23 @@ set -euo pipefail
 : "${PGUSER:?PGUSER is required}"
 : "${PGPASSFILE:?PGPASSFILE is required}"
 
+use_snapshot=false
+if [[ -n "${PGSNAPSHOT:-}" ]]; then
+  use_snapshot=true
+fi
+
 psql \
   --no-psqlrc \
+  --quiet \
   --tuples-only \
   --no-align \
-  --set ON_ERROR_STOP=1 <<'SQL'
+  --set ON_ERROR_STOP=1 \
+  --set use_snapshot="${use_snapshot}" \
+  --set snapshot="${PGSNAPSHOT:-}" <<'SQL'
+\if :use_snapshot
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+SET TRANSACTION SNAPSHOT :'snapshot';
+\endif
 SELECT jsonb_pretty(
   jsonb_build_object(
     'schemaVersion', 1,
@@ -76,4 +88,7 @@ SELECT jsonb_pretty(
     )
   )
 );
+\if :use_snapshot
+COMMIT;
+\endif
 SQL

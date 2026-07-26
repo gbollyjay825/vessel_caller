@@ -26,6 +26,7 @@ vessel_production_redis_port: 6380
 vessel_staging_redis_port: 6381
 vessel_tls_ready: true
 vessel_staging_tls_ready: true
+vessel_staging_application_ready: false
 vessel_backups_enabled: false
 vessel_monitoring_enabled: true
 vessel_ufw_enabled: true

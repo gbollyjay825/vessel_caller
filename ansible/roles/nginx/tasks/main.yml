@@ -1,4 +1,12 @@
 ---
+- name: Require staging TLS before the application can be marked ready
+  ansible.builtin.assert:
+    that:
+      - not (vessel_staging_application_ready | bool) or (vessel_staging_tls_ready | bool)
+    fail_msg: >-
+      vessel_staging_application_ready=true requires
+      vessel_staging_tls_ready=true.
+
 - name: Create Vessel Caller Nginx include directory
   ansible.builtin.file:
     path: /etc/nginx/vessel-caller
@@ -44,7 +52,7 @@
 
 - name: Install production Vessel Caller site only
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../deploy/{{ vessel_tls_ready | ternary('nginx-vessel-caller.conf', 'nginx-vessel-caller-bootstrap.conf') }}"
+    src: "{{ playbook_dir }}/../../deploy/{{ (vessel_tls_ready | bool) | ternary('nginx-vessel-caller.conf', 'nginx-vessel-caller-bootstrap.conf') }}"
     dest: /etc/nginx/sites-available/vessel-caller
     owner: root
     group: root
@@ -61,7 +69,19 @@
 
 - name: Install staging site without assuming DNS or a certificate
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../deploy/{{ vessel_staging_tls_ready | ternary('nginx-vessel-caller-staging.conf', 'nginx-vessel-caller-staging-bootstrap.conf') }}"
+    src: >-
+      {{ playbook_dir }}/../../deploy/{{
+        (
+          (vessel_staging_application_ready | bool)
+          and (vessel_staging_tls_ready | bool)
+        ) | ternary(
+          'nginx-vessel-caller-staging.conf',
+          (vessel_staging_tls_ready | bool) | ternary(
+            'nginx-vessel-caller-staging-tls-bootstrap.conf',
+            'nginx-vessel-caller-staging-bootstrap.conf'
+          )
+        )
+      }}
     dest: /etc/nginx/sites-available/vessel-caller-staging
     owner: root
     group: root

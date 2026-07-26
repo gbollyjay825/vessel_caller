@@ -48,8 +48,10 @@ from .storage import (
     local_upload,
     object_key,
     object_metadata,
+    permanent_object_key,
     presign_download,
     presign_upload,
+    promote_object,
 )
 
 
@@ -784,7 +786,7 @@ class EvidenceFinalizeView(APIView):
         data = serializer.validated_data
         inspection = request.user.organization.inspections.filter(pk=data["inspectionId"]).first()
         expected_prefix = (
-            f"organizations/{request.user.organization_id}/inspections/{inspection.id}/"
+            f"organizations/{request.user.organization_id}/inspections/{inspection.id}/uploads/"
             if inspection
             else ""
         )
@@ -807,10 +809,24 @@ class EvidenceFinalizeView(APIView):
             raise ValidationError(
                 {"objectKey": ["Uploaded object metadata does not match the signed request"]}
             )
+        final_key = permanent_object_key(
+            inspection.organization_id,
+            inspection.id,
+            data["fileName"],
+        )
+        final_metadata = promote_object(data["objectKey"], final_key)
+        if (
+            not final_metadata
+            or final_metadata["size"] != metadata["size"]
+            or final_metadata["checksum"] != metadata["checksum"]
+        ):
+            raise ValidationError(
+                {"objectKey": ["Uploaded object could not be finalized immutably"]}
+            )
         evidence = EvidenceAttachment.objects.create(
             organization=request.user.organization,
             inspection=inspection,
-            object_key=data["objectKey"],
+            object_key=final_key,
             file_name=data["fileName"],
             content_type=data["contentType"],
             size=data["size"],

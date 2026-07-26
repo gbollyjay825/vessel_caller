@@ -19,8 +19,14 @@ async function signOut(page: Page) {
 
 async function navigateInWorkspace(page: Page, label: string) {
   const hamburger = page.getByRole("button", { name: "Open menu" });
-  if (await hamburger.isVisible()) await hamburger.click();
-  await page.getByRole("link", { name: label }).click();
+  const navigation = page.getByRole("navigation", { name: "Primary" });
+  const link = navigation.getByRole("link", { name: label });
+  if (await hamburger.isVisible()) {
+    await hamburger.click();
+    await expect(navigation).toHaveClass(/(?:^|\s)open(?:\s|$)/);
+    await expect(link).toBeInViewport();
+  }
+  await link.click();
 }
 
 test("real Django sessions enforce server RBAC without browser tokens", async ({ page, context }) => {
@@ -33,7 +39,9 @@ test("real Django sessions enforce server RBAC without browser tokens", async ({
     local: { ...localStorage },
     session: { ...sessionStorage },
   }))).toEqual({ local: {}, session: {} });
-  expect((await context.cookies()).some((cookie) => cookie.name.includes("vessel_session"))).toBe(true);
+  expect((await context.cookies()).some((cookie) => (
+    cookie.name === "vessel_test_session" && cookie.httpOnly
+  ))).toBe(true);
 
   await signOut(page);
   await signIn(page, "admin@e2e.vesselcalls.test");

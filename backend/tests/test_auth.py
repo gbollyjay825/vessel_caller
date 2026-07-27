@@ -49,13 +49,15 @@ def test_registration_verification_and_session_login(api_client):
     assert response.status_code == 202
     user = User.objects.get(email="new@example.test")
     assert user.status == User.Status.INVITED
-    assert (
-        api_client.post(
-            "/api/auth/login",
-            {"email": user.email, "password": "A-unique-production-password-2026!"},
-            format="json",
-        ).status_code
-        == 401
+    pending_login = api_client.post(
+        "/api/auth/login",
+        {"email": user.email, "password": "A-unique-production-password-2026!"},
+        format="json",
+    )
+    assert pending_login.status_code == 401
+    assert pending_login.json()["detail"] == (
+        "Email verification is required before you can sign in. "
+        "Use the verification link sent to your email address."
     )
     _, raw = issue_action_token(user, ActionToken.Kind.VERIFY_EMAIL, hours=24)
     verified = api_client.post("/api/auth/verify-email", {"token": raw}, format="json")

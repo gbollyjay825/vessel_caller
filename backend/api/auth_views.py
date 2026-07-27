@@ -259,6 +259,22 @@ class LoginView(APIView):
             email=email,
             password=serializer.validated_data["password"],
         )
+        if not user:
+            pending_user = (
+                User.objects.filter(
+                    email=email,
+                    status=User.Status.INVITED,
+                    email_verified_at__isnull=True,
+                )
+                .only("id", "password")
+                .first()
+            )
+            if pending_user and pending_user.check_password(serializer.validated_data["password"]):
+                cache.set(key, failures + 1, timeout=min(3600, 2 ** (failures + 1)))
+                raise Unauthorized(
+                    "Email verification is required before you can sign in. "
+                    "Use the verification link sent to your email address."
+                )
         if not user or not user.email_verified_at:
             cache.set(key, failures + 1, timeout=min(3600, 2 ** (failures + 1)))
             raise Unauthorized("Invalid email or password")

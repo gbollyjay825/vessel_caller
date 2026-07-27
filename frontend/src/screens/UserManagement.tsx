@@ -27,10 +27,10 @@ type ManagementTab = "users" | "invitations" | "audit";
 type UserAction = "activate" | "suspend" | "remove";
 
 const ROLE_HELP: Record<Role, string> = {
-  Admin: "Full access, including settings, user management, and audit.",
-  Operations: "Can manage vessel calls and inspections.",
-  Finance: "Can manage invoices and record payments.",
-  Viewer: "Read-only access to operational and financial records.",
+  Admin: "Full access. Can manage settings, users, invitations, roles, audit history, vessel calls, inspections, invoices, and payments.",
+  Operations: "Operational access. Can create and edit vessel calls and inspections, finalize inspections, and view invoices and reports. Cannot manage users, settings, payments, or audit history.",
+  Finance: "Finance access. Can view operations, manage invoices and charge settings, and record or reverse payments. Cannot create vessel calls, submit inspections, manage users, or view audit history.",
+  Viewer: "Read-only access. Can view operational and financial records only. Cannot create, edit, approve, invite users, change settings, or record payments.",
 };
 
 function errorMessage(error: unknown, fallback: string): string {

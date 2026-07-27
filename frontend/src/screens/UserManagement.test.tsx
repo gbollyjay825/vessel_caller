@@ -91,7 +91,26 @@ describe("UserManagement", () => {
 
     expect(screen.getByRole("dialog", { name: "Invite user" })).toBeInTheDocument();
     expect(screen.getByText(/recipient chooses their own password/i)).toBeInTheDocument();
+    expect(screen.getByText(/Operational access/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+  });
+
+  it("explains each role before an admin sends an invitation", async () => {
+    renderManagement();
+    await screen.findByText("No users found");
+    await userEvent.click(screen.getByRole("button", { name: "Invite user" }));
+
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "Admin");
+    expect(screen.getByText(/Full access/i)).toBeInTheDocument();
+    expect(screen.getByText(/users, invitations, roles, audit history/i)).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "Finance");
+    expect(screen.getByText(/Finance access/i)).toBeInTheDocument();
+    expect(screen.getByText(/record or reverse payments/i)).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "Viewer");
+    expect(screen.getByText(/Read-only access/i)).toBeInTheDocument();
+    expect(screen.getByText(/Cannot create, edit, approve, invite users/i)).toBeInTheDocument();
   });
 
   it("exposes the invitations and audit workspaces as real tabs", async () => {

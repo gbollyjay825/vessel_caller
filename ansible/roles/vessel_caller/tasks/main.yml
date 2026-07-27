@@ -158,11 +158,15 @@
     runtime_frontend_url: "https://{{ vessel_domain }}"
     runtime_redis_port: "{{ vessel_production_redis_port }}"
     runtime_redis_password: "{{ vessel_production_redis_password }}"
+    runtime_deferred_provider_cutover: "{{ vessel_production_deferred_provider_cutover }}"
+    runtime_email_delivery_backend: >-
+      {{ 'disabled' if (vessel_production_deferred_provider_cutover | bool) else 'resend' }}
     runtime_resend_api_key: "{{ vessel_production_resend_api_key }}"
     runtime_email_from: "{{ vessel_production_email_from }}"
     runtime_spaces_key: "{{ vessel_production_spaces_key }}"
     runtime_spaces_secret: "{{ vessel_production_spaces_secret }}"
     runtime_spaces_bucket: "{{ vessel_production_spaces_bucket }}"
+    runtime_sentry_enabled: "{{ not (vessel_production_deferred_provider_cutover | bool) }}"
     runtime_sentry_dsn: "{{ vessel_production_sentry_dsn }}"
     runtime_mfa_encryption_key: "{{ vessel_production_mfa_encryption_key }}"
   loop:
@@ -188,11 +192,14 @@
     runtime_frontend_url: "{{ vessel_staging_frontend_origin }}"
     runtime_redis_port: "{{ vessel_staging_redis_port }}"
     runtime_redis_password: "{{ vessel_staging_redis_password }}"
+    runtime_deferred_provider_cutover: false
+    runtime_email_delivery_backend: resend
     runtime_resend_api_key: "{{ vessel_staging_resend_api_key }}"
     runtime_email_from: "{{ vessel_staging_email_from }}"
     runtime_spaces_key: "{{ vessel_staging_spaces_key }}"
     runtime_spaces_secret: "{{ vessel_staging_spaces_secret }}"
     runtime_spaces_bucket: "{{ vessel_staging_spaces_bucket }}"
+    runtime_sentry_enabled: true
     runtime_sentry_dsn: "{{ vessel_staging_sentry_dsn }}"
     runtime_mfa_encryption_key: "{{ vessel_staging_mfa_encryption_key }}"
   no_log: true

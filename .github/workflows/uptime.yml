@@ -21,6 +21,7 @@ jobs:
       - name: Verify Vessel Caller externally
         run: deploy/scripts/smoke-test.sh --availability-only https://vesselcalls.com
       - name: Verify FlexSchools isolation
+        if: always()
         run: >-
           curl
           --fail

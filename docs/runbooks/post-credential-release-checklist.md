@@ -4,7 +4,13 @@ This checklist is the canonical handoff for every release gate that cannot run
 until approved external-provider credentials or protected-environment access
 exist. Missing credentials do not block repository implementation, CI,
 packaging, migration tooling, or dry-run validation. They do block provider
-qualification and every production deployment.
+qualification and every production deployment except the narrowly authorized,
+fail-closed production cutover documented in
+`authorized-deferred-provider-cutover.md`.
+
+Account-owner and business-approver actions are separated into
+[`human-required-handoff.md`](human-required-handoff.md). Everything not listed
+there remains automation-owned work.
 
 ## Non-negotiable release rule
 
@@ -12,8 +18,11 @@ qualification and every production deployment.
   production data or credentials in Vercel.
 - Never replace a provider gate with a mock adapter, placeholder credential,
   disabled security control, or manually asserted success.
-- Never publish `production-qualified.json`, approve the production GitHub
-  environment, or deploy production until every gate below has real evidence.
+- Never publish `production-qualified.json` or represent the release as fully
+  qualified until every gate below has real evidence. The only deployment
+  exception is the owner-authorized, fail-closed mode in
+  `authorized-deferred-provider-cutover.md`; it defers only Resend and Sentry
+  and does not waive any other cutover prerequisite.
 - A failed or unavailable provider remains `deferred`; it is never recorded as
   passed.
 
@@ -158,6 +167,7 @@ The checked-in inventory is intentionally inert:
 vessel_staging_runtime_enabled: false
 vessel_production_runtime_enabled: false
 vessel_provider_gates_deferred: true
+vessel_production_deferred_provider_cutover: false
 vessel_backups_enabled: false
 ```
 
@@ -166,9 +176,12 @@ After the staging inputs have been independently verified, set only
 `vessel_provider_gates_deferred: false` in the protected inventory.
 `vessel_production_runtime_enabled` and `vessel_backups_enabled` remain false
 through staging qualification. Enable production and backups only during the
-approved production change after signed qualification evidence exists. Ansible
-fails if either runtime is enabled while provider gates remain deferred, and
-fails if backups are enabled without the production runtime.
+approved production change after signed qualification evidence exists. The
+owner-authorized exception may enable production while provider gates remain
+deferred only when `vessel_production_deferred_provider_cutover: true`; that
+mode requires Resend and Sentry to be empty and disabled. Ansible always fails
+if staging is enabled while provider gates remain deferred, and fails if
+backups are enabled without the production runtime.
 
 ## Execution order after credentials arrive
 

@@ -23,6 +23,13 @@
           - >-
             not (vessel_production_runtime_enabled | bool)
             or not (vessel_provider_gates_deferred | bool)
+            or (vessel_production_deferred_provider_cutover | bool)
+          - >-
+            not (vessel_production_deferred_provider_cutover | bool)
+            or (
+              (vessel_production_runtime_enabled | bool)
+              and (vessel_provider_gates_deferred | bool)
+            )
           - >-
             not (vessel_staging_application_ready | bool)
             or (vessel_staging_runtime_enabled | bool)
@@ -30,9 +37,10 @@
             not (vessel_backups_enabled | bool)
             or (vessel_production_runtime_enabled | bool)
         fail_msg: >-
-          Deferred provider gates cannot enable an application runtime;
-          staging readiness requires the staging runtime, and backups require
-          the production runtime.
+          Deferred provider gates cannot enable staging. Production may use the
+          explicit deferred-provider cutover only while those gates remain
+          deferred; staging readiness requires staging runtime, and backups
+          require production runtime.
 
     - name: Require release trust for enabled runtimes
       ansible.builtin.assert:
@@ -77,12 +85,11 @@
       when: vessel_staging_runtime_enabled | bool
       no_log: true
 
-    - name: Require non-placeholder production provider configuration
+    - name: Require non-placeholder production core and storage configuration
       ansible.builtin.assert:
         that:
           - "'CHANGE_ME' not in vessel_production_database_url"
           - "'CHANGE_ME' not in vessel_secret_key"
-          - "'CHANGE_ME' not in vessel_production_resend_api_key"
           - "'CHANGE_ME' not in vessel_production_email_from"
           - "'CHANGE_ME' not in vessel_production_spaces_key"
           - "'CHANGE_ME' not in vessel_production_spaces_secret"
@@ -91,15 +98,42 @@
           - "'CHANGE_ME' not in vessel_spaces_endpoint_url"
           - "'CHANGE_ME' not in vessel_production_redis_password"
           - "'CHANGE_ME' not in vessel_production_mfa_encryption_key"
-          - "'CHANGE_ME' not in vessel_production_sentry_dsn"
           - vessel_production_mfa_encryption_key != vessel_secret_key
           - vessel_production_redis_password | length >= 32
           - vessel_production_mfa_encryption_key | length >= 48
           - vessel_production_mfa_encryption_key is match('^[A-Za-z0-9_+/=-]{48,}$')
         fail_msg: >-
-          Provision approved production providers and load their values
-          through Ansible Vault before enabling the production runtime.
+          Provision approved production database, storage, and cryptographic
+          configuration through Ansible Vault before enabling production.
       when: vessel_production_runtime_enabled | bool
+      no_log: true
+
+    - name: Require production messaging and telemetry outside deferred cutover
+      ansible.builtin.assert:
+        that:
+          - vessel_production_resend_api_key | length > 0
+          - "'CHANGE_ME' not in vessel_production_resend_api_key"
+          - vessel_production_sentry_dsn | length > 0
+          - "'CHANGE_ME' not in vessel_production_sentry_dsn"
+        fail_msg: >-
+          Production Resend and Sentry credentials are required unless the
+          explicit deferred-provider cutover is active.
+      when:
+        - vessel_production_runtime_enabled | bool
+        - not (vessel_production_deferred_provider_cutover | bool)
+      no_log: true
+
+    - name: Keep deferred production providers disabled and empty
+      ansible.builtin.assert:
+        that:
+          - vessel_production_resend_api_key | length == 0
+          - vessel_production_sentry_dsn | length == 0
+        fail_msg: >-
+          Deferred production cutover must not retain unqualified Resend or
+          Sentry credentials.
+      when:
+        - vessel_production_runtime_enabled | bool
+        - vessel_production_deferred_provider_cutover | bool
       no_log: true
 
     - name: Require provider isolation between enabled runtimes
@@ -108,12 +142,16 @@
           - vessel_production_database_url != vessel_staging_database_url
           - vessel_secret_key != vessel_staging_secret_key
           - vessel_production_mfa_encryption_key != vessel_staging_mfa_encryption_key
-          - vessel_production_resend_api_key != vessel_staging_resend_api_key
+          - >-
+            (vessel_production_deferred_provider_cutover | bool)
+            or vessel_production_resend_api_key != vessel_staging_resend_api_key
           - vessel_production_spaces_key != vessel_staging_spaces_key
           - vessel_production_spaces_secret != vessel_staging_spaces_secret
           - vessel_production_spaces_bucket != vessel_staging_spaces_bucket
           - vessel_production_redis_password != vessel_staging_redis_password
-          - vessel_production_sentry_dsn != vessel_staging_sentry_dsn
+          - >-
+            (vessel_production_deferred_provider_cutover | bool)
+            or vessel_production_sentry_dsn != vessel_staging_sentry_dsn
         fail_msg: Staging and production provider credentials must be isolated.
       when:
         - vessel_staging_runtime_enabled | bool

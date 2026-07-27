@@ -62,9 +62,19 @@ STORAGES["default"] = {
     },
 }
 
+DEFERRED_PROVIDER_CUTOVER = env_bool("VC_DEFERRED_PROVIDER_CUTOVER", False)  # noqa: F405
 EMAIL_DELIVERY_BACKEND = env("VC_EMAIL_DELIVERY_BACKEND", "resend")  # noqa: F405
-if EMAIL_DELIVERY_BACKEND != "resend" or not RESEND_API_KEY:
-    raise ImproperlyConfigured("Production requires Resend transactional email")
+if EMAIL_DELIVERY_BACKEND == "resend":
+    if not RESEND_API_KEY:
+        raise ImproperlyConfigured("Production Resend delivery requires VC_RESEND_API_KEY")
+elif not (
+    DEFERRED_PROVIDER_CUTOVER
+    and EMAIL_DELIVERY_BACKEND == "disabled"
+    and not RESEND_API_KEY
+):
+    raise ImproperlyConfigured(
+        "Production email may be disabled only for an explicit deferred-provider cutover"
+    )
 weak_mfa_keys = {"change_me", "changeme", "development", "development-only-not-for-production"}
 if (
     len(MFA_ENCRYPTION_KEY) < 48
@@ -77,9 +87,16 @@ if (
     )
 if RELEASE_SHA == "development":
     raise ImproperlyConfigured("VC_RELEASE_SHA is required")
-if not SENTRY_DSN:
-    raise ImproperlyConfigured("VC_SENTRY_DSN is required")
+SENTRY_ENABLED = env_bool("VC_SENTRY_ENABLED", True)  # noqa: F405
+if SENTRY_ENABLED:
+    if not SENTRY_DSN:
+        raise ImproperlyConfigured("Enabled production Sentry requires VC_SENTRY_DSN")
+elif not (DEFERRED_PROVIDER_CUTOVER and not SENTRY_DSN):
+    raise ImproperlyConfigured(
+        "Production Sentry may be disabled only for an explicit deferred-provider cutover"
+    )
 
 from vessel_caller.sentry import initialize_sentry  # noqa: E402
 
-initialize_sentry()
+if SENTRY_ENABLED:
+    initialize_sentry()

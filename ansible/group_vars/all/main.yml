@@ -30,6 +30,7 @@ vessel_staging_application_ready: false
 vessel_staging_runtime_enabled: false
 vessel_production_runtime_enabled: false
 vessel_provider_gates_deferred: true
+vessel_production_deferred_provider_cutover: false
 vessel_backups_enabled: false
 vessel_monitoring_enabled: true
 vessel_ufw_enabled: true
@@ -42,7 +43,7 @@ vessel_staging_secret_key: "{{ vault_vessel_staging_secret_key }}"
 vessel_staging_e2e_password: "{{ vault_vessel_staging_e2e_password }}"
 vessel_production_mfa_encryption_key: "{{ vault_vessel_production_mfa_encryption_key }}"
 vessel_staging_mfa_encryption_key: "{{ vault_vessel_staging_mfa_encryption_key }}"
-vessel_production_resend_api_key: "{{ vault_vessel_production_resend_api_key }}"
+vessel_production_resend_api_key: "{{ vault_vessel_production_resend_api_key | default('') }}"
 vessel_production_email_from: "{{ vault_vessel_production_email_from }}"
 vessel_staging_resend_api_key: "{{ vault_vessel_staging_resend_api_key }}"
 vessel_staging_email_from: "{{ vault_vessel_staging_email_from }}"
@@ -54,7 +55,7 @@ vessel_staging_spaces_secret: "{{ vault_vessel_staging_spaces_secret }}"
 vessel_staging_spaces_bucket: "{{ vault_vessel_staging_spaces_bucket }}"
 vessel_spaces_region: "{{ vault_vessel_spaces_region }}"
 vessel_spaces_endpoint_url: "{{ vault_vessel_spaces_endpoint_url }}"
-vessel_production_sentry_dsn: "{{ vault_vessel_production_sentry_dsn }}"
+vessel_production_sentry_dsn: "{{ vault_vessel_production_sentry_dsn | default('') }}"
 vessel_staging_sentry_dsn: "{{ vault_vessel_staging_sentry_dsn }}"
 vessel_production_redis_password: "{{ vault_vessel_production_redis_password }}"
 vessel_staging_redis_password: "{{ vault_vessel_staging_redis_password }}"

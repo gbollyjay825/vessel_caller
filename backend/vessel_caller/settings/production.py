@@ -68,9 +68,7 @@ if EMAIL_DELIVERY_BACKEND == "resend":
     if not RESEND_API_KEY:
         raise ImproperlyConfigured("Production Resend delivery requires VC_RESEND_API_KEY")
 elif not (
-    DEFERRED_PROVIDER_CUTOVER
-    and EMAIL_DELIVERY_BACKEND == "disabled"
-    and not RESEND_API_KEY
+    DEFERRED_PROVIDER_CUTOVER and EMAIL_DELIVERY_BACKEND == "disabled" and not RESEND_API_KEY
 ):
     raise ImproperlyConfigured(
         "Production email may be disabled only for an explicit deferred-provider cutover"

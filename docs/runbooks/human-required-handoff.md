@@ -22,23 +22,7 @@ documented checks and CODEOWNERS approval, disable administrator bypass, add the
 reviewer to protected environments, and verify that a test pull request cannot
 bypass the policy.
 
-## 2. Restore managed PostgreSQL application access
-
-**Minimal action:** sign back in to the open DigitalOcean dashboard in the
-**Flex School** team and leave the database page open. Do not send a password in
-chat.
-
-**Why a person is required:** the July 27 read-only Droplet probe reached the
-managed cluster over its private network and required TLS, but the protected
-`vessel_caller_app` credential was rejected. The browser session has expired,
-and only the account owner can restore provider access.
-
-**Codex will then:** rotate or replace the application credential in
-DigitalOcean, update the root-owned Droplet environment file without printing
-the value, verify authenticated TLS and least privilege, then run the Django
-migration/readiness preflight. The existing FastAPI service remains untouched.
-
-## 3. Create the Resend account and sender identities
+## 2. Create the Resend account and sender identities
 
 **Minimal action:** create the Resend account, choose the staging and production
 sender addresses, and authorize the required verified domain. Create separate
@@ -53,7 +37,7 @@ its correct protected runtime/qualification store without printing it, configure
 the staging allow-list, and qualify real verification, invitation, recovery,
 email-change, security-notice, retry, and idempotency flows.
 
-## 4. Create the Sentry organization and projects
+## 3. Create the Sentry organization and projects
 
 **Minimal action:** create or select the Sentry organization, create isolated
 staging and production projects, and issue separate DSNs plus a scoped
@@ -67,7 +51,7 @@ automation agent.
 configure release/environment metadata and redaction, send real frontend and
 backend test events, and verify alert routing without exposing application data.
 
-## 5. Approve DigitalOcean Spaces billing and token issuance
+## 4. Approve DigitalOcean Spaces billing and token issuance
 
 **Minimal action:** approve the DigitalOcean Spaces charge in the **Flex School**
 team and create or authorize creation of a scoped DigitalOcean API token.
@@ -80,7 +64,7 @@ buckets, enable versioning/lifecycle controls, issue least-privilege keys,
 configure encrypted off-host backups, and verify public-access denial,
 authorization, checksums, retention, and restore behavior.
 
-## 6. Approve protected Vercel staging and issue its token
+## 5. Approve protected Vercel staging and issue its token
 
 **Minimal action:** approve the Vercel plan/add-on needed to protect the
 `staging.vesselcalls.com` custom domain, then create a deployment token limited
@@ -98,7 +82,7 @@ project and verified domain, configure the automation bypass and proxy secret,
 store the token in the protected GitHub environment, and deploy only the signed
 prebuilt staging artifact. Git autodeploy remains disabled.
 
-## 7. Establish signing-key custody
+## 6. Establish signing-key custody
 
 **Minimal action:** nominate the secure offline/password-manager location and
 the people responsible for the release, qualification, and independent operator
@@ -113,7 +97,7 @@ release authority or retain the sole copy of private signing material.
 CI private keys in write-only protected secrets where approved, verify a signed
 test artifact/tag, and record the rotation and dual-key procedure.
 
-## 8. Provide the operational alert destination
+## 7. Provide the operational alert destination
 
 **Minimal action:** create the on-call webhook/alert endpoint, choose its human
 recipients and escalation policy, and provide the protected endpoint value.
@@ -125,7 +109,7 @@ incidents and authorize messages into the organization’s on-call system.
 health/error/backup/certificate/authentication alerts, fire a controlled test,
 and record acknowledgement evidence.
 
-## 9. Complete business UAT
+## 8. Complete business UAT
 
 **Minimal action:** after Codex presents the reachable Django release, complete
 the named business UAT journeys and confirm the results for that exact signed

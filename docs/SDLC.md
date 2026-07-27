@@ -60,13 +60,22 @@ Required environment secrets:
 - `DROPLET_HOST_KEY`: complete pinned `known_hosts` entry
 - `DROPLET_DEPLOY_SSH_KEY`: restricted deployment-user key
 
-The repository release workflow additionally requires
-`RELEASE_SIGNING_PRIVATE_KEY`, a dedicated RSA/ECDSA PEM key used only to sign
-release archives. The matching non-secret repository variable
-`RELEASE_SIGNING_PUBLIC_KEY` verifies the CI output, and the same public key is
-pinned by Ansible at
-`/etc/vessel-caller/release-signing-public.pem`. It is not the SSH key. Rotate
-it through a dual-key release/change procedure before revoking the old key.
+The repository release workflow builds and attests the immutable archive, then
+creates an unpublished draft release. It never receives an archive-signing
+private key. A trusted macOS operator finalizes the draft with
+`python -m scripts.finalize_release`; that command reads the approved OpenSSH
+Ed25519 private key directly from macOS Keychain service
+`vessel-caller-release-signing-key`, account `gbolahan-salami`, signs in memory,
+uploads only the detached signature, and publishes the release after local
+verification. The Keychain password is the strict single-line base64 encoding
+of the OpenSSH private key; the finalizer decodes it only in memory.
+
+The matching non-secret repository variable `RELEASE_SIGNING_PUBLIC_KEY`
+contains the OpenSSH public key and is also pinned by Ansible at
+`/etc/vessel-caller/release-signing-public.pem`. Existing RSA/ECDSA PEM
+signatures remain verifiable during a controlled dual-key rotation. Never copy
+the Keychain private key into GitHub, a shell variable, a temporary file, or
+the repository.
 
 Runtime application and backup secrets remain in root-owned files under
 `/etc/vessel-caller`; they are provisioned through Ansible Vault, not GitHub.

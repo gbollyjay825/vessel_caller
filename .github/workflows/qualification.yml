@@ -173,11 +173,9 @@ jobs:
             )
             archive="artifacts/vessel-caller-${tag}.tar.gz"
             gh attestation verify "${archive}" --repo "${GITHUB_REPOSITORY}"
-            openssl dgst \
-              -sha256 \
-              -verify "${release_public_key}" \
-              -signature "${archive}.sig" \
-              "${archive}"
+            REQUIRE_RELEASE_SIGNATURE=true \
+            RELEASE_SIGNATURE_PUBLIC_KEY="${release_public_key}" \
+              deploy/scripts/verify-release.sh "${archive}"
             resolved_commit="$(git rev-parse --verify "${tag}^{commit}")"
             tar -xOf \
               "${archive}" \
@@ -281,11 +279,9 @@ jobs:
             )
             archive="artifacts/vessel-caller-${tag}.tar.gz"
             gh attestation verify "${archive}" --repo "${GITHUB_REPOSITORY}"
-            openssl dgst \
-              -sha256 \
-              -verify "${release_public_key}" \
-              -signature "${archive}.sig" \
-              "${archive}"
+            REQUIRE_RELEASE_SIGNATURE=true \
+            RELEASE_SIGNATURE_PUBLIC_KEY="${release_public_key}" \
+              deploy/scripts/verify-release.sh "${archive}"
             resolved_commit="$(git rev-parse --verify "${tag}^{commit}")"
             tar -xOf \
               "${archive}" \

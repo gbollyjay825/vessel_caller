@@ -60,7 +60,7 @@ record secret values in Git.
 
 | Gate | Protected inputs | Required real-world evidence |
 |---|---|---|
-| Signed release and restricted deployment | `RELEASE_SIGNING_PRIVATE_KEY`, `RELEASE_SIGNING_PUBLIC_KEY`, `DROPLET_HOST`, `DROPLET_HOST_KEY`, `DROPLET_DEPLOY_SSH_KEY` | Signed tag/archive verifies; restricted `vessel-deploy` upload works; an unauthorized command is rejected |
+| Signed release and restricted deployment | Keychain service `vessel-caller-release-signing-key` / account `gbolahan-salami`, `RELEASE_SIGNING_PUBLIC_KEY`, `DROPLET_HOST`, `DROPLET_HOST_KEY`, `DROPLET_DEPLOY_SSH_KEY` | Signed tag/archive verifies; restricted `vessel-deploy` upload works; an unauthorized command is rejected |
 | Vercel protected staging | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `VERCEL_AUTOMATION_BYPASS_SECRET`, `STAGING_PROXY_SECRET`, `STAGING_API_ORIGIN` | Prebuilt artifact is deployed to the dedicated staging project; `staging.vesselcalls.com` is protected and proxies only the staging API; no production secret/data is present |
 | Django and data services | Separate staging/production database URLs, Django secret keys, MFA encryption keys, Redis passwords, allowed hosts and CSRF origins | TLS database connection, least-privilege audit, connection limits, authenticated Redis, migrations, readiness, session/CSRF, MFA, and tenant isolation pass in staging |
 | Private application Spaces | Separate staging/production `VC_SPACES_KEY`, `VC_SPACES_SECRET`, `VC_SPACES_BUCKET`, `VC_SPACES_ENDPOINT_URL`, and region | Private upload/download authorization, cross-tenant denial, signed-URL expiry, checksum, bucket versioning, lifecycle, and public-access denial pass |
@@ -80,7 +80,7 @@ Protected environment or repository secrets:
 - `DIGITALOCEAN_API_TOKEN`, `DROPLET_DEPLOY_SSH_KEY`, `DROPLET_HOST`,
   `DROPLET_HOST_KEY`, `LOAD_TEST_COOKIE`,
   `PRODUCTION_DATABASE_URL_SHA256`
-- `QUALIFICATION_SIGNING_PRIVATE_KEY`, `RELEASE_SIGNING_PRIVATE_KEY`
+- `QUALIFICATION_SIGNING_PRIVATE_KEY`
 - `RESEND_QUALIFICATION_API_KEY`, `RESEND_QUALIFICATION_TO`
 - `RESTORE_DRILL_DATABASE_URL`, `RESTORE_DRILL_SOURCE_URI`
 - `SENTRY_AUTH_TOKEN`, `SENTRY_QUALIFICATION_DSN`
@@ -109,6 +109,29 @@ are deliberately unusable.
 The operator-evidence private key is never stored in GitHub Actions. Keep it
 offline under the approved operator-signing process; GitHub contains only
 `OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY`.
+
+The release archive private key follows the same offline principle with a
+separate trust boundary. CI creates a draft release after the signed tag,
+archive build, test gates, SBOM, and attestation succeed. On the approved Mac,
+set the non-secret public key for the current shell and finalize that exact
+draft:
+
+```bash
+export RELEASE_SIGNING_PUBLIC_KEY='ssh-ed25519 AAAA... approved-release-key'
+cd backend
+../.venv/bin/python -m scripts.finalize_release vMAJOR.MINOR.PATCH
+```
+
+The finalizer requires an exact semantic tag and unpublished draft, validates
+the checksum and GitHub attestation, retrieves the private key only from
+macOS Keychain service `vessel-caller-release-signing-key` and account
+`gbolahan-salami`, strictly base64-decodes the single-line Keychain value in
+memory, verifies that the derived public key matches
+`RELEASE_SIGNING_PUBLIC_KEY`, and publishes only after the detached OpenSSH
+signature verifies. The private key is held in process memory, is never
+printed, and is never written to disk.
+Failure leaves the release unpublished. Do not use `security ... -w` manually,
+command substitution, clipboard transfer, or a temporary key file.
 
 ## Release and operator evidence trust
 

@@ -23,11 +23,28 @@ if [[ "${REQUIRE_RELEASE_SIGNATURE:-false}" == "true" || -f "${signature_key}" ]
     echo "Release signature or pinned verification key is missing." >&2
     exit 1
   fi
-  openssl dgst \
-    -sha256 \
-    -verify "${signature_key}" \
-    -signature "${archive}.sig" \
-    "${archive}"
+  first_key_line="$(head -n 1 "${signature_key}")"
+  if [[ "${first_key_line}" == ssh-ed25519\ * ]]; then
+    allowed_signers="$(mktemp)"
+    printf 'release %s\n' "${first_key_line}" > "${allowed_signers}"
+    if ! ssh-keygen \
+      -Y verify \
+      -f "${allowed_signers}" \
+      -I release \
+      -n vessel-caller-release \
+      -s "${archive}.sig" \
+      < "${archive}"; then
+      rm -f "${allowed_signers}"
+      exit 1
+    fi
+    rm -f "${allowed_signers}"
+  else
+    openssl dgst \
+      -sha256 \
+      -verify "${signature_key}" \
+      -signature "${archive}.sig" \
+      "${archive}"
+  fi
 fi
 (
   cd "${archive_dir}"

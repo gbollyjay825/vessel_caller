@@ -87,27 +87,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Build release archive
         run: deploy/scripts/build-release.sh "${RELEASE_TAG}" artifacts
-      - name: Sign release archive
-        env:
-          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
-          RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_SIGNING_PUBLIC_KEY }}
-        run: |
-          signing_key="$(mktemp)"
-          verification_key="$(mktemp)"
-          trap 'rm -f "${signing_key}" "${verification_key}"' EXIT
-          printf '%s' "${RELEASE_SIGNING_PRIVATE_KEY}" > "${signing_key}"
-          printf '%s' "${RELEASE_SIGNING_PUBLIC_KEY}" > "${verification_key}"
-          chmod 0600 "${signing_key}"
-          openssl dgst \
-            -sha256 \
-            -sign "${signing_key}" \
-            -out "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
-            "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz"
-          openssl dgst \
-            -sha256 \
-            -verify "${verification_key}" \
-            -signature "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
-            "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz"
       - name: Generate release SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -118,15 +97,15 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: artifacts/vessel-caller-${{ env.RELEASE_TAG }}.tar.gz
-      - name: Publish GitHub release
+      - name: Create draft release for offline signing
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${RELEASE_TAG}" \
             "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz" \
             "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz.sha256" \
-            "artifacts/vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
             "artifacts/vessel-caller-${RELEASE_TAG}.sbom.json" \
             "artifacts/vessel-caller-${RELEASE_TAG}.sbom.spdx.json" \
             --verify-tag \
+            --draft \
             --generate-notes

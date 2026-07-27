@@ -46,12 +46,35 @@ rsync -a "${source_root}/frontend/dist/" "${payload}/frontend/dist/"
 rsync -a "${source_root}/deploy/" "${payload}/deploy/"
 rsync -a "${source_root}/docs/" "${payload}/docs/"
 
-python -m pip download \
-  --disable-pip-version-check \
-  --only-binary=:all: \
-  --require-hashes \
-  --requirement "${source_root}/backend/requirements/production.txt" \
+wheel_platform="${VC_RELEASE_WHEEL_PLATFORM:-native}"
+pip_download_args=(
+  --disable-pip-version-check
+  --only-binary=:all:
+  --require-hashes
+  --requirement "${source_root}/backend/requirements/production.txt"
   --dest "${payload}/wheelhouse"
+)
+case "${wheel_platform}" in
+  native)
+    ;;
+  manylinux_2_28_x86_64)
+    pip_download_args+=(
+      --platform manylinux_2_28_x86_64
+      --platform manylinux_2_17_x86_64
+      --platform manylinux2014_x86_64
+      --implementation cp
+      --python-version 3.12
+      --abi cp312
+      --abi abi3
+      --abi none
+    )
+    ;;
+  *)
+    echo "Unsupported VC_RELEASE_WHEEL_PLATFORM: ${wheel_platform}" >&2
+    exit 1
+    ;;
+esac
+python -m pip download "${pip_download_args[@]}"
 
 source_date_epoch="$(git show -s --format=%ct HEAD)"
 commit_timestamp="$(git show -s --format=%cI HEAD)"
@@ -62,6 +85,7 @@ jq -n \
   --arg created "${commit_timestamp}" \
   --arg python "$(tr -d '[:space:]' < "${source_root}/.python-version")" \
   --arg node "$(tr -d '[:space:]' < "${source_root}/.nvmrc")" \
+  --arg wheel_platform "${wheel_platform}" \
   '{
     schemaVersion: 1,
     application: "vessel-caller",
@@ -69,6 +93,7 @@ jq -n \
     commit: $commit,
     createdAt: $created,
     runtimes: {python: $python, node: $node},
+    wheelPlatform: $wheel_platform,
     immutable: true
   }' > "${payload}/RELEASE.json"
 

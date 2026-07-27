@@ -237,4 +237,17 @@ if ! grep -Fq -- '--draft' "${release_workflow}"; then
   exit 1
 fi
 
+build_release_script="${repo_root}/deploy/scripts/build-release.sh"
+for cross_platform_guard in \
+  'VC_RELEASE_WHEEL_PLATFORM' \
+  'manylinux_2_28_x86_64' \
+  '--platform manylinux2014_x86_64' \
+  '--python-version 3.12' \
+  'wheelPlatform'; do
+  if ! grep -Fq -- "${cross_platform_guard}" "${build_release_script}"; then
+    echo "Release builder is missing Linux wheelhouse guard: ${cross_platform_guard}" >&2
+    exit 1
+  fi
+done
+
 echo "Release verification, evidence fail-closed guards, release-identity smoke, and protected Vercel staging packaging tests passed."

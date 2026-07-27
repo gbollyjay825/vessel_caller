@@ -8,6 +8,10 @@ qualification and every production deployment except the narrowly authorized,
 fail-closed production cutover documented in
 `authorized-deferred-provider-cutover.md`.
 
+Account-owner and business-approver actions are separated into
+[`human-required-handoff.md`](human-required-handoff.md). Everything not listed
+there remains automation-owned work.
+
 ## Non-negotiable release rule
 
 - Never commit credentials, copy production credentials into staging, or place

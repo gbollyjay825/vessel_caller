@@ -34,8 +34,11 @@ source_root="${stage_root}/source"
 mkdir -p "${source_root}"
 git archive --format=tar "${head_commit}" | tar -xf - -C "${source_root}"
 
-npm ci --prefix "${source_root}/frontend"
-npm --prefix "${source_root}/frontend" run build
+(
+  cd "${source_root}/frontend"
+  npm ci
+  npm run build
+)
 
 release_name="vessel-caller-${release_tag}"
 payload="${stage_root}/${release_name}"
@@ -47,6 +50,7 @@ rsync -a "${source_root}/deploy/" "${payload}/deploy/"
 rsync -a "${source_root}/docs/" "${payload}/docs/"
 
 wheel_platform="${VC_RELEASE_WHEEL_PLATFORM:-native}"
+release_python="${VC_RELEASE_PYTHON:-python3}"
 pip_download_args=(
   --disable-pip-version-check
   --only-binary=:all:
@@ -74,7 +78,7 @@ case "${wheel_platform}" in
     exit 1
     ;;
 esac
-python -m pip download "${pip_download_args[@]}"
+"${release_python}" -m pip download "${pip_download_args[@]}"
 
 source_date_epoch="$(git show -s --format=%ct HEAD)"
 commit_timestamp="$(git show -s --format=%cI HEAD)"

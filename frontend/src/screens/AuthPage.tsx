@@ -100,6 +100,14 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
     }
   };
 
+  const continueToSignIn = () => {
+    setNotice(null);
+    setError(null);
+    setChallengeId(null);
+    setPassword("");
+    navigate("/login", { replace: true, state: null });
+  };
+
   if (notice) {
     return (
       <div className="auth-wrap">
@@ -111,7 +119,9 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
             Didn’t receive it?{" "}
             <Link to={`/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`}>Resend verification email</Link>
           </p>
-          <Link className="auth-submit auth-submit-link" to="/login">Continue to sign in</Link>
+          <button className="auth-submit auth-submit-link" type="button" onClick={continueToSignIn}>
+            Continue to sign in
+          </button>
         </div>
       </div>
     );

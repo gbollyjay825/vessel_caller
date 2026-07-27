@@ -100,6 +100,8 @@ real-provider gate listed in
 
 1. Merge qualified changes into `main`.
 2. Create an annotated, cryptographically signed semantic tag.
+   GitHub immutable releases are enabled, so published release tags and assets
+   cannot be altered in place.
 3. The release workflow re-runs all gates and creates a signed/checksummed
    archive, offline wheelhouse, release manifest, SBOM, and provenance
    attestation. The Droplet refuses archives that do not verify against its

@@ -19,8 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify Vessel Caller externally
+        id: vessel
+        continue-on-error: true
         run: deploy/scripts/smoke-test.sh --availability-only https://vesselcalls.com
       - name: Verify FlexSchools isolation
+        id: flexschools
+        if: always()
+        continue-on-error: true
         run: >-
           curl
           --fail
@@ -29,3 +34,19 @@ jobs:
           --location
           --max-time 20
           https://flexschools.ng/
+      - name: Require both synthetic checks to pass
+        if: always()
+        env:
+          FLEXSCHOOLS_OUTCOME: ${{ steps.flexschools.outcome }}
+          VESSEL_OUTCOME: ${{ steps.vessel.outcome }}
+        run: |
+          failed=0
+          if [[ "${VESSEL_OUTCOME}" != "success" ]]; then
+            echo "Vessel Caller production availability failed." >&2
+            failed=1
+          fi
+          if [[ "${FLEXSCHOOLS_OUTCOME}" != "success" ]]; then
+            echo "FlexSchools isolation check failed." >&2
+            failed=1
+          fi
+          exit "${failed}"

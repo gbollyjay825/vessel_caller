@@ -41,8 +41,13 @@ commit until that source or its locked dependencies change:
 - The legacy SQLite importer completed two deterministic local PostgreSQL
   rehearsals with matching counts, IDs, relationships, financial controls, and
   manifests.
-- Managed staging PostgreSQL exists and its private endpoint is reachable from
-  the Droplet. Its URI remains only in the root-owned Droplet credential file.
+- Managed PostgreSQL is authenticated over TLS on the Droplet's private VPC
+  route. The application role has no dangerous role attributes or inherited
+  roles, has only the schema creation capability needed for Django migrations,
+  and its URI remains only in the root-owned mode-`0600` credential file.
+- The redundant public-IP database allow-list entry was removed after the
+  authenticated private-route probe passed. Evidence is recorded in
+  `docs/release-evidence/2026-07-27-digitalocean-database-readiness.md`.
 
 These results qualify the implementation, not a production release.
 
@@ -222,7 +227,8 @@ backups are enabled without the production runtime.
 |---|---|---|---|
 | Provider access and environment separation | Platform owner | Release attachment / access review | Deferred |
 | Vercel protected staging | Frontend/release owner | Staging deployment evidence | Deferred |
-| PostgreSQL/Redis staging qualification | Data/platform owner | Reconciliation and privilege reports | Deferred |
+| PostgreSQL application access and privilege audit | Data/platform owner | `docs/release-evidence/2026-07-27-digitalocean-database-readiness.md` | Passed |
+| Redis staging qualification | Data/platform owner | Runtime authentication and isolation report | Deferred |
 | Private Spaces and encrypted restore | Data/platform owner | Object and restore manifests | Deferred |
 | Resend and Sentry | Product operations / on-call | Delivery and alert evidence | Deferred |
 | Load, DAST, browser/accessibility, rollback, alert | Release owner | Signed qualification evidence | Deferred |

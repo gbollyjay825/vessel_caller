@@ -14,7 +14,6 @@ on:
       - "docs/**"
       - "tests/infra/**"
       - "compose.yml"
-      - "vercel.json"
   push:
     branches:
       - main
@@ -25,7 +24,6 @@ on:
       - "docs/**"
       - "tests/infra/**"
       - "compose.yml"
-      - "vercel.json"
 
 permissions:
   contents: read
@@ -79,6 +77,4 @@ jobs:
           tests/infra/test-nginx-config.sh
       - name: JSON validation
         run: |
-          python -m json.tool vercel.json >/dev/null
-          python -m json.tool deploy/vercel-output-config.json >/dev/null
           python -m json.tool deploy/backup-lifecycle.json >/dev/null

@@ -57,9 +57,6 @@ tmp_headers="$(mktemp)"
 trap 'rm -f "${tmp_headers}"' EXIT
 
 curl_headers=(--header "User-Agent: VesselCallerSmoke/1.0")
-if [[ -n "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]]; then
-  curl_headers+=(--header "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}")
-fi
 
 curl \
   --fail \

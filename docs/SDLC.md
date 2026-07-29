@@ -26,7 +26,7 @@ Required checks:
 |---|---|---|---|
 | Local | Compose PostgreSQL/Redis; sandbox integrations | Developer machine | None |
 | CI | Ephemeral PostgreSQL/Redis; no production credentials | Every PR/push | Automated |
-| Staging | Vercel static SPA; Droplet Django/Celery/Redis; separate managed DB, bucket, and Resend allow-list | Same signed release artifact | Engineering |
+| Staging | Droplet Nginx SPA plus Django/Celery/Redis; separate managed DB, bucket, and Resend allow-list | Same signed release artifact | Engineering |
 | Production | Managed DB with PITR, private Spaces, production Resend/Sentry | Same qualified artifact | Manual protected-environment approval |
 
 Configure GitHub `staging` and `production` environments. Production must have
@@ -34,23 +34,13 @@ required reviewers, prevent self-review, restrict deployment to signed `v*`
 tags, and contain only the restricted `vessel-deploy` SSH key. Never store the
 root Droplet key in GitHub.
 
-The staging environment also requires:
-
-- `VERCEL_TOKEN`: token scoped to the dedicated staging project/team
-- `VERCEL_ORG_ID`: staging project organization identifier
-- `VERCEL_PROJECT_ID`: dedicated staging project identifier
-- `VERCEL_AUTOMATION_BYPASS_SECRET`: deployment-protection automation secret
-- `LOAD_TEST_COOKIE`: short-lived, staging-only Viewer session created for the
+The staging environment requires `STAGING_E2E_PASSWORD` and `LOAD_TEST_COOKIE`.
+The latter is a short-lived, staging-only Viewer session created for the
   approved capacity window and revoked immediately afterward
 
-The Vercel project serves only a Preview deployment of the prebuilt React assets extracted from the
-qualified release. Its same-origin `/api` route proxies to
-`https://staging-api.vesselcalls.com`; Django, Celery, Redis, and PostgreSQL do
-not run on Vercel. The project must have deployment protection, a stable
-`staging.vesselcalls.com` domain, no production credentials/data, and no
-browser local-storage fallback. CI uses the pinned Vercel CLI with
-`--prebuilt --target=preview`, aliases the qualified deployment to the stable
-staging domain, and reruns Playwright against the protected deployed URL.
+Nginx on the Droplet serves the prebuilt React assets from the signed release
+at `staging.vesselcalls.com` and proxies same-origin `/api` to the isolated
+staging Django service. No Vercel token, project, proxy, or runtime is used.
 The 50-user capacity workflow and OWASP ZAP baseline run only against protected
 staging; neither receives production credentials or data.
 
@@ -106,8 +96,8 @@ real-provider gate listed in
    archive, offline wheelhouse, release manifest, SBOM, and provenance
    attestation. The Droplet refuses archives that do not verify against its
    independently pinned release public key.
-4. Promote the signed candidate backend to the isolated Droplet staging service
-   and the exact frontend build to the protected Vercel staging project; run migration
+4. Promote the signed candidate backend and exact frontend build to the isolated
+   Droplet staging slot; run migration
    reconciliation, browser UAT, restore, rollback, load, and alert drills.
 5. Produce and verify complete signed production-qualification evidence, then
    approve the protected production environment.
@@ -116,6 +106,4 @@ real-provider gate listed in
 7. Observe for 30 minutes before completing the change. Retain the compatible
    previous slot for seven days.
 
-No workflow deletes the Vercel project or retires FastAPI automatically.
-Post-hypercare removes Vercel production/demo usage while retaining the
-credential-isolated staging project.
+No workflow deletes the legacy Vercel project or retires FastAPI automatically.

@@ -147,7 +147,7 @@ case "${instance}" in
     ;;
   staging)
     port=8010
-    health_host=staging-api.vesselcalls.com
+    health_host=staging.vesselcalls.com
     ;;
 esac
 

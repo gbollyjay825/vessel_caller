@@ -61,7 +61,7 @@ record secret values in Git.
 | Gate | Protected inputs | Required real-world evidence |
 |---|---|---|
 | Signed release and restricted deployment | `RELEASE_SIGNING_PRIVATE_KEY`, `RELEASE_SIGNING_PUBLIC_KEY`, `DROPLET_HOST`, `DROPLET_HOST_KEY`, `DROPLET_DEPLOY_SSH_KEY` | Signed tag/archive verifies; restricted `vessel-deploy` upload works; an unauthorized command is rejected |
-| Vercel protected staging | `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `VERCEL_AUTOMATION_BYPASS_SECRET`, `STAGING_PROXY_SECRET`, `STAGING_API_ORIGIN` | Prebuilt artifact is deployed to the dedicated staging project; `staging.vesselcalls.com` is protected and proxies only the staging API; no production secret/data is present |
+| Droplet staging delivery | `STAGING_E2E_PASSWORD`, `DROPLET_HOST`, `DROPLET_HOST_KEY`, `DROPLET_DEPLOY_SSH_KEY` | Prebuilt artifact is installed in the isolated staging slot; Droplet Nginx serves `staging.vesselcalls.com` and same-origin API checks pass; no production secret/data is present |
 | Django and data services | Separate staging/production database URLs, Django secret keys, MFA encryption keys, Redis passwords, allowed hosts and CSRF origins | TLS database connection, least-privilege audit, connection limits, authenticated Redis, migrations, readiness, session/CSRF, MFA, and tenant isolation pass in staging |
 | Private application Spaces | Separate staging/production `VC_SPACES_KEY`, `VC_SPACES_SECRET`, `VC_SPACES_BUCKET`, `VC_SPACES_ENDPOINT_URL`, and region | Private upload/download authorization, cross-tenant denial, signed-URL expiry, checksum, bucket versioning, lifecycle, and public-access denial pass |
 | Resend | Separate staging/production `VC_RESEND_API_KEY` and `VC_EMAIL_FROM`; verified sender domain and staging recipient allow-list | Real verification, invitation, recovery, email-change, and security-notice messages arrive once; retries are idempotent and a forced failure is visible in outbox/alerts |
@@ -86,9 +86,7 @@ Protected environment or repository secrets:
 - `SENTRY_AUTH_TOKEN`, `SENTRY_QUALIFICATION_DSN`
 - `SPACES_QUALIFICATION_ACCESS_KEY_ID`,
   `SPACES_QUALIFICATION_SECRET_ACCESS_KEY`
-- `STAGING_E2E_PASSWORD`, `STAGING_PROXY_SECRET`,
-  `VERCEL_AUTOMATION_BYPASS_SECRET`,
-  `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `VERCEL_TOKEN`
+- `STAGING_E2E_PASSWORD`
 
 Protected environment or repository variables:
 
@@ -198,8 +196,7 @@ backups are enabled without the production runtime.
    runtime flags described above, run the read-only Ansible preflight, and
    bootstrap staging only.
 3. Build one signed release artifact from a signed `v*` tag and deploy that
-   exact artifact to the Droplet staging service and dedicated Vercel staging
-   project.
+   exact artifact to the isolated Droplet staging service and static slot.
 4. Run real Resend application journeys, private Spaces application
    authorization, Sentry metadata/redaction and on-call acknowledgement,
    session/MFA, upload/PDF, migration reconciliation, PITR/RPO, protected
@@ -226,7 +223,7 @@ backups are enabled without the production runtime.
 | Gate | Owner | Evidence location | Status |
 |---|---|---|---|
 | Provider access and environment separation | Platform owner | Release attachment / access review | Deferred |
-| Vercel protected staging | Frontend/release owner | Staging deployment evidence | Deferred |
+| Droplet staging delivery | Release automation owner | Staging deployment evidence | Deferred |
 | PostgreSQL application access and privilege audit | Data/platform owner | `docs/release-evidence/2026-07-27-digitalocean-database-readiness.md` | Passed |
 | Redis staging qualification | Data/platform owner | Runtime authentication and isolation report | Deferred |
 | Private Spaces and encrypted restore | Data/platform owner | Object and restore manifests | Deferred |

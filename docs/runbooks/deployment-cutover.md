@@ -6,8 +6,8 @@
   `post-credential-release-checklist.md` has objective evidence for the exact
   signed release; `Deferred` is not an acceptable production status.
 - Approved signed release; all GitHub gates green.
-- `staging.vesselcalls.com` is bound to the protected Vercel Preview deployment
-  and `staging-api.vesselcalls.com` has a valid Droplet TLS certificate.
+- `staging.vesselcalls.com` resolves to the Droplet and has a valid TLS
+  certificate; the staging Nginx site serves the release SPA and same-origin API.
 - Staging has passed UAT, security/accessibility/browser tests, 50-user load,
   migration reconciliation, restore, rollback, and alert drills.
 - Managed PostgreSQL PITR and a fresh encrypted export are verified.
@@ -19,8 +19,8 @@
 
 1. Download the signed GitHub release and verify provenance/checksum.
 2. Promote to staging with the protected `deploy.yml` workflow. It installs the
-   Django/Celery release at Droplet port 8010, deploys the exact archive's SPA
-   through pinned Vercel CLI `--prebuilt`, then runs protected public E2E.
+   Django/Celery release at Droplet port 8010 and serves the exact archive's SPA
+   from the isolated staging slot, then runs same-origin E2E.
 3. Attach staging evidence and approve the production GitHub environment.
 4. The workflow uploads through the restricted `vessel-deploy` account.
 5. The Droplet verifies the archive, installs wheels offline, runs

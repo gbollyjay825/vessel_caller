@@ -42,18 +42,6 @@ REQUIRE_RELEASE_SIGNATURE=true \
 RELEASE_SIGNATURE_PUBLIC_KEY="${public_key}" \
   "${repo_root}/deploy/scripts/verify-release.sh" "${archive}"
 
-output="${fixture_root}/.vercel/output"
-REQUIRE_RELEASE_SIGNATURE=true \
-RELEASE_SIGNATURE_PUBLIC_KEY="${public_key}" \
-  "${repo_root}/deploy/scripts/build-vercel-preview.sh" "${archive}" "${output}"
-
-test -f "${output}/static/index.html"
-test -f "${output}/config.json"
-test -f "${output}/functions/api.func/index.mjs"
-test -f "${output}/functions/api.func/.vc-config.json"
-grep -q '"runtime":"nodejs22.x"' "${output}/functions/api.func/.vc-config.json"
-grep -Fq "\"dest\": \"/api?path=\$1\"" "${output}/config.json"
-
 fake_bin="${fixture_root}/fake-bin"
 mkdir -p "${fake_bin}"
 cat > "${fake_bin}/curl" <<'EOF'
@@ -211,4 +199,4 @@ for deploy_guard in \
   fi
 done
 
-echo "Release verification, evidence fail-closed guards, release-identity smoke, and protected Vercel staging packaging tests passed."
+echo "Release verification, evidence fail-closed guards, and release-identity smoke tests passed."

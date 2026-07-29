@@ -14,6 +14,14 @@ def payment_id() -> str:
     return f"pay-{uuid.uuid4().hex[:12]}"
 
 
+def invoice_status_step_id() -> str:
+    return f"iss-{uuid.uuid4().hex[:12]}"
+
+
+def invoice_status_event_id() -> str:
+    return f"ise-{uuid.uuid4().hex[:12]}"
+
+
 class NumberSequence(models.Model):
     organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE)
     kind = models.CharField(max_length=20)
@@ -26,6 +34,39 @@ class NumberSequence(models.Model):
                 fields=("organization", "kind", "year"),
                 name="billing_unique_number_sequence",
             )
+        ]
+
+
+class InvoiceStatusStep(models.Model):
+    """An organization-owned, ordered invoice workflow step.
+
+    ``Paid`` is a protected terminal step. Void deliberately remains the
+    legacy protected exception rather than an editable customer workflow step.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=invoice_status_step_id)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.CASCADE, related_name="invoice_status_steps"
+    )
+    code = models.SlugField(max_length=50)
+    label = models.CharField(max_length=80)
+    position = models.PositiveSmallIntegerField()
+    active = models.BooleanField(default=True)
+    is_paid = models.BooleanField(default=False)
+    is_terminal = models.BooleanField(default=False)
+    is_protected = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("position", "created_at")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization", "code"), name="billing_unique_invoice_status_code"
+            ),
+            models.UniqueConstraint(
+                fields=("organization", "position"), name="billing_unique_invoice_status_position"
+            ),
         ]
 
 
@@ -52,6 +93,13 @@ class Invoice(models.Model):
     issued_on = models.DateField()
     due_on = models.DateField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.UNPAID)
+    current_status = models.ForeignKey(
+        InvoiceStatusStep,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="current_invoices",
+    )
     dues = models.DecimalField(max_digits=18, decimal_places=2, validators=[MinValueValidator(0)])
     rate = models.DecimalField(max_digits=12, decimal_places=4, validators=[MinValueValidator(0)])
     commission_usd = models.DecimalField(
@@ -78,6 +126,51 @@ class Invoice(models.Model):
                 condition=models.Q(dues__gte=0), name="billing_invoice_nonnegative_dues"
             ),
         ]
+
+
+class InvoiceStatusEvent(models.Model):
+    """Append-only workflow history with denormalized step snapshots."""
+
+    class Source(models.TextChoices):
+        MIGRATION = "migration", "Migration"
+        CREATED = "created", "Created"
+        MANUAL = "manual", "Manual transition"
+        PAYMENT = "payment", "Payment reconciliation"
+        REVERSAL = "reversal", "Payment reversal"
+
+    id = models.CharField(primary_key=True, max_length=32, default=invoice_status_event_id)
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="status_events")
+    from_step = models.ForeignKey(
+        InvoiceStatusStep,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="events_from",
+    )
+    to_step = models.ForeignKey(
+        InvoiceStatusStep,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="events_to",
+    )
+    from_code = models.CharField(max_length=50, blank=True)
+    from_label = models.CharField(max_length=80, blank=True)
+    to_code = models.CharField(max_length=50)
+    to_label = models.CharField(max_length=80)
+    source = models.CharField(max_length=20, choices=Source.choices)
+    note = models.TextField(blank=True)
+    actor = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoice_status_events",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
 
 
 class Payment(models.Model):

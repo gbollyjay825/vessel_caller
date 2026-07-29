@@ -100,6 +100,14 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
     }
   };
 
+  const continueToSignIn = () => {
+    setNotice(null);
+    setError(null);
+    setChallengeId(null);
+    setPassword("");
+    navigate("/login", { replace: true, state: null });
+  };
+
   if (notice) {
     return (
       <div className="auth-wrap">
@@ -111,7 +119,9 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
             Didn’t receive it?{" "}
             <Link to={`/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`}>Resend verification email</Link>
           </p>
-          <Link className="auth-submit auth-submit-link" to="/login">Continue to sign in</Link>
+          <button className="auth-submit auth-submit-link" type="button" onClick={continueToSignIn}>
+            Continue to sign in
+          </button>
         </div>
       </div>
     );
@@ -226,8 +236,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           </button>
         ) : mode === "login" ? (
           <>
-            <p className="auth-alt"><Link to="/forgot-password">Forgot your password?</Link></p>
-            <p className="auth-alt">New here? <Link to="/register">Register an organization</Link></p>
+            <p className="auth-alt">Internal admin testing access only. Public registration and email recovery are not available yet.</p>
           </>
         ) : (
           <p className="auth-alt">Already have an account? <Link to="/login">Sign in</Link></p>

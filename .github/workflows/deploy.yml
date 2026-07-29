@@ -106,10 +106,9 @@ jobs:
           public_key="$(mktemp)"
           trap 'rm -f "${public_key}"' EXIT
           printf '%s' "${RELEASE_SIGNING_PUBLIC_KEY}" > "${public_key}"
-          openssl dgst \
-            -sha256 \
-            -verify "${public_key}" \
-            -signature "vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
+          REQUIRE_RELEASE_SIGNATURE=true \
+          RELEASE_SIGNATURE_PUBLIC_KEY="${public_key}" \
+            ../deploy/scripts/verify-release.sh \
             "vessel-caller-${RELEASE_TAG}.tar.gz"
       - name: Require full recorded qualification before production
         if: inputs.target == 'production'

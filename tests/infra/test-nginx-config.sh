@@ -2,6 +2,19 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+common_tasks="${repo_root}/ansible/roles/common/tasks/main.yml"
+
+for runtime_group in vessel_production_group vessel_staging_group; do
+  if ! grep -Fq -- "\"{{ ${runtime_group} }}\"" "${common_tasks}"; then
+    echo "Nginx runtime group membership is missing ${runtime_group}." >&2
+    exit 1
+  fi
+done
+if ! grep -Fq -- "name: www-data" "${common_tasks}" \
+  || ! grep -Fq -- "append: true" "${common_tasks}"; then
+  echo "Nginx must retain existing groups while gaining release-file access." >&2
+  exit 1
+fi
 fixture_root="$(mktemp -d)"
 trap 'rm -rf "${fixture_root}"' EXIT
 

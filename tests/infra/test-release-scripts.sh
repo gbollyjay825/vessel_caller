@@ -54,6 +54,21 @@ test -f "${output}/functions/api.func/.vc-config.json"
 grep -q '"runtime":"nodejs22.x"' "${output}/functions/api.func/.vc-config.json"
 grep -Fq "\"dest\": \"/api?path=\$1\"" "${output}/config.json"
 
+ed25519_private_key="${fixture_root}/release-ed25519"
+ed25519_public_key="${ed25519_private_key}.pub"
+ssh-keygen -q -t ed25519 -N '' -f "${ed25519_private_key}"
+rm -f "${archive}.sig"
+ssh-keygen \
+  -Y sign \
+  -f "${ed25519_private_key}" \
+  -n vessel-caller-release \
+  "${archive}" \
+  >/dev/null
+
+REQUIRE_RELEASE_SIGNATURE=true \
+RELEASE_SIGNATURE_PUBLIC_KEY="${ed25519_public_key}" \
+  "${repo_root}/deploy/scripts/verify-release.sh" "${archive}"
+
 fake_bin="${fixture_root}/fake-bin"
 mkdir -p "${fake_bin}"
 cat > "${fake_bin}/curl" <<'EOF'
@@ -145,7 +160,7 @@ fi
 
 printf 'tamper\n' >> "${archive}"
 if REQUIRE_RELEASE_SIGNATURE=true \
-  RELEASE_SIGNATURE_PUBLIC_KEY="${public_key}" \
+  RELEASE_SIGNATURE_PUBLIC_KEY="${ed25519_public_key}" \
   "${repo_root}/deploy/scripts/verify-release.sh" "${archive}" >/dev/null 2>&1; then
   echo "Tampered release unexpectedly verified." >&2
   exit 1
@@ -166,7 +181,7 @@ for required_guard in \
   'if [[ "${CURRENT_TAG}" == "${PREVIOUS_TAG}" ]]' \
   'if [[ "${current_commit}" == "${previous_commit}" ]]' \
   'gh attestation verify "${archive}"' \
-  '-verify "${release_public_key}"' \
+  'deploy/scripts/verify-release.sh' \
   '"vessel-caller-${tag}/RELEASE.json"'; do
   if ! grep -Fq -- "${required_guard}" "${preflight_block}"; then
     echo "Qualification preflight is missing required guard: ${required_guard}" >&2
@@ -204,9 +219,33 @@ fi
 for deploy_guard in \
   'E2E_PASSWORD: ${{ secrets.STAGING_E2E_PASSWORD }}' \
   'OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY: ${{ vars.OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY }}' \
-  'RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_SIGNING_PUBLIC_KEY }}'; do
+  'RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_SIGNING_PUBLIC_KEY }}' \
+  '../deploy/scripts/verify-release.sh'; do
   if ! grep -Fq -- "${deploy_guard}" "${deploy_workflow}"; then
     echo "Deploy workflow is missing protected verification input: ${deploy_guard}" >&2
+    exit 1
+  fi
+done
+
+release_workflow="${repo_root}/.github/workflows/release.yml"
+if grep -Fq 'RELEASE_SIGNING_PRIVATE_KEY' "${release_workflow}"; then
+  echo "Release workflow must not receive the offline archive-signing private key." >&2
+  exit 1
+fi
+if ! grep -Fq -- '--draft' "${release_workflow}"; then
+  echo "Release workflow must leave the unsigned CI artifact as a draft release." >&2
+  exit 1
+fi
+
+build_release_script="${repo_root}/deploy/scripts/build-release.sh"
+for cross_platform_guard in \
+  'VC_RELEASE_WHEEL_PLATFORM' \
+  'manylinux_2_28_x86_64' \
+  '--platform manylinux2014_x86_64' \
+  '--python-version 3.12' \
+  'wheelPlatform'; do
+  if ! grep -Fq -- "${cross_platform_guard}" "${build_release_script}"; then
+    echo "Release builder is missing Linux wheelhouse guard: ${cross_platform_guard}" >&2
     exit 1
   fi
 done

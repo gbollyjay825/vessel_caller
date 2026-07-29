@@ -40,6 +40,7 @@ from audit.services import record_event
 from organizations.models import Organization, OrganizationSettings
 
 from .permissions import effective_permissions
+from .release_gates import require_email_delivery, require_public_registration
 from .serializers import (
     ChangePasswordSerializer,
     ForgotPasswordSerializer,
@@ -95,6 +96,8 @@ class RegisterView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        require_public_registration()
+        require_email_delivery()
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -126,6 +129,9 @@ class RegisterView(APIView):
                 "UNICEM Jetty",
             ],
         )
+        from billing.services import ensure_default_steps
+
+        ensure_default_steps(organization)
         user = User.objects.create_user(
             email=email,
             password=data["password"],
@@ -169,6 +175,7 @@ class VerifyEmailView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        require_email_delivery()
         serializer = TokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token_obj = consume_action_token(
@@ -220,6 +227,7 @@ class ResendVerificationView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        require_email_delivery()
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = User.objects.filter(
@@ -259,6 +267,22 @@ class LoginView(APIView):
             email=email,
             password=serializer.validated_data["password"],
         )
+        if not user:
+            pending_user = (
+                User.objects.filter(
+                    email=email,
+                    status=User.Status.INVITED,
+                    email_verified_at__isnull=True,
+                )
+                .only("id", "password")
+                .first()
+            )
+            if pending_user and pending_user.check_password(serializer.validated_data["password"]):
+                cache.set(key, failures + 1, timeout=min(3600, 2 ** (failures + 1)))
+                raise Unauthorized(
+                    "Email verification is required before you can sign in. "
+                    "Use the verification link sent to your email address."
+                )
         if not user or not user.email_verified_at:
             cache.set(key, failures + 1, timeout=min(3600, 2 ** (failures + 1)))
             raise Unauthorized("Invalid email or password")
@@ -341,6 +365,7 @@ class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        require_email_delivery()
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = User.objects.filter(
@@ -369,6 +394,7 @@ class ResetPasswordView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        require_email_delivery()
         serializer = ResetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token_obj = consume_action_token(
@@ -436,6 +462,7 @@ class ProfileView(APIView):
             user.name = serializer.validated_data["name"].strip()
         new_email = serializer.validated_data.get("email", "").lower()
         if new_email and new_email != user.email:
+            require_email_delivery()
             if not user.check_password(serializer.validated_data.get("currentPassword", "")):
                 raise ValidationError(
                     {"currentPassword": ["Current password is required to change your email"]}

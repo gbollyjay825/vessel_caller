@@ -49,6 +49,14 @@
       group: "{{ vessel_staging_group }}"
       environment: staging
 
+- name: Allow Nginx to read immutable application release files
+  ansible.builtin.user:
+    name: www-data
+    groups:
+      - "{{ vessel_production_group }}"
+      - "{{ vessel_staging_group }}"
+    append: true
+
 - name: Create isolated Redis groups
   ansible.builtin.group:
     name: "{{ item }}"

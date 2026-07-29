@@ -12,12 +12,9 @@ import { AccountSecurity } from "./screens/AccountSecurity";
 import { Analytics } from "./screens/Analytics";
 import { AuthPage } from "./screens/AuthPage";
 import { Dashboard } from "./screens/Dashboard";
-import { EmailVerification } from "./screens/EmailVerification";
 import { Inspections, NewInspection } from "./screens/Inspections";
-import { InvitationAccept } from "./screens/InvitationAccept";
 import { Invoices } from "./screens/Invoices";
 import { Landing } from "./screens/LandingFull";
-import { ForgotPassword, ResetPassword } from "./screens/PasswordRecovery";
 import { Settings } from "./screens/Settings";
 import { UserManagement } from "./screens/UserManagement";
 import { VesselCallDetail, VesselCalls } from "./screens/VesselCalls";
@@ -90,11 +87,11 @@ export default function App() {
         <Switch>
           <Route path="/"><Landing /></Route>
           <Route path="/login"><AuthPage mode="login" /></Route>
-          <Route path="/register"><AuthPage mode="register" /></Route>
-          <Route path="/verify-email"><EmailVerification /></Route>
-          <Route path="/forgot-password"><ForgotPassword /></Route>
-          <Route path="/reset-password"><ResetPassword /></Route>
-          <Route path="/accept-invitation"><InvitationAccept /></Route>
+          <Route path="/register"><Navigate to="/login" replace /></Route>
+          <Route path="/verify-email"><Navigate to="/login" replace /></Route>
+          <Route path="/forgot-password"><Navigate to="/login" replace /></Route>
+          <Route path="/reset-password"><Navigate to="/login" replace /></Route>
+          <Route path="/accept-invitation"><Navigate to="/login" replace /></Route>
           <Route path="/capture"><Capture /></Route>
           <Route path="/app"><Workspace /></Route>
           <Route path="/app/*"><Workspace /></Route>

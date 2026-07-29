@@ -40,6 +40,14 @@ function makeStore(overrides: Record<string, unknown> = {}) {
     toast: vi.fn(),
     updateSettings: vi.fn().mockResolvedValue(undefined),
     updateOrganization: vi.fn().mockResolvedValue(undefined),
+    invoiceStatusSteps: [
+      { id: "draft", code: "draft", label: "Draft", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false },
+      { id: "submitted", code: "submitted", label: "Submitted", position: 15, active: true, isPaid: false, isTerminal: false, isProtected: false },
+      { id: "paid", code: "paid", label: "Paid", position: 20, active: true, isPaid: true, isTerminal: true, isProtected: true },
+    ],
+    createInvoiceStatusStep: vi.fn().mockResolvedValue(undefined),
+    updateInvoiceStatusStep: vi.fn().mockResolvedValue(undefined),
+    reorderInvoiceStatusSteps: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -72,7 +80,7 @@ describe("Settings", () => {
     fireEvent.change(upload, {
       target: { files: [new File(["plain text"], "logo.txt", { type: "text/plain" })] },
     });
-    await waitFor(() => expect(mocks.store.toast).toHaveBeenCalledWith("Please choose an image file", "error"));
+    await waitFor(() => expect(mocks.store.toast).toHaveBeenCalledWith("Choose a PNG, JPEG, or WebP image no larger than 2 MB.", "error"));
 
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(mocks.store.updateOrganization).toHaveBeenCalledWith(expect.objectContaining({
@@ -149,6 +157,40 @@ describe("Settings", () => {
     await userEvent.type(screen.getByLabelText("RC number"), "RC999");
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(mocks.store.toast).toHaveBeenCalledWith("Write conflict", "error"));
+  });
+
+  it("lets admins configure non-protected invoice workflow steps", async () => {
+    vi.spyOn(window, "prompt").mockReturnValue("Prepared");
+    renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    expect(screen.getByText(/Paid is protected and is set automatically/)).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "Deactivate" })[0]);
+    expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("draft", { active: false });
+    await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("draft", { label: "Prepared" });
+    await userEvent.click(screen.getAllByRole("button", { name: "↓" })[0]);
+    expect(mocks.store.reorderInvoiceStatusSteps).toHaveBeenCalledWith(["submitted", "draft", "paid"]);
+    await userEvent.type(screen.getByLabelText("Add status step"), "Awaiting documents");
+    await userEvent.click(screen.getByRole("button", { name: "Add step" }));
+    expect(mocks.store.createInvoiceStatusStep).toHaveBeenCalledWith("Awaiting documents");
+    expect(screen.getAllByRole("button", { name: "Deactivate" }).length).toBeGreaterThan(0);
+  });
+
+  it("does not change a workflow label when rename is cancelled", async () => {
+    vi.spyOn(window, "prompt").mockReturnValue(null);
+    renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    expect(mocks.store.updateInvoiceStatusStep).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: "Deactivate" }).length).toBeGreaterThan(0);
+  });
+
+  it("does not persist a blank workflow rename", async () => {
+    vi.spyOn(window, "prompt").mockReturnValue("   ");
+    renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    expect(mocks.store.updateInvoiceStatusStep).not.toHaveBeenCalled();
   });
 
   it("is fully read-only for non-admin users", async () => {

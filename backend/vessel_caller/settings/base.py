@@ -178,6 +178,10 @@ FRONTEND_URL = env("VC_FRONTEND_URL", "http://localhost:5173").rstrip("/")
 EMAIL_FROM = env("VC_EMAIL_FROM", "Vessel Caller <noreply@vesselcalls.com>")
 RESEND_API_KEY = env("VC_RESEND_API_KEY")
 EMAIL_DELIVERY_BACKEND = env("VC_EMAIL_DELIVERY_BACKEND", "console")
+# This defaults on outside production so local development and the test suite
+# exercise the real verification and invitation flows.  Production overrides
+# it to fail closed unless the operator explicitly enables public onboarding.
+PUBLIC_REGISTRATION_ENABLED = env_bool("VC_PUBLIC_REGISTRATION_ENABLED", True)
 MFA_ENCRYPTION_KEY = env("VC_MFA_ENCRYPTION_KEY", "")
 SESSION_ABSOLUTE_AGE = 60 * 60 * 24 * 30
 MFA_GRACE_DAYS = 7

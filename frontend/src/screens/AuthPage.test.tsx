@@ -51,6 +51,22 @@ describe("AuthPage", () => {
     expect(screen.getByText("Check your inbox.")).toBeInTheDocument();
   });
 
+  it("clears the verification notice when continuing to sign in", async () => {
+    authMock.register.mockResolvedValue({ detail: "Check your inbox." });
+    render(<AuthPage mode="register" />);
+
+    await userEvent.type(screen.getByLabelText("Your name"), "Ada Admin");
+    await userEvent.type(screen.getByLabelText("Organization name"), "Ada Marine");
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "a secure password");
+    await userEvent.click(screen.getByRole("button", { name: "Create organization" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Continue to sign in" }));
+
+    expect(screen.getByRole("heading", { name: "Register your organization" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Verify your email" })).not.toBeInTheDocument();
+  });
+
   it("redirects only after the authenticated state has committed", async () => {
     authMock.login.mockResolvedValue(null);
     const view = render(<AuthPage mode="login" />);

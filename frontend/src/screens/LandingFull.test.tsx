@@ -18,7 +18,7 @@ describe("Landing", () => {
     expect(screen.getByText(/Organization data is private/i)).toBeInTheDocument();
     expect(screen.queryByText(/demo credentials/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/live AIS/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Register an organization/i })).toHaveAttribute("href", "/register");
+    expect(screen.getByRole("link", { name: /Internal admin sign in/i })).toHaveAttribute("href", "/login");
 
     const menu = screen.getByRole("button", { name: "Menu" });
     expect(menu).toHaveAttribute("aria-expanded", "false");

@@ -4,6 +4,7 @@ import threading
 import time
 
 import pytest
+from django.test import override_settings
 from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
 
@@ -132,6 +133,22 @@ def test_invitation_accept_and_suspend_revokes_sessions(admin):
     updated = client.patch(f"/api/users/{member.id}", {"status": "suspended"}, format="json")
     assert updated.status_code == 200
     assert updated.json()["user"]["status"] == "suspended"
+
+
+@override_settings(EMAIL_DELIVERY_BACKEND="disabled")
+def test_internal_admin_testing_rejects_email_user_actions_before_mutation(admin):
+    client = authenticated(admin)
+    invitation = client.post(
+        "/api/invitations",
+        {"name": "Blocked Invite", "email": "blocked-invite@acme.test", "role": "Viewer"},
+        format="json",
+    )
+
+    assert invitation.status_code == 503
+    assert not Invitation.objects.filter(email="blocked-invite@acme.test").exists()
+    assert (
+        client.post(f"/api/users/{admin.id}/send-password-reset", format="json").status_code == 503
+    )
 
 
 def test_tenant_scope_hides_other_organization(admin):

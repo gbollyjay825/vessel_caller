@@ -2,6 +2,13 @@
 
 ## Preconditions
 
+For the explicitly authorized internal-admin-only cutover, the narrowly scoped
+exception in `authorized-deferred-provider-cutover.md` replaces the deferred
+provider and external-onboarding rows below. It requires public registration
+and every email-dependent onboarding action to be fail-closed; it does not
+qualify Resend, Sentry, external invitations, public UAT, or a future external
+launch.
+
 - Every deferred provider row in
   `post-credential-release-checklist.md` has objective evidence for the exact
   signed release; `Deferred` is not an acceptable production status.

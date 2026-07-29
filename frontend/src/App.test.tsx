@@ -56,11 +56,11 @@ describe("App route contract", () => {
   it.each([
     ["/", "Landing screen"],
     ["/login", "Auth:login"],
-    ["/register", "Auth:register"],
-    ["/verify-email", "Email verification screen"],
-    ["/forgot-password", "Forgot password screen"],
-    ["/reset-password", "Reset password screen"],
-    ["/accept-invitation", "Invitation screen"],
+    ["/register", "Navigate:/login"],
+    ["/verify-email", "Navigate:/login"],
+    ["/forgot-password", "Navigate:/login"],
+    ["/reset-password", "Navigate:/login"],
+    ["/accept-invitation", "Navigate:/login"],
   ])("routes the public path %s", (path, expected) => {
     renderPath(path);
     expect(screen.getByText(expected)).toBeInTheDocument();

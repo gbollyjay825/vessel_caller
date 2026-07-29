@@ -95,34 +95,65 @@ def test_vessel_draft_finalize_payment_reversal(admin, viewer):
 def test_inspection_report_projection_lists_all_liquid_measurements(admin):
     client = authenticated(admin)
     call = client.post(
-        "/api/vessel-calls", {"vesselName": "MT Liquid", "reference": "ROT-LIQUID", "nrt": 1}, format="json"
+        "/api/vessel-calls",
+        {"vesselName": "MT Liquid", "reference": "ROT-LIQUID", "nrt": 1},
+        format="json",
     ).json()["call"]
     inspection = client.post(
         "/api/inspections",
         {
-            "callId": call["id"], "cargoType": "Liquid", "product": "PMS",
-            "reconciledTonnage": "20", "jetty": {"type": "Local", "category": "Private", "name": "Jetty A"},
-            "liquid": {"ullage": "2.5", "observedVol": "30", "temp": "15", "blQty": "21", "surveyorTonnage": "20"},
-        }, format="json",
+            "callId": call["id"],
+            "cargoType": "Liquid",
+            "product": "PMS",
+            "reconciledTonnage": "20",
+            "jetty": {"type": "Local", "category": "Private", "name": "Jetty A"},
+            "liquid": {
+                "ullage": "2.5",
+                "observedVol": "30",
+                "temp": "15",
+                "blQty": "21",
+                "surveyorTonnage": "20",
+            },
+        },
+        format="json",
     ).json()["inspection"]
     detail = client.get(f"/api/inspections/{inspection['id']}").json()["inspection"]
     labels = {field["label"] for section in detail["reportSections"] for field in section["fields"]}
-    assert {"Jetty type", "Ullage / sounding (m)", "Observed volume (m³)", "Temperature (°C)", "Bill of Lading quantity (MT)", "Surveyor's reconciled tonnage (MT)"} <= labels
+    assert {
+        "Jetty type",
+        "Ullage / sounding (m)",
+        "Observed volume (m³)",
+        "Temperature (°C)",
+        "Bill of Lading quantity (MT)",
+        "Surveyor's reconciled tonnage (MT)",
+    } <= labels
 
 
 def test_inspection_report_projection_lists_all_draft_survey_measurements(admin):
     client = authenticated(admin)
     call = client.post(
-        "/api/vessel-calls", {"vesselName": "MV Bulk", "reference": "ROT-DRY", "nrt": 1}, format="json"
+        "/api/vessel-calls",
+        {"vesselName": "MV Bulk", "reference": "ROT-DRY", "nrt": 1},
+        format="json",
     ).json()["call"]
     inspection = client.post(
         "/api/inspections",
-        {"callId": call["id"], "cargoType": "Dry", "reconciledTonnage": "90", "dry": {"displBefore": "120", "displAfter": "20", "deductibles": "15", "constant": "5"}},
+        {
+            "callId": call["id"],
+            "cargoType": "Dry",
+            "reconciledTonnage": "90",
+            "dry": {"displBefore": "120", "displAfter": "20", "deductibles": "15", "constant": "5"},
+        },
         format="json",
     ).json()["inspection"]
     detail = client.get(f"/api/inspections/{inspection['id']}").json()["inspection"]
     labels = {field["label"] for section in detail["reportSections"] for field in section["fields"]}
-    assert {"Displacement before (MT)", "Displacement after (MT)", "Deductibles (MT)", "Constant (MT)"} <= labels
+    assert {
+        "Displacement before (MT)",
+        "Displacement after (MT)",
+        "Deductibles (MT)",
+        "Constant (MT)",
+    } <= labels
 
 
 def test_soft_cancel_and_optimistic_conflict(admin):

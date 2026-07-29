@@ -32,9 +32,15 @@ def test_logo_endpoints_require_organization_admin(admin, viewer):
 
 
 def test_logo_preview_is_private_and_admin_only(admin, viewer, monkeypatch):
-    admin.organization.logo_object_key = f"organizations/{admin.organization_id}/logos/private-brand.png"
+    admin.organization.logo_object_key = (
+        f"organizations/{admin.organization_id}/logos/private-brand.png"
+    )
     admin.organization.save(update_fields=("logo_object_key",))
-    monkeypatch.setattr(operation_views, "presign_download", lambda *_args, **_kwargs: "https://private.example/logo")
+    monkeypatch.setattr(
+        operation_views,
+        "presign_download",
+        lambda *_args, **_kwargs: "https://private.example/logo",
+    )
     response = authenticated(admin).get("/api/organization/logo")
     assert response.status_code == 200
     assert response.data == {"hasLogo": True, "downloadUrl": "https://private.example/logo"}
@@ -43,9 +49,24 @@ def test_logo_preview_is_private_and_admin_only(admin, viewer, monkeypatch):
 
 def test_logo_presign_rejects_non_image_and_oversized_payloads(admin):
     client = authenticated(admin)
-    assert client.post("/api/organization/logo", payload(contentType="image/gif"), format="json").status_code == 400
-    assert client.post("/api/organization/logo", payload(size=2 * 1024 * 1024 + 1), format="json").status_code == 400
-    assert client.post("/api/organization/logo", payload(fileName="brand.gif"), format="json").status_code == 400
+    assert (
+        client.post(
+            "/api/organization/logo", payload(contentType="image/gif"), format="json"
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/api/organization/logo", payload(size=2 * 1024 * 1024 + 1), format="json"
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/api/organization/logo", payload(fileName="brand.gif"), format="json"
+        ).status_code
+        == 400
+    )
 
 
 def test_logo_validation_rejects_corrupt_or_mismatched_magic(monkeypatch):
@@ -61,18 +82,31 @@ def test_logo_validation_rejects_corrupt_or_mismatched_magic(monkeypatch):
 def test_logo_finalize_stores_private_key_and_remove_clears_it(admin, monkeypatch):
     client = authenticated(admin)
     key = f"organizations/{admin.organization_id}/logos/uploads/upload-brand.png"
-    monkeypatch.setattr(operation_views, "object_metadata", lambda _: {"size": 128, "checksum": "a" * 64})
+    monkeypatch.setattr(
+        operation_views, "object_metadata", lambda _: {"size": 128, "checksum": "a" * 64}
+    )
     monkeypatch.setattr(operation_views, "validate_logo", lambda *_: None)
-    monkeypatch.setattr(operation_views, "logo_key", lambda *_: f"organizations/{admin.organization_id}/logos/final-brand.png")
+    monkeypatch.setattr(
+        operation_views,
+        "logo_key",
+        lambda *_: f"organizations/{admin.organization_id}/logos/final-brand.png",
+    )
     monkeypatch.setattr(operation_views, "promote_object", lambda *_: {"size": 128})
-    monkeypatch.setattr(operation_views, "presign_download", lambda *_args, **_kwargs: "https://private.example/logo")
+    monkeypatch.setattr(
+        operation_views,
+        "presign_download",
+        lambda *_args, **_kwargs: "https://private.example/logo",
+    )
     deleted: list[str] = []
     monkeypatch.setattr(operation_views, "delete_object", deleted.append)
 
     response = client.put("/api/organization/logo", payload(objectKey=key), format="json")
     assert response.status_code == 200
     admin.organization.refresh_from_db()
-    assert admin.organization.logo_object_key == f"organizations/{admin.organization_id}/logos/final-brand.png"
+    assert (
+        admin.organization.logo_object_key
+        == f"organizations/{admin.organization_id}/logos/final-brand.png"
+    )
     assert not admin.organization.logo_object_key.startswith("data:")
     assert client.delete("/api/organization/logo").status_code == 204
     admin.organization.refresh_from_db()
@@ -82,7 +116,9 @@ def test_logo_finalize_stores_private_key_and_remove_clears_it(admin, monkeypatc
 
 def test_logo_finalize_rejects_cross_organization_key(admin):
     response = authenticated(admin).put(
-        "/api/organization/logo", payload(objectKey="organizations/org-other/logos/uploads/nope.png"), format="json"
+        "/api/organization/logo",
+        payload(objectKey="organizations/org-other/logos/uploads/nope.png"),
+        format="json",
     )
     assert response.status_code == 400
 

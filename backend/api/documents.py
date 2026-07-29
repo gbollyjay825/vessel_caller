@@ -22,7 +22,15 @@ def simple_pdf(title: str, rows: list[tuple[str, object]], *, logo_key: str = ""
     if logo_key:
         try:
             with default_storage.open(logo_key, "rb") as source:
-                page.drawImage(ImageReader(source), 160 * mm, 260 * mm, width=28 * mm, height=18 * mm, preserveAspectRatio=True, mask="auto")
+                page.drawImage(
+                    ImageReader(source),
+                    160 * mm,
+                    260 * mm,
+                    width=28 * mm,
+                    height=18 * mm,
+                    preserveAspectRatio=True,
+                    mask="auto",
+                )
         except (OSError, ValueError):
             logger.warning("Organization logo could not be rendered into PDF", exc_info=True)
     y = 260 * mm

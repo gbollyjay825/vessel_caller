@@ -20,7 +20,12 @@ from rest_framework.views import APIView
 
 from audit.services import record_event
 from billing.models import Invoice, InvoiceStatusEvent, InvoiceStatusStep, Payment
-from billing.services import ensure_default_steps, reconcile_payment_status, transition_invoice, workflow_step_data
+from billing.services import (
+    ensure_default_steps,
+    reconcile_payment_status,
+    transition_invoice,
+    workflow_step_data,
+)
 from operations.models import EvidenceAttachment, Inspection, VesselCall
 from organizations.models import Organization, OrganizationSettings
 
@@ -460,7 +465,9 @@ class PaymentCreateView(APIView):
             recorded_by=request.user,
             idempotency_key=key,
         )
-        reconcile_payment_status(invoice, actor=request.user, source=InvoiceStatusEvent.Source.PAYMENT)
+        reconcile_payment_status(
+            invoice, actor=request.user, source=InvoiceStatusEvent.Source.PAYMENT
+        )
         revision = bump_revision(invoice.organization_id)
         record_event(
             organization=invoice.organization,
@@ -511,7 +518,9 @@ class PaymentReverseView(APIView):
         payment.reversal_reason = serializer.validated_data["reason"]
         payment.save(update_fields=("reversed_at", "reversed_by", "reversal_reason"))
         invoice = Invoice.objects.select_for_update().get(pk=payment.invoice_id)
-        reconcile_payment_status(invoice, actor=request.user, source=InvoiceStatusEvent.Source.REVERSAL)
+        reconcile_payment_status(
+            invoice, actor=request.user, source=InvoiceStatusEvent.Source.REVERSAL
+        )
         revision = bump_revision(invoice.organization_id)
         record_event(
             organization=invoice.organization,
@@ -543,7 +552,14 @@ class InvoiceStatusStepsView(APIView):
     required_permission = "invoices.view"
 
     def get(self, request):
-        return Response({"steps": [invoice_status_step_data(step) for step in ensure_default_steps(request.user.organization)]})
+        return Response(
+            {
+                "steps": [
+                    invoice_status_step_data(step)
+                    for step in ensure_default_steps(request.user.organization)
+                ]
+            }
+        )
 
     @transaction.atomic
     def post(self, request):
@@ -556,7 +572,9 @@ class InvoiceStatusStepsView(APIView):
         organization = Organization.objects.select_for_update().get(pk=request.user.organization_id)
         if organization.invoice_status_steps.filter(code=code).exists():
             raise ValidationError({"code": ["This status code already exists"]})
-        position = (organization.invoice_status_steps.aggregate(last=Max("position"))["last"] or 0) + 10
+        position = (
+            organization.invoice_status_steps.aggregate(last=Max("position"))["last"] or 0
+        ) + 10
         step = InvoiceStatusStep.objects.create(
             organization=organization,
             code=code,
@@ -565,8 +583,20 @@ class InvoiceStatusStepsView(APIView):
             active=data["active"],
         )
         revision = bump_revision(organization.id)
-        record_event(organization=organization, actor=request.user, action="invoice_status_step.created", category="billing", target=step, target_label=step.label, request=request, after=invoice_status_step_data(step))
-        return Response({"step": invoice_status_step_data(step), "rev": revision}, status=status.HTTP_201_CREATED)
+        record_event(
+            organization=organization,
+            actor=request.user,
+            action="invoice_status_step.created",
+            category="billing",
+            target=step,
+            target_label=step.label,
+            request=request,
+            after=invoice_status_step_data(step),
+        )
+        return Response(
+            {"step": invoice_status_step_data(step), "rev": revision},
+            status=status.HTTP_201_CREATED,
+        )
 
     def get_permissions(self):
         if self.request.method == "POST":
@@ -582,7 +612,11 @@ class InvoiceStatusStepDetailView(APIView):
     def patch(self, request, step_id):
         serializer = InvoiceStatusStepUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        step = InvoiceStatusStep.objects.select_for_update().filter(pk=step_id, organization=request.user.organization).first()
+        step = (
+            InvoiceStatusStep.objects.select_for_update()
+            .filter(pk=step_id, organization=request.user.organization)
+            .first()
+        )
         if not step:
             raise NotFound("Invoice status step not found")
         if step.is_protected:
@@ -592,7 +626,17 @@ class InvoiceStatusStepDetailView(APIView):
             setattr(step, field, value.strip() if field == "label" else value)
         step.save(update_fields=tuple(serializer.validated_data.keys()) + ("updated_at",))
         revision = bump_revision(step.organization_id)
-        record_event(organization=request.user.organization, actor=request.user, action="invoice_status_step.updated", category="billing", target=step, target_label=step.label, request=request, before=before, after=invoice_status_step_data(step))
+        record_event(
+            organization=request.user.organization,
+            actor=request.user,
+            action="invoice_status_step.updated",
+            category="billing",
+            target=step,
+            target_label=step.label,
+            request=request,
+            before=before,
+            after=invoice_status_step_data(step),
+        )
         return Response({"step": invoice_status_step_data(step), "rev": revision})
 
 
@@ -604,7 +648,11 @@ class InvoiceStatusStepReorderView(APIView):
     def post(self, request):
         serializer = InvoiceStatusReorderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        steps = list(InvoiceStatusStep.objects.select_for_update().filter(organization=request.user.organization))
+        steps = list(
+            InvoiceStatusStep.objects.select_for_update().filter(
+                organization=request.user.organization
+            )
+        )
         ids = serializer.validated_data["ids"]
         if len(ids) != len(set(ids)) or set(ids) != {step.id for step in steps}:
             raise ValidationError({"ids": ["Submit every organization status exactly once"]})
@@ -618,8 +666,19 @@ class InvoiceStatusStepReorderView(APIView):
             step.position = index * 10
             step.save(update_fields=("position", "updated_at"))
         revision = bump_revision(request.user.organization_id)
-        record_event(organization=request.user.organization, actor=request.user, action="invoice_status_steps.reordered", category="billing", target=request.user.organization, target_label=request.user.organization.name, request=request, after={"ids": ids})
-        return Response({"steps": [invoice_status_step_data(step) for step in ordered], "rev": revision})
+        record_event(
+            organization=request.user.organization,
+            actor=request.user,
+            action="invoice_status_steps.reordered",
+            category="billing",
+            target=request.user.organization,
+            target_label=request.user.organization.name,
+            request=request,
+            after={"ids": ids},
+        )
+        return Response(
+            {"steps": [invoice_status_step_data(step) for step in ordered], "rev": revision}
+        )
 
 
 class InvoiceTransitionView(APIView):
@@ -630,20 +689,47 @@ class InvoiceTransitionView(APIView):
     def patch(self, request, invoice_id):
         serializer = InvoiceTransitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        invoice = Invoice.objects.select_for_update().select_related("current_status", "organization").filter(pk=invoice_id, organization=request.user.organization).first()
+        invoice = (
+            Invoice.objects.select_for_update()
+            .select_related("current_status", "organization")
+            .filter(pk=invoice_id, organization=request.user.organization)
+            .first()
+        )
         if not invoice:
             raise NotFound("Invoice not found")
         if invoice.status == Invoice.Status.VOID:
             raise Conflict("A void invoice cannot be transitioned")
-        step = InvoiceStatusStep.objects.filter(pk=serializer.validated_data["statusId"], organization=request.user.organization, active=True).first()
+        step = InvoiceStatusStep.objects.filter(
+            pk=serializer.validated_data["statusId"],
+            organization=request.user.organization,
+            active=True,
+        ).first()
         if not step:
             raise ValidationError({"statusId": ["Choose an active invoice status"]})
         if step.is_paid:
             raise ValidationError({"statusId": ["Paid is set only by payment reconciliation"]})
-        event = transition_invoice(invoice, step, source=InvoiceStatusEvent.Source.MANUAL, actor=request.user, note=serializer.validated_data.get("note", ""))
-        revision = bump_revision(invoice.organization_id) if event else invoice.organization.revision
+        event = transition_invoice(
+            invoice,
+            step,
+            source=InvoiceStatusEvent.Source.MANUAL,
+            actor=request.user,
+            note=serializer.validated_data.get("note", ""),
+        )
+        revision = (
+            bump_revision(invoice.organization_id) if event else invoice.organization.revision
+        )
         if event:
-            record_event(organization=invoice.organization, actor=request.user, action="invoice.status_transitioned", category="billing", target=invoice, target_label=invoice.invoice_no, request=request, before={"status": event.from_code}, after={"status": event.to_code, "note": event.note or None})
+            record_event(
+                organization=invoice.organization,
+                actor=request.user,
+                action="invoice.status_transitioned",
+                category="billing",
+                target=invoice,
+                target_label=invoice.invoice_no,
+                request=request,
+                before={"status": event.from_code},
+                after={"status": event.to_code, "note": event.note or None},
+            )
         return Response({"invoice": invoice_data(invoice), "rev": revision})
 
 
@@ -705,14 +791,27 @@ class OrganizationLogoView(APIView):
 
     def get(self, request):
         key = request.user.organization.logo_object_key
-        return Response({"hasLogo": bool(key), "downloadUrl": presign_download(request, key=key) if key else None})
+        return Response(
+            {
+                "hasLogo": bool(key),
+                "downloadUrl": presign_download(request, key=key) if key else None,
+            }
+        )
 
     def post(self, request):
         serializer = LogoPresignSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         key = logo_upload_key(request.user.organization_id, data["fileName"])
-        return Response(presign_upload(request, key=key, content_type=data["contentType"], size=data["size"], checksum=data["checksum"]))
+        return Response(
+            presign_upload(
+                request,
+                key=key,
+                content_type=data["contentType"],
+                size=data["size"],
+                checksum=data["checksum"],
+            )
+        )
 
     @transaction.atomic
     def put(self, request):
@@ -721,9 +820,15 @@ class OrganizationLogoView(APIView):
         data = serializer.validated_data
         key = data["objectKey"]
         if not key.startswith(f"organizations/{request.user.organization_id}/logos/uploads/"):
-            raise ValidationError({"objectKey": ["Logo upload does not belong to this organization"]})
+            raise ValidationError(
+                {"objectKey": ["Logo upload does not belong to this organization"]}
+            )
         metadata = object_metadata(key)
-        if not metadata or metadata["size"] != data["size"] or metadata["checksum"] != data["checksum"].removeprefix("sha256:"):
+        if (
+            not metadata
+            or metadata["size"] != data["size"]
+            or metadata["checksum"] != data["checksum"].removeprefix("sha256:")
+        ):
             raise ValidationError({"objectKey": ["Uploaded logo could not be verified"]})
         try:
             validate_logo(key, data["contentType"], data["size"])
@@ -739,8 +844,22 @@ class OrganizationLogoView(APIView):
         if previous:
             delete_object(previous)
         revision = bump_revision(org.id)
-        record_event(organization=org, actor=request.user, action="organization.logo_updated", category="settings", target=org, target_label=org.name, request=request)
-        return Response({"hasLogo": True, "downloadUrl": presign_download(request, key=destination), "rev": revision})
+        record_event(
+            organization=org,
+            actor=request.user,
+            action="organization.logo_updated",
+            category="settings",
+            target=org,
+            target_label=org.name,
+            request=request,
+        )
+        return Response(
+            {
+                "hasLogo": True,
+                "downloadUrl": presign_download(request, key=destination),
+                "rev": revision,
+            }
+        )
 
     @transaction.atomic
     def delete(self, request):
@@ -823,7 +942,10 @@ class StateView(APIView):
                 "calls": [call_data(item) for item in organization.vessel_calls.all()],
                 "inspections": [inspection_data(item) for item in organization.inspections.all()],
                 "invoices": [invoice_data(item) for item in organization.invoices.all()],
-                "invoiceStatusSteps": [invoice_status_step_data(item) for item in organization.invoice_status_steps.all()],
+                "invoiceStatusSteps": [
+                    invoice_status_step_data(item)
+                    for item in organization.invoice_status_steps.all()
+                ],
             }
         )
 
@@ -1102,12 +1224,18 @@ class InvoiceDocumentView(APIView):
                 ("Rotation", invoice.vessel_call.reference),
                 ("Issued", invoice.issued_on),
                 ("Due", invoice.due_on),
-                ("Status", workflow_step_data(invoice.current_status, legacy_status=invoice.status)["label"]),
+                (
+                    "Status",
+                    workflow_step_data(invoice.current_status, legacy_status=invoice.status)[
+                        "label"
+                    ],
+                ),
                 ("Rate (USD)", invoice.rate),
                 ("Harbour dues (USD)", invoice.dues),
                 ("Commission (USD)", invoice.commission_usd),
                 ("Commission (NGN)", invoice.commission_ngn),
-            ], logo_key=invoice.organization.logo_object_key,
+            ],
+            logo_key=invoice.organization.logo_object_key,
         )
         response = HttpResponse(content, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{invoice.invoice_no}.pdf"'
@@ -1126,7 +1254,11 @@ class InspectionDocumentView(APIView):
         for section in inspection_report_sections(inspection):
             rows.append((section["title"], ""))
             rows.extend((field["label"], field["value"]) for field in section["fields"])
-        content = simple_pdf(f"Inspection {inspection.reference}", rows, logo_key=inspection.organization.logo_object_key)
+        content = simple_pdf(
+            f"Inspection {inspection.reference}",
+            rows,
+            logo_key=inspection.organization.logo_object_key,
+        )
         return HttpResponse(content, content_type="application/pdf")
 
 

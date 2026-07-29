@@ -154,8 +154,16 @@ urlpatterns = [
     path("settings", SettingsView.as_view(), name="settings"),
     path("analytics", AnalyticsView.as_view(), name="analytics"),
     path("invoice-status-steps", InvoiceStatusStepsView.as_view(), name="invoice-status-steps"),
-    path("invoice-status-steps/reorder", InvoiceStatusStepReorderView.as_view(), name="invoice-status-steps-reorder"),
-    path("invoice-status-steps/<str:step_id>", InvoiceStatusStepDetailView.as_view(), name="invoice-status-step-detail"),
+    path(
+        "invoice-status-steps/reorder",
+        InvoiceStatusStepReorderView.as_view(),
+        name="invoice-status-steps-reorder",
+    ),
+    path(
+        "invoice-status-steps/<str:step_id>",
+        InvoiceStatusStepDetailView.as_view(),
+        name="invoice-status-step-detail",
+    ),
     path("vessel-calls", VesselCallsView.as_view(), name="vessel-calls"),
     path(
         "vessel-calls/<str:call_id>",

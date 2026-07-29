@@ -4,6 +4,8 @@
 # Placeholder values intentionally do not work in production.
 vault_vessel_release_signing_public_key: |
   CHANGE_ME
+vault_vessel_staging_release_signing_public_key: |
+  CHANGE_ME
 vault_vessel_production_database_url: CHANGE_ME
 vault_vessel_staging_database_url: CHANGE_ME
 vault_vessel_secret_key: CHANGE_ME

@@ -11,15 +11,17 @@ if ! flock --nonblock 9; then
   echo "Another Vessel Caller release operation is already running." >&2
   exit 1
 fi
-export REQUIRE_RELEASE_SIGNATURE=true
-export RELEASE_SIGNATURE_PUBLIC_KEY=/etc/vessel-caller/release-signing-public.pem
-
 target="${1:-}"
 archive="${2:-}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+export REQUIRE_RELEASE_SIGNATURE=true
+
 case "${target}" in
   staging)
+    # Staging has an independently pinned artifact key.  Never replace the
+    # production verifier merely to stage a candidate release.
+    export RELEASE_SIGNATURE_PUBLIC_KEY=/etc/vessel-caller/staging-release-signing-public.pem
     "${script_dir}/install-release.sh" staging "${archive}"
     systemctl restart vessel-caller-staging-worker.service
     systemctl enable vessel-caller-staging-worker.service >/dev/null
@@ -32,6 +34,7 @@ case "${target}" in
       http://127.0.0.1:8010/api/readiness >/dev/null
     ;;
   production)
+    export RELEASE_SIGNATURE_PUBLIC_KEY=/etc/vessel-caller/release-signing-public.pem
     active_port="$(awk '/^server / {gsub(/[;:]/, " ", $0); print $3}' \
       /etc/nginx/vessel-caller/active-upstream.conf 2>/dev/null || true)"
     if [[ "${active_port}" == "8002" ]]; then

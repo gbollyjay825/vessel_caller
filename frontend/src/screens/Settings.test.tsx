@@ -40,6 +40,13 @@ function makeStore(overrides: Record<string, unknown> = {}) {
     toast: vi.fn(),
     updateSettings: vi.fn().mockResolvedValue(undefined),
     updateOrganization: vi.fn().mockResolvedValue(undefined),
+    invoiceStatusSteps: [
+      { id: "draft", code: "draft", label: "Draft", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false },
+      { id: "paid", code: "paid", label: "Paid", position: 20, active: true, isPaid: true, isTerminal: true, isProtected: true },
+    ],
+    createInvoiceStatusStep: vi.fn().mockResolvedValue(undefined),
+    updateInvoiceStatusStep: vi.fn().mockResolvedValue(undefined),
+    reorderInvoiceStatusSteps: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -149,6 +156,18 @@ describe("Settings", () => {
     await userEvent.type(screen.getByLabelText("RC number"), "RC999");
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(mocks.store.toast).toHaveBeenCalledWith("Write conflict", "error"));
+  });
+
+  it("lets admins configure non-protected invoice workflow steps", async () => {
+    renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    expect(screen.getByText(/Paid is protected and is set automatically/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("draft", { active: false });
+    await userEvent.type(screen.getByLabelText("Add status step"), "Awaiting documents");
+    await userEvent.click(screen.getByRole("button", { name: "Add step" }));
+    expect(mocks.store.createInvoiceStatusStep).toHaveBeenCalledWith("Awaiting documents");
+    expect(screen.queryByRole("button", { name: "Deactivate" })).toBeInTheDocument();
   });
 
   it("is fully read-only for non-admin users", async () => {

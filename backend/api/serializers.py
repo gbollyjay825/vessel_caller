@@ -448,12 +448,12 @@ class LogoFinalizeSerializer(LogoPresignSerializer):
 
 class InvoiceStatusStepSerializer(serializers.Serializer):
     code = serializers.SlugField(max_length=50, required=False)
-    label = serializers.CharField(max_length=80)
+    label = serializers.CharField(max_length=80)  # type: ignore[assignment]
     active = serializers.BooleanField(required=False, default=True)
 
 
 class InvoiceStatusStepUpdateSerializer(serializers.Serializer):
-    label = serializers.CharField(max_length=80, required=False)
+    label = serializers.CharField(max_length=80, required=False)  # type: ignore[assignment]
     active = serializers.BooleanField(required=False)
 
 

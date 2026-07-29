@@ -40,6 +40,7 @@ from audit.services import record_event
 from organizations.models import Organization, OrganizationSettings
 
 from .permissions import effective_permissions
+from .release_gates import require_email_delivery, require_public_registration
 from .serializers import (
     ChangePasswordSerializer,
     ForgotPasswordSerializer,
@@ -95,6 +96,8 @@ class RegisterView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        require_public_registration()
+        require_email_delivery()
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -169,6 +172,7 @@ class VerifyEmailView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        require_email_delivery()
         serializer = TokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token_obj = consume_action_token(
@@ -220,6 +224,7 @@ class ResendVerificationView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        require_email_delivery()
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = User.objects.filter(
@@ -357,6 +362,7 @@ class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        require_email_delivery()
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = User.objects.filter(
@@ -385,6 +391,7 @@ class ResetPasswordView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        require_email_delivery()
         serializer = ResetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token_obj = consume_action_token(
@@ -452,6 +459,7 @@ class ProfileView(APIView):
             user.name = serializer.validated_data["name"].strip()
         new_email = serializer.validated_data.get("email", "").lower()
         if new_email and new_email != user.email:
+            require_email_delivery()
             if not user.check_password(serializer.validated_data.get("currentPassword", "")):
                 raise ValidationError(
                     {"currentPassword": ["Current password is required to change your email"]}

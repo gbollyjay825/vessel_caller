@@ -3,6 +3,7 @@ from __future__ import annotations
 import pyotp
 import pytest
 from django.utils import timezone
+from django.test import override_settings
 from passlib.hash import pbkdf2_sha256
 from rest_framework.test import APIClient
 
@@ -77,6 +78,28 @@ def test_registration_verification_and_session_login(api_client):
     assert UserSession.objects.filter(user=user, revoked_at__isnull=True).count() == 1
     assert api_client.post("/api/auth/logout").status_code == 204
     assert api_client.get("/api/auth/me").status_code in (401, 403)
+
+
+@override_settings(PUBLIC_REGISTRATION_ENABLED=False, EMAIL_DELIVERY_BACKEND="disabled")
+def test_internal_admin_testing_fails_closed_before_creating_email_onboarding_state(api_client):
+    response = api_client.post(
+        "/api/auth/register",
+        {
+            "name": "Blocked Admin",
+            "email": "blocked@example.test",
+            "password": "A-unique-production-password-2026!",
+            "orgName": "Blocked Shipping",
+            "designatedPort": "Port of Calabar",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Organization registration is not open during internal admin testing."
+    assert not User.objects.filter(email="blocked@example.test").exists()
+    assert api_client.post(
+        "/api/auth/forgot-password", {"email": "blocked@example.test"}, format="json"
+    ).status_code == 503
 
 
 def test_legacy_passlib_password_upgrades_on_login(organization):

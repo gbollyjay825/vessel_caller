@@ -21,6 +21,22 @@ send email fail visibly and the encrypted transactional outbox remains the
 source of truth. No console, memory, mock, or fake-success adapter is allowed
 in production.
 
+## Internal-admin-only boundary
+
+This exception is an **internal admin testing** release, not an external
+launch. Set `VC_PUBLIC_REGISTRATION_ENABLED=false`; the API rejects public
+registration before any organization, user, token, or outbox row is created.
+With `VC_EMAIL_DELIVERY_BACKEND=disabled`, verification resend, password-reset
+dispatch, invitation creation/resend, and verified email changes return a
+visible `503` before mutation. The SPA redirects public signup, verification,
+password-recovery, and invitation paths to sign-in and hides email delivery
+controls from the user-management area. Do not invite external company users.
+
+External onboarding remains blocked until Resend is configured, the sender
+domain is verified, real delivery is qualified, and a new artifact is built
+with `VC_PUBLIC_REGISTRATION_ENABLED=true` and
+`VITE_EMAIL_ACTIONS_ENABLED=true`.
+
 PostgreSQL with TLS, isolated authenticated Redis, private Spaces, strong
 Django and MFA secrets, TLS/DNS, a restricted deployment user, a pinned release
 verification key, a signed immutable artifact, migrations, readiness, browser
@@ -49,7 +65,7 @@ same or a newer qualified release, and prove both live integrations.
 
 ## Administrator handoff
 
-After the public Django deployment is verified ready and Resend is qualified,
+After external onboarding is approved and Resend is qualified,
 run `issue_release_admin_invitation` on the deployed release for the approved
 organization and inviter. The command creates an Admin invitation valid for
 exactly 24 hours from issuance, rotates any pending invitation for the same

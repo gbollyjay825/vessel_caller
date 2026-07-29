@@ -236,8 +236,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           </button>
         ) : mode === "login" ? (
           <>
-            <p className="auth-alt"><Link to="/forgot-password">Forgot your password?</Link></p>
-            <p className="auth-alt">New here? <Link to="/register">Register an organization</Link></p>
+            <p className="auth-alt">Internal admin testing access only. Public registration and email recovery are not available yet.</p>
           </>
         ) : (
           <p className="auth-alt">Already have an account? <Link to="/login">Sign in</Link></p>

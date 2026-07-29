@@ -450,10 +450,9 @@ export function Landing() {
         <div className="wrap">
           <div className="cta reveal">
             <h2>Bring your next vessel call in<br />with Vessel Caller.</h2>
-            <p>Register your organization, verify the first Admin account, invite your team, and run your first inspection.</p>
+            <p>Vessel Caller is currently available for controlled internal admin testing.</p>
             <div className="hero-cta">
-              <Link className="btn btn-amber" to="/register">Register an organization <ArrBtn /></Link>
-              <Link className="btn btn-line" to="/login">Sign in</Link>
+              <Link className="btn btn-amber" to="/login">Internal admin sign in <ArrBtn /></Link>
             </div>
           </div>
         </div>

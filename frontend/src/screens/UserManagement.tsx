@@ -33,6 +33,12 @@ const ROLE_HELP: Record<Role, string> = {
   Viewer: "Read-only access. Can view operational and financial records only. Cannot create, edit, approve, invite users, change settings, or record payments.",
 };
 
+// The production internal-test artifact is built without this opt-in.  Tests
+// retain the complete workflow coverage; an external-launch artifact must set
+// it only after Resend delivery is qualified server-side.
+const EMAIL_ACTIONS_ENABLED = import.meta.env.MODE === "test"
+  || import.meta.env.VITE_EMAIL_ACTIONS_ENABLED === "true";
+
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
@@ -86,6 +92,11 @@ export function UserManagement() {
           <p className="desc">Manage access, invitations, roles, security, and organization audit history.</p>
         </div>
       </div>
+      {!EMAIL_ACTIONS_ENABLED && (
+        <div className="user-access-note" role="status">
+          <Icon name="info" size={16} /> Email invitations and password-reset delivery are disabled during internal admin testing.
+        </div>
+      )}
       <div className="settings-tabs" role="tablist" aria-label="User management sections">
         {tabs.map(([key, label]) => (
           <button
@@ -281,7 +292,7 @@ function UsersTab() {
           <option value="suspended">Suspended</option>
           <option value="removed">Removed</option>
         </select>
-        {can("users.manage") && (
+        {can("users.manage") && EMAIL_ACTIONS_ENABLED && (
           <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}>
             <Icon name="plus" size={17} /> Invite user
           </button>
@@ -395,9 +406,11 @@ function UserDrawer({ member, onClose }: { member: User; onClose: () => void }) 
       </div>
       {canManage && (
         <div className="drawer-action-stack">
-          <button className="btn btn-secondary" type="button" disabled={passwordResetMutation.isPending} onClick={() => passwordResetMutation.mutate()}>
-            <Icon name="mail" size={16} /> Send password reset
-          </button>
+          {EMAIL_ACTIONS_ENABLED && (
+            <button className="btn btn-secondary" type="button" disabled={passwordResetMutation.isPending} onClick={() => passwordResetMutation.mutate()}>
+              <Icon name="mail" size={16} /> Send password reset
+            </button>
+          )}
           {member.mfaEnabled && (
             <button className="btn btn-secondary" type="button" disabled={mfaResetMutation.isPending} onClick={() => mfaResetMutation.mutate()}>
               <Icon name="settings" size={16} /> Reset MFA and sessions
@@ -501,7 +514,7 @@ function InvitationsTab() {
           <button
             className="btn btn-secondary btn-sm"
             type="button"
-            disabled={!can("users.manage") || resendMutation.isPending || !["pending", "expired"].includes(invitation.status)}
+            disabled={!EMAIL_ACTIONS_ENABLED || !can("users.manage") || resendMutation.isPending || !["pending", "expired"].includes(invitation.status)}
             onClick={() => resendMutation.mutate(invitation.id)}
           >
             Resend
@@ -536,7 +549,7 @@ function InvitationsTab() {
             aria-label="Search invitations"
           />
         </div>
-        {can("users.manage") && (
+        {can("users.manage") && EMAIL_ACTIONS_ENABLED && (
           <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}>
             <Icon name="plus" size={17} /> Invite user
           </button>

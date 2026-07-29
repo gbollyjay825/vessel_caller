@@ -28,6 +28,7 @@ from organizations.models import Organization
 from .domain import bump_revision
 from .pagination import StandardPagination
 from .permissions import HasVesselPermission
+from .release_gates import require_email_delivery
 from .serializers import (
     InvitationAcceptSerializer,
     InvitationCreateSerializer,
@@ -174,6 +175,7 @@ class UserPasswordResetDispatchView(APIView):
     required_permission = "users.manage"
 
     def post(self, request, user_id):
+        require_email_delivery()
         member = request.user.organization.users.filter(
             pk=user_id, status=User.Status.ACTIVE
         ).first()
@@ -242,6 +244,7 @@ class InvitationsView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        require_email_delivery()
         serializer = InvitationCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -293,6 +296,7 @@ class InvitationResendView(APIView):
 
     @transaction.atomic
     def post(self, request, invitation_id):
+        require_email_delivery()
         invitation = (
             request.user.organization.invitations.select_for_update()
             .select_related("invited_by")
@@ -347,6 +351,7 @@ class InvitationAcceptView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        require_email_delivery()
         serializer = InvitationAcceptSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         invitation = (

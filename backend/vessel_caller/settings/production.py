@@ -64,6 +64,10 @@ STORAGES["default"] = {
 
 DEFERRED_PROVIDER_CUTOVER = env_bool("VC_DEFERRED_PROVIDER_CUTOVER", False)  # noqa: F405
 EMAIL_DELIVERY_BACKEND = env("VC_EMAIL_DELIVERY_BACKEND", "resend")  # noqa: F405
+# Production must default to closed public onboarding.  Enabling it requires
+# both an explicit operator decision and the Resend configuration validated
+# below; it is never implied by a deployed web route.
+PUBLIC_REGISTRATION_ENABLED = env_bool("VC_PUBLIC_REGISTRATION_ENABLED", False)  # noqa: F405
 if EMAIL_DELIVERY_BACKEND == "resend":
     if not RESEND_API_KEY:
         raise ImproperlyConfigured("Production Resend delivery requires VC_RESEND_API_KEY")

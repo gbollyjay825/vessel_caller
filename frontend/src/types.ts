@@ -106,6 +106,14 @@ export interface Payment {
 }
 export type InvoiceStatus = "paid" | "unpaid" | "void";
 export type EffectiveInvoiceStatus = "paid" | "unpaid" | "overdue" | "void";
+export interface InvoiceWorkflowStatus {
+  id: string | null; code: string; label: string; position: number | null; active: boolean;
+  isPaid: boolean; isTerminal: boolean; isProtected: boolean;
+}
+export interface InvoiceStatusEvent {
+  id: string; fromCode?: string | null; fromLabel?: string | null; toCode: string; toLabel: string;
+  source: string; note?: string | null; actorId?: string | null; actorName?: string | null; createdAt: string;
+}
 export interface Invoice {
   id: string;
   invoiceNo: string;
@@ -115,6 +123,8 @@ export interface Invoice {
   issued: string;
   due: string;
   status: InvoiceStatus;
+  workflowStatus?: InvoiceWorkflowStatus;
+  statusHistory?: InvoiceStatusEvent[];
   dues: number;
   rate: number;
   commissionUsd: number;
@@ -130,6 +140,7 @@ export interface AppState {
   calls: VesselCall[];
   inspections: Inspection[];
   invoices: Invoice[];
+  invoiceStatusSteps?: InvoiceWorkflowStatus[];
 }
 
 export interface AnalyticsSeriesRow {

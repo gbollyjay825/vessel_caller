@@ -37,6 +37,10 @@ from .operation_views import (
     InspectionFinalizeView,
     InspectionsView,
     InvoiceDocumentView,
+    InvoiceStatusStepDetailView,
+    InvoiceStatusStepReorderView,
+    InvoiceStatusStepsView,
+    InvoiceTransitionView,
     LocalEvidenceDownloadView,
     LocalEvidenceUploadView,
     OrganizationView,
@@ -149,6 +153,9 @@ urlpatterns = [
     path("organization/logo", OrganizationLogoView.as_view(), name="organization-logo"),
     path("settings", SettingsView.as_view(), name="settings"),
     path("analytics", AnalyticsView.as_view(), name="analytics"),
+    path("invoice-status-steps", InvoiceStatusStepsView.as_view(), name="invoice-status-steps"),
+    path("invoice-status-steps/reorder", InvoiceStatusStepReorderView.as_view(), name="invoice-status-steps-reorder"),
+    path("invoice-status-steps/<str:step_id>", InvoiceStatusStepDetailView.as_view(), name="invoice-status-step-detail"),
     path("vessel-calls", VesselCallsView.as_view(), name="vessel-calls"),
     path(
         "vessel-calls/<str:call_id>",
@@ -195,6 +202,11 @@ urlpatterns = [
         "invoices/<str:invoice_id>/payments",
         PaymentCreateView.as_view(),
         name="invoice-payment",
+    ),
+    path(
+        "invoices/<str:invoice_id>/status",
+        InvoiceTransitionView.as_view(),
+        name="invoice-transition",
     ),
     path(
         "invoices/<str:invoice_id>/document",

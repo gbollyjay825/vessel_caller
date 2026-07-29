@@ -23,6 +23,7 @@ import type {
   AppState,
   Inspection,
   Invoice,
+  InvoiceWorkflowStatus,
   Organization,
   Role,
   Settings,
@@ -56,6 +57,7 @@ interface Store {
   calls: VesselCall[];
   inspections: Inspection[];
   invoices: Invoice[];
+  invoiceStatusSteps: InvoiceWorkflowStatus[];
   portLabel: string;
   can: (action: Action) => boolean;
   role: Role | null;
@@ -86,6 +88,10 @@ interface Store {
     data: { paidOn: string; method: string; reference: string; amount?: number },
   ) => Promise<void>;
   reversePayment: (paymentId: string, reason: string) => Promise<void>;
+  transitionInvoice: (invoiceId: string, statusId: string, note?: string) => Promise<void>;
+  createInvoiceStatusStep: (label: string) => Promise<void>;
+  updateInvoiceStatusStep: (id: string, patch: { label?: string; active?: boolean }) => Promise<void>;
+  reorderInvoiceStatusSteps: (ids: string[]) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   updateOrganization: (patch: Partial<Organization>) => Promise<void>;
 }
@@ -387,6 +393,27 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
     mergeInvoice(invoice, rev);
   }, [mergeInvoice]);
 
+  const transitionInvoice = useCallback(async (invoiceId: string, statusId: string, note?: string) => {
+    const { invoice, rev } = await api.transitionInvoice(invoiceId, { statusId, note });
+    mergeInvoice(invoice, rev);
+  }, [mergeInvoice]);
+
+  const replaceInvoiceStatusSteps = useCallback((steps: InvoiceWorkflowStatus[], rev: number) => {
+    setState((current) => ({ ...current, invoiceStatusSteps: steps, rev: Math.max(current.rev, rev) }));
+  }, []);
+  const createInvoiceStatusStep = useCallback(async (label: string) => {
+    const { step, rev } = await api.createInvoiceStatusStep({ label });
+    setState((current) => ({ ...current, invoiceStatusSteps: [...(current.invoiceStatusSteps || []), step], rev: Math.max(current.rev, rev) }));
+  }, []);
+  const updateInvoiceStatusStep = useCallback(async (id: string, patch: { label?: string; active?: boolean }) => {
+    const { step, rev } = await api.updateInvoiceStatusStep(id, patch);
+    setState((current) => ({ ...current, invoiceStatusSteps: (current.invoiceStatusSteps || []).map((item) => item.id === id ? step : item), rev: Math.max(current.rev, rev) }));
+  }, []);
+  const reorderInvoiceStatusSteps = useCallback(async (ids: string[]) => {
+    const { steps, rev } = await api.reorderInvoiceStatusSteps(ids);
+    replaceInvoiceStatusSteps(steps, rev);
+  }, [replaceInvoiceStatusSteps]);
+
   const updateSettings = useCallback(async (patch: Partial<Settings>) => {
     const { settings, rev } = await api.updateSettings(patch);
     setState((current) => ({
@@ -413,6 +440,7 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
     calls: state.calls,
     inspections: state.inspections,
     invoices: state.invoices,
+    invoiceStatusSteps: state.invoiceStatusSteps || [],
     portLabel: (authOrg || state.org)?.primaryPort || "Port of Calabar",
     can,
     role: user?.role ?? null,
@@ -433,6 +461,10 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
     addInspection,
     recordPayment,
     reversePayment,
+    transitionInvoice,
+    createInvoiceStatusStep,
+    updateInvoiceStatusStep,
+    reorderInvoiceStatusSteps,
     updateSettings,
     updateOrganization,
   }), [
@@ -457,6 +489,10 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
     addInspection,
     recordPayment,
     reversePayment,
+    transitionInvoice,
+    createInvoiceStatusStep,
+    updateInvoiceStatusStep,
+    reorderInvoiceStatusSteps,
     updateSettings,
     updateOrganization,
   ]);

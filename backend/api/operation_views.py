@@ -6,8 +6,9 @@ from typing import Any
 
 from django.core import signing
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import F, Max
 from django.http import FileResponse, HttpResponse
+from django.utils.text import slugify
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -18,7 +19,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from audit.services import record_event
-from billing.models import Invoice, Payment
+from billing.models import Invoice, InvoiceStatusEvent, InvoiceStatusStep, Payment
+from billing.services import ensure_default_steps, reconcile_payment_status, transition_invoice, workflow_step_data
 from operations.models import EvidenceAttachment, Inspection, VesselCall
 from organizations.models import Organization, OrganizationSettings
 
@@ -33,6 +35,10 @@ from .serializers import (
     LogoFinalizeSerializer,
     LogoPresignSerializer,
     InspectionSerializer,
+    InvoiceStatusReorderSerializer,
+    InvoiceStatusStepSerializer,
+    InvoiceStatusStepUpdateSerializer,
+    InvoiceTransitionSerializer,
     PaymentCreateSerializer,
     ReversalSerializer,
     VesselCallSerializer,
@@ -454,11 +460,7 @@ class PaymentCreateView(APIView):
             recorded_by=request.user,
             idempotency_key=key,
         )
-        total = invoice.payments.filter(reversed_at__isnull=True).aggregate(total=Sum("amount"))[
-            "total"
-        ] or Decimal("0")
-        invoice.status = Invoice.Status.PAID if total >= invoice.dues else Invoice.Status.UNPAID
-        invoice.save(update_fields=("status",))
+        reconcile_payment_status(invoice, actor=request.user, source=InvoiceStatusEvent.Source.PAYMENT)
         revision = bump_revision(invoice.organization_id)
         record_event(
             organization=invoice.organization,
@@ -509,11 +511,7 @@ class PaymentReverseView(APIView):
         payment.reversal_reason = serializer.validated_data["reason"]
         payment.save(update_fields=("reversed_at", "reversed_by", "reversal_reason"))
         invoice = Invoice.objects.select_for_update().get(pk=payment.invoice_id)
-        total = invoice.payments.filter(reversed_at__isnull=True).aggregate(total=Sum("amount"))[
-            "total"
-        ] or Decimal("0")
-        invoice.status = Invoice.Status.PAID if total >= invoice.dues else Invoice.Status.UNPAID
-        invoice.save(update_fields=("status",))
+        reconcile_payment_status(invoice, actor=request.user, source=InvoiceStatusEvent.Source.REVERSAL)
         revision = bump_revision(invoice.organization_id)
         record_event(
             organization=invoice.organization,
@@ -532,6 +530,121 @@ class PaymentReverseView(APIView):
                 "rev": revision,
             }
         )
+
+
+def invoice_status_step_data(step: InvoiceStatusStep) -> dict:
+    return workflow_step_data(step)
+
+
+class InvoiceStatusStepsView(APIView):
+    """List steps for invoice readers; only organization admins configure them."""
+
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "invoices.view"
+
+    def get(self, request):
+        return Response({"steps": [invoice_status_step_data(step) for step in ensure_default_steps(request.user.organization)]})
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = InvoiceStatusStepSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        code = data.get("code") or slugify(data["label"])
+        if not code or code in {"paid", "void"}:
+            raise ValidationError({"code": ["Paid and Void are protected system statuses"]})
+        organization = Organization.objects.select_for_update().get(pk=request.user.organization_id)
+        if organization.invoice_status_steps.filter(code=code).exists():
+            raise ValidationError({"code": ["This status code already exists"]})
+        position = (organization.invoice_status_steps.aggregate(last=Max("position"))["last"] or 0) + 10
+        step = InvoiceStatusStep.objects.create(
+            organization=organization,
+            code=code,
+            label=data["label"].strip(),
+            position=position,
+            active=data["active"],
+        )
+        revision = bump_revision(organization.id)
+        record_event(organization=organization, actor=request.user, action="invoice_status_step.created", category="billing", target=step, target_label=step.label, request=request, after=invoice_status_step_data(step))
+        return Response({"step": invoice_status_step_data(step), "rev": revision}, status=status.HTTP_201_CREATED)
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            self.required_permission = "organization.manage"
+        return super().get_permissions()
+
+
+class InvoiceStatusStepDetailView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "organization.manage"
+
+    @transaction.atomic
+    def patch(self, request, step_id):
+        serializer = InvoiceStatusStepUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        step = InvoiceStatusStep.objects.select_for_update().filter(pk=step_id, organization=request.user.organization).first()
+        if not step:
+            raise NotFound("Invoice status step not found")
+        if step.is_protected:
+            raise ValidationError({"detail": ["Paid is a protected system status"]})
+        before = invoice_status_step_data(step)
+        for field, value in serializer.validated_data.items():
+            setattr(step, field, value.strip() if field == "label" else value)
+        step.save(update_fields=tuple(serializer.validated_data.keys()) + ("updated_at",))
+        revision = bump_revision(step.organization_id)
+        record_event(organization=request.user.organization, actor=request.user, action="invoice_status_step.updated", category="billing", target=step, target_label=step.label, request=request, before=before, after=invoice_status_step_data(step))
+        return Response({"step": invoice_status_step_data(step), "rev": revision})
+
+
+class InvoiceStatusStepReorderView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "organization.manage"
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = InvoiceStatusReorderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        steps = list(InvoiceStatusStep.objects.select_for_update().filter(organization=request.user.organization))
+        ids = serializer.validated_data["ids"]
+        if len(ids) != len(set(ids)) or set(ids) != {step.id for step in steps}:
+            raise ValidationError({"ids": ["Submit every organization status exactly once"]})
+        by_id = {step.id: step for step in steps}
+        ordered = [by_id[identifier] for identifier in ids]
+        if not ordered[-1].is_paid or any(step.is_paid for step in ordered[:-1]):
+            raise ValidationError({"ids": ["Paid is terminal and must remain last"]})
+        # Move positions out of the unique range before assigning requested positions.
+        InvoiceStatusStep.objects.filter(pk__in=ids).update(position=F("position") + 10_000)
+        for index, step in enumerate(ordered, start=1):
+            step.position = index * 10
+            step.save(update_fields=("position", "updated_at"))
+        revision = bump_revision(request.user.organization_id)
+        record_event(organization=request.user.organization, actor=request.user, action="invoice_status_steps.reordered", category="billing", target=request.user.organization, target_label=request.user.organization.name, request=request, after={"ids": ids})
+        return Response({"steps": [invoice_status_step_data(step) for step in ordered], "rev": revision})
+
+
+class InvoiceTransitionView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "invoices.manage"
+
+    @transaction.atomic
+    def patch(self, request, invoice_id):
+        serializer = InvoiceTransitionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        invoice = Invoice.objects.select_for_update().select_related("current_status", "organization").filter(pk=invoice_id, organization=request.user.organization).first()
+        if not invoice:
+            raise NotFound("Invoice not found")
+        if invoice.status == Invoice.Status.VOID:
+            raise Conflict("A void invoice cannot be transitioned")
+        step = InvoiceStatusStep.objects.filter(pk=serializer.validated_data["statusId"], organization=request.user.organization, active=True).first()
+        if not step:
+            raise ValidationError({"statusId": ["Choose an active invoice status"]})
+        if step.is_paid:
+            raise ValidationError({"statusId": ["Paid is set only by payment reconciliation"]})
+        event = transition_invoice(invoice, step, source=InvoiceStatusEvent.Source.MANUAL, actor=request.user, note=serializer.validated_data.get("note", ""))
+        revision = bump_revision(invoice.organization_id) if event else invoice.organization.revision
+        if event:
+            record_event(organization=invoice.organization, actor=request.user, action="invoice.status_transitioned", category="billing", target=invoice, target_label=invoice.invoice_no, request=request, before={"status": event.from_code}, after={"status": event.to_code, "note": event.note or None})
+        return Response({"invoice": invoice_data(invoice), "rev": revision})
 
 
 class OrganizationView(APIView):
@@ -697,6 +810,7 @@ class SettingsView(APIView):
 class StateView(APIView):
     def get(self, request):
         organization = request.user.organization
+        ensure_default_steps(organization)
         requested_rev = request.query_params.get("rev")
         if requested_rev is not None and str(organization.revision) == requested_rev:
             return Response({"changed": False, "rev": organization.revision})
@@ -709,6 +823,7 @@ class StateView(APIView):
                 "calls": [call_data(item) for item in organization.vessel_calls.all()],
                 "inspections": [inspection_data(item) for item in organization.inspections.all()],
                 "invoices": [invoice_data(item) for item in organization.invoices.all()],
+                "invoiceStatusSteps": [invoice_status_step_data(item) for item in organization.invoice_status_steps.all()],
             }
         )
 
@@ -987,7 +1102,7 @@ class InvoiceDocumentView(APIView):
                 ("Rotation", invoice.vessel_call.reference),
                 ("Issued", invoice.issued_on),
                 ("Due", invoice.due_on),
-                ("Status", invoice.status),
+                ("Status", workflow_step_data(invoice.current_status, legacy_status=invoice.status)["label"]),
                 ("Rate (USD)", invoice.rate),
                 ("Harbour dues (USD)", invoice.dues),
                 ("Commission (USD)", invoice.commission_usd),

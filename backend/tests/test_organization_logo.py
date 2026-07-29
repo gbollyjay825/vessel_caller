@@ -123,6 +123,28 @@ def test_logo_finalize_rejects_cross_organization_key(admin):
     assert response.status_code == 400
 
 
+def test_logo_finalize_rejects_unverified_or_unpromotable_upload(admin, monkeypatch):
+    client = authenticated(admin)
+    key = f"organizations/{admin.organization_id}/logos/uploads/upload-brand.png"
+    monkeypatch.setattr(
+        operation_views, "object_metadata", lambda _: {"size": 127, "checksum": "a" * 64}
+    )
+    assert (
+        client.put("/api/organization/logo", payload(objectKey=key), format="json").status_code
+        == 400
+    )
+
+    monkeypatch.setattr(
+        operation_views, "object_metadata", lambda _: {"size": 128, "checksum": "a" * 64}
+    )
+    monkeypatch.setattr(operation_views, "validate_logo", lambda *_: None)
+    monkeypatch.setattr(operation_views, "promote_object", lambda *_: None)
+    assert (
+        client.put("/api/organization/logo", payload(objectKey=key), format="json").status_code
+        == 400
+    )
+
+
 def test_pdf_renders_private_logo_and_degrades_when_unavailable(monkeypatch):
     # A 1x1 PNG is enough to exercise ReportLab's private-storage image path.
     png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0dIDATx\x9cc\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99=\x1d\x00\x00\x00\x00IEND\xaeB`\x82"

@@ -83,6 +83,25 @@ def test_only_admin_can_configure_invoice_steps(admin, finance, viewer):
     )
 
 
+def test_invoice_status_steps_are_visible_to_readers_and_reject_duplicate_codes(admin, viewer):
+    admin_client = authenticated(admin)
+    created = admin_client.post(
+        "/api/invoice-status-steps", {"label": "Awaiting documents"}, format="json"
+    )
+    assert created.status_code == 201
+    assert (
+        admin_client.post(
+            "/api/invoice-status-steps",
+            {"label": "Another label", "code": created.data["step"]["code"]},
+            format="json",
+        ).status_code
+        == 400
+    )
+    visible = authenticated(viewer).get("/api/invoice-status-steps")
+    assert visible.status_code == 200
+    assert any(step["id"] == created.data["step"]["id"] for step in visible.data["steps"])
+
+
 def test_finance_can_transition_non_paid_status_but_not_paid(invoice, finance):
     steps = {step.code: step for step in ensure_default_steps(finance.organization)}
     client = authenticated(finance)
@@ -155,3 +174,95 @@ def test_workflow_service_noop_void_and_default_fallback(invoice, admin):
     assert reconcile_payment_status(invoice, actor=admin, source="reversal") is not None
     invoice.refresh_from_db()
     assert invoice.current_status_id == active_default_step(admin.organization_id).id
+
+
+def test_admin_can_update_and_reorder_steps_but_cannot_change_paid(admin):
+    client = authenticated(admin)
+    steps = {step.code: step for step in ensure_default_steps(admin.organization)}
+    created = client.post(
+        "/api/invoice-status-steps",
+        {"label": "Awaiting documents"},
+        format="json",
+    )
+    assert created.status_code == 201
+    created_id = created.data["step"]["id"]
+
+    updated = client.patch(
+        f"/api/invoice-status-steps/{created_id}",
+        {"label": "Documents received", "active": False},
+        format="json",
+    )
+    assert updated.status_code == 200
+    assert updated.data["step"]["label"] == "Documents received"
+    assert updated.data["step"]["active"] is False
+    assert (
+        client.patch(
+            f"/api/invoice-status-steps/{steps['paid'].id}",
+            {"label": "Settled"},
+            format="json",
+        ).status_code
+        == 400
+    )
+    assert (
+        client.patch(
+            "/api/invoice-status-steps/iss-missing",
+            {"label": "Missing"},
+            format="json",
+        ).status_code
+        == 404
+    )
+
+    all_steps = list(ensure_default_steps(admin.organization))
+    assert any(step.id == created_id for step in all_steps)
+    ids = [step.id for step in all_steps]
+    assert (
+        client.post(
+            "/api/invoice-status-steps/reorder", {"ids": ids[:-1] + [ids[0]]}, format="json"
+        ).status_code
+        == 400
+    )
+    paid_id = steps["paid"].id
+    reordered_ids = [paid_id] + [step_id for step_id in ids if step_id != paid_id]
+    assert (
+        client.post(
+            "/api/invoice-status-steps/reorder", {"ids": reordered_ids}, format="json"
+        ).status_code
+        == 400
+    )
+    valid_ids = [step_id for step_id in ids if step_id != paid_id] + [paid_id]
+    reordered = client.post("/api/invoice-status-steps/reorder", {"ids": valid_ids}, format="json")
+    assert reordered.status_code == 200
+    assert [step["id"] for step in reordered.data["steps"]] == valid_ids
+
+
+def test_invoice_transition_rejects_missing_void_and_inactive_step(invoice, admin):
+    client = authenticated(admin)
+    steps = {step.code: step for step in ensure_default_steps(admin.organization)}
+    assert (
+        client.patch(
+            "/api/invoices/iv-missing/status", {"statusId": steps["draft"].id}, format="json"
+        ).status_code
+        == 404
+    )
+    inactive = client.post(
+        "/api/invoice-status-steps",
+        {"label": "On hold", "active": False},
+        format="json",
+    )
+    assert inactive.status_code == 201
+    assert (
+        client.patch(
+            f"/api/invoices/{invoice.id}/status",
+            {"statusId": inactive.data["step"]["id"]},
+            format="json",
+        ).status_code
+        == 400
+    )
+    invoice.status = Invoice.Status.VOID
+    invoice.save(update_fields=("status",))
+    assert (
+        client.patch(
+            f"/api/invoices/{invoice.id}/status", {"statusId": steps["draft"].id}, format="json"
+        ).status_code
+        == 409
+    )

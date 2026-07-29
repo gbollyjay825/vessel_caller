@@ -30,6 +30,8 @@ from .serializers import (
     CancelSerializer,
     EvidenceFinalizeSerializer,
     EvidencePresignSerializer,
+    LogoFinalizeSerializer,
+    LogoPresignSerializer,
     InspectionSerializer,
     PaymentCreateSerializer,
     ReversalSerializer,
@@ -48,11 +50,14 @@ from .storage import (
     local_download,
     local_upload,
     object_key,
+    logo_key,
+    logo_upload_key,
     object_metadata,
     permanent_object_key,
     presign_download,
     presign_upload,
     promote_object,
+    validate_logo,
 )
 
 
@@ -554,7 +559,6 @@ class OrganizationView(APIView):
             "designatedPort": "primary_port",
             "primaryPort": "primary_port",
             "ports": "ports",
-            "logo": "logo_object_key",
             "registered": "registered",
         }
         for key, field in mapping.items():
@@ -580,6 +584,60 @@ class OrganizationView(APIView):
         if self.request.method == "PUT":
             self.required_permission = "organization.manage"
         return super().get_permissions()
+
+
+class OrganizationLogoView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "organization.manage"
+
+    def get(self, request):
+        key = request.user.organization.logo_object_key
+        return Response({"hasLogo": bool(key), "downloadUrl": presign_download(request, key=key) if key else None})
+
+    def post(self, request):
+        serializer = LogoPresignSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        key = logo_upload_key(request.user.organization_id, data["fileName"])
+        return Response(presign_upload(request, key=key, content_type=data["contentType"], size=data["size"], checksum=data["checksum"]))
+
+    @transaction.atomic
+    def put(self, request):
+        serializer = LogoFinalizeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        key = data["objectKey"]
+        if not key.startswith(f"organizations/{request.user.organization_id}/logos/uploads/"):
+            raise ValidationError({"objectKey": ["Logo upload does not belong to this organization"]})
+        metadata = object_metadata(key)
+        if not metadata or metadata["size"] != data["size"] or metadata["checksum"] != data["checksum"].removeprefix("sha256:"):
+            raise ValidationError({"objectKey": ["Uploaded logo could not be verified"]})
+        try:
+            validate_logo(key, data["contentType"], data["size"])
+        except (OSError, ValueError) as exc:
+            raise ValidationError({"objectKey": [str(exc)]}) from exc
+        org = Organization.objects.select_for_update().get(pk=request.user.organization_id)
+        destination = logo_key(org.id, data["fileName"])
+        if not promote_object(key, destination):
+            raise ValidationError({"objectKey": ["Logo could not be finalized"]})
+        previous = org.logo_object_key
+        org.logo_object_key = destination
+        org.save(update_fields=("logo_object_key", "updated_at"))
+        if previous:
+            delete_object(previous)
+        revision = bump_revision(org.id)
+        record_event(organization=org, actor=request.user, action="organization.logo_updated", category="settings", target=org, target_label=org.name, request=request)
+        return Response({"hasLogo": True, "downloadUrl": presign_download(request, key=destination), "rev": revision})
+
+    @transaction.atomic
+    def delete(self, request):
+        org = Organization.objects.select_for_update().get(pk=request.user.organization_id)
+        previous = org.logo_object_key
+        org.logo_object_key = ""
+        org.save(update_fields=("logo_object_key", "updated_at"))
+        if previous:
+            delete_object(previous)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class SettingsView(APIView):
@@ -934,7 +992,7 @@ class InvoiceDocumentView(APIView):
                 ("Harbour dues (USD)", invoice.dues),
                 ("Commission (USD)", invoice.commission_usd),
                 ("Commission (NGN)", invoice.commission_ngn),
-            ],
+            ], logo_key=invoice.organization.logo_object_key,
         )
         response = HttpResponse(content, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{invoice.invoice_no}.pdf"'
@@ -953,7 +1011,7 @@ class InspectionDocumentView(APIView):
         for section in inspection_report_sections(inspection):
             rows.append((section["title"], ""))
             rows.extend((field["label"], field["value"]) for field in section["fields"])
-        content = simple_pdf(f"Inspection {inspection.reference}", rows)
+        content = simple_pdf(f"Inspection {inspection.reference}", rows, logo_key=inspection.organization.logo_object_key)
         return HttpResponse(content, content_type="application/pdf")
 
 

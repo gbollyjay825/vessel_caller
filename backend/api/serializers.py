@@ -397,3 +397,14 @@ class EvidencePresignSerializer(serializers.Serializer):
 
 class EvidenceFinalizeSerializer(EvidencePresignSerializer):
     objectKey = serializers.CharField(max_length=1024)
+
+
+class LogoPresignSerializer(serializers.Serializer):
+    fileName = serializers.CharField(max_length=255)
+    contentType = serializers.ChoiceField(choices=["image/jpeg", "image/png", "image/webp"])
+    size = serializers.IntegerField(min_value=1, max_value=2 * 1024 * 1024)
+    checksum = serializers.RegexField(regex=r"^sha256:[0-9a-f]{64}$")
+
+
+class LogoFinalizeSerializer(LogoPresignSerializer):
+    objectKey = serializers.CharField(max_length=1024)

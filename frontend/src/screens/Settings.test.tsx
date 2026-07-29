@@ -173,7 +173,24 @@ describe("Settings", () => {
     await userEvent.type(screen.getByLabelText("Add status step"), "Awaiting documents");
     await userEvent.click(screen.getByRole("button", { name: "Add step" }));
     expect(mocks.store.createInvoiceStatusStep).toHaveBeenCalledWith("Awaiting documents");
-    expect(screen.queryByRole("button", { name: "Deactivate" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Deactivate" }).length).toBeGreaterThan(0);
+  });
+
+  it("does not change a workflow label when rename is cancelled", async () => {
+    vi.spyOn(window, "prompt").mockReturnValue(null);
+    renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    expect(mocks.store.updateInvoiceStatusStep).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: "Deactivate" }).length).toBeGreaterThan(0);
+  });
+
+  it("does not persist a blank workflow rename", async () => {
+    vi.spyOn(window, "prompt").mockReturnValue("   ");
+    renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    expect(mocks.store.updateInvoiceStatusStep).not.toHaveBeenCalled();
   });
 
   it("is fully read-only for non-admin users", async () => {

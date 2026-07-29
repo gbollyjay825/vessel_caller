@@ -13,7 +13,9 @@ class InternalTestingOnly(APIException):
 
 def require_public_registration() -> None:
     if not settings.PUBLIC_REGISTRATION_ENABLED:
-        raise InternalTestingOnly("Organization registration is not open during internal admin testing.")
+        raise InternalTestingOnly(
+            "Organization registration is not open during internal admin testing."
+        )
 
 
 def require_email_delivery() -> None:

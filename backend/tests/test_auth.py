@@ -95,11 +95,17 @@ def test_internal_admin_testing_fails_closed_before_creating_email_onboarding_st
     )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "Organization registration is not open during internal admin testing."
+    assert (
+        response.json()["detail"]
+        == "Organization registration is not open during internal admin testing."
+    )
     assert not User.objects.filter(email="blocked@example.test").exists()
-    assert api_client.post(
-        "/api/auth/forgot-password", {"email": "blocked@example.test"}, format="json"
-    ).status_code == 503
+    assert (
+        api_client.post(
+            "/api/auth/forgot-password", {"email": "blocked@example.test"}, format="json"
+        ).status_code
+        == 503
+    )
 
 
 def test_legacy_passlib_password_upgrades_on_login(organization):

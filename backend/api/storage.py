@@ -34,7 +34,9 @@ def permanent_object_key(organization_id: str, inspection_id: str, file_name: st
 
 
 def logo_upload_key(organization_id: str, file_name: str) -> str:
-    return f"organizations/{organization_id}/logos/uploads/{uuid.uuid4().hex}-{safe_name(file_name)}"
+    return (
+        f"organizations/{organization_id}/logos/uploads/{uuid.uuid4().hex}-{safe_name(file_name)}"
+    )
 
 
 def logo_key(organization_id: str, file_name: str) -> str:
@@ -46,13 +48,16 @@ def validate_logo(key: str, content_type: str, size: int) -> None:
     if content_type not in allowed or size < 1 or size > 2 * 1024 * 1024:
         raise ValueError("Logo must be PNG, JPEG, or WebP and at most 2 MB")
     from PIL import Image
+
     with default_storage.open(key, "rb") as source:
         image = Image.open(source)
         image.verify()
     with default_storage.open(key, "rb") as source:
         image = Image.open(source)
         width, height = image.size
-        if image.format != allowed[content_type] or not (16 <= width <= 4096 and 16 <= height <= 4096):
+        if image.format != allowed[content_type] or not (
+            16 <= width <= 4096 and 16 <= height <= 4096
+        ):
             raise ValueError("Logo image format or dimensions are invalid")
 
 

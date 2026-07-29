@@ -161,7 +161,11 @@ class InvoiceStatusEvent(models.Model):
     source = models.CharField(max_length=20, choices=Source.choices)
     note = models.TextField(blank=True)
     actor = models.ForeignKey(
-        "accounts.User", on_delete=models.PROTECT, null=True, blank=True, related_name="invoice_status_events"
+        "accounts.User",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoice_status_events",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

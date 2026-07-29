@@ -121,18 +121,30 @@ def transition_invoice(
     if previous == step and invoice.status != Invoice.Status.VOID:
         return None
     invoice.current_status = step
-    invoice.status = Invoice.Status.VOID if step is None else (Invoice.Status.PAID if step.is_paid else Invoice.Status.UNPAID)
+    invoice.status = (
+        Invoice.Status.VOID
+        if step is None
+        else (Invoice.Status.PAID if step.is_paid else Invoice.Status.UNPAID)
+    )
     invoice.save(update_fields=("current_status", "status"))
-    return append_status_event(invoice, from_step=previous, to_step=step, source=source, actor=actor, note=note)
+    return append_status_event(
+        invoice, from_step=previous, to_step=step, source=source, actor=actor, note=note
+    )
 
 
-def reconcile_payment_status(invoice: Invoice, *, actor=None, source: str) -> InvoiceStatusEvent | None:
+def reconcile_payment_status(
+    invoice: Invoice, *, actor=None, source: str
+) -> InvoiceStatusEvent | None:
     """Enter Paid once cleared; restore the latest valid non-paid step on reversal."""
     if invoice.status == Invoice.Status.VOID:
         return None
-    total = invoice.payments.filter(reversed_at__isnull=True).aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    total = invoice.payments.filter(reversed_at__isnull=True).aggregate(total=Sum("amount"))[
+        "total"
+    ] or Decimal("0")
     if total >= invoice.dues:
-        return transition_invoice(invoice, paid_step(invoice.organization_id), source=source, actor=actor)
+        return transition_invoice(
+            invoice, paid_step(invoice.organization_id), source=source, actor=actor
+        )
     if invoice.current_status and not invoice.current_status.is_paid:
         return None
     candidate = None
@@ -141,4 +153,9 @@ def reconcile_payment_status(invoice: Invoice, *, actor=None, source: str) -> In
         if step and step.active and not step.is_paid and not step.is_terminal:
             candidate = step
             break
-    return transition_invoice(invoice, candidate or active_default_step(invoice.organization_id), source=source, actor=actor)
+    return transition_invoice(
+        invoice,
+        candidate or active_default_step(invoice.organization_id),
+        source=source,
+        actor=actor,
+    )

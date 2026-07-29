@@ -123,6 +123,7 @@ def inspection_report_sections(inspection) -> list[dict]:
     Keep storage JSON flexible, but never make a browser or PDF consumer infer
     labels from arbitrary keys or display an opaque JSON blob.
     """
+
     def present(value):
         return value not in (None, "")
 
@@ -130,50 +131,71 @@ def inspection_report_sections(inspection) -> list[dict]:
         return {
             "title": title,
             "fields": [
-                {"label": label, "value": value}
-                for label, value in fields
-                if present(value)
+                {"label": label, "value": value} for label, value in fields if present(value)
             ],
         }
 
     sections = [
-        section("Vessel and cargo", [
-            ("Vessel", inspection.vessel_name),
-            ("Inspection reference", inspection.reference),
-            ("Cargo type", inspection.cargo_type),
-            ("Product", inspection.product),
-        ]),
+        section(
+            "Vessel and cargo",
+            [
+                ("Vessel", inspection.vessel_name),
+                ("Inspection reference", inspection.reference),
+                ("Cargo type", inspection.cargo_type),
+                ("Product", inspection.product),
+            ],
+        ),
     ]
     jetty = inspection.jetty or {}
     if jetty:
-        sections.append(section("Jetty", [
-            ("Type", jetty.get("type")),
-            ("Category", jetty.get("category")),
-            ("Name", jetty.get("name")),
-        ]))
+        sections.append(
+            section(
+                "Jetty",
+                [
+                    ("Type", jetty.get("type")),
+                    ("Category", jetty.get("category")),
+                    ("Name", jetty.get("name")),
+                ],
+            )
+        )
     if inspection.cargo_type == "Liquid":
         liquid = inspection.liquid or {}
-        sections.append(section("Liquid measurements", [
-            ("Ullage / sounding (m)", liquid.get("ullage")),
-            ("Observed volume (m³)", liquid.get("observedVol")),
-            ("Temperature (°C)", liquid.get("temp")),
-            ("Bill of Lading quantity (MT)", liquid.get("blQty")),
-            ("Surveyor's reconciled tonnage (MT)", liquid.get("surveyorTonnage")),
-        ]))
+        sections.append(
+            section(
+                "Liquid measurements",
+                [
+                    ("Ullage / sounding (m)", liquid.get("ullage")),
+                    ("Observed volume (m³)", liquid.get("observedVol")),
+                    ("Temperature (°C)", liquid.get("temp")),
+                    ("Bill of Lading quantity (MT)", liquid.get("blQty")),
+                    ("Surveyor's reconciled tonnage (MT)", liquid.get("surveyorTonnage")),
+                ],
+            )
+        )
     else:
         dry = inspection.dry or {}
-        sections.append(section("Draft survey", [
-            ("Displacement before (MT)", dry.get("displBefore")),
-            ("Displacement after (MT)", dry.get("displAfter")),
-            ("Deductibles (MT)", dry.get("deductibles")),
-            ("Constant (MT)", dry.get("constant")),
-        ]))
-    sections.append(section("Reconciliation and completion", [
-        ("Reconciled tonnage (MT)", number(inspection.reconciled_tonnage)),
-        ("Status", inspection.status),
-        ("Completed", iso(inspection.completed_at)),
-        ("Recorded", iso(inspection.created_at)),
-    ]))
+        sections.append(
+            section(
+                "Draft survey",
+                [
+                    ("Displacement before (MT)", dry.get("displBefore")),
+                    ("Displacement after (MT)", dry.get("displAfter")),
+                    ("Deductibles (MT)", dry.get("deductibles")),
+                    ("Constant (MT)", dry.get("constant")),
+                ],
+            )
+        )
+    sections.append(
+        section(
+            "Reconciliation and completion",
+            [
+                ("Reconciled tonnage (MT)", number(inspection.reconciled_tonnage)),
+                ("Status", inspection.status),
+                ("Completed", iso(inspection.completed_at)),
+                ("Recorded", iso(inspection.created_at)),
+            ],
+        )
+    )
     return [item for item in sections if item["fields"]]
 
 
@@ -438,7 +460,9 @@ class LogoPresignSerializer(serializers.Serializer):
         }
         extension = Path(attrs["fileName"]).suffix.lower()
         if extension not in allowed_extensions[attrs["contentType"]]:
-            raise serializers.ValidationError({"fileName": ["Filename extension does not match the image type"]})
+            raise serializers.ValidationError(
+                {"fileName": ["Filename extension does not match the image type"]}
+            )
         return attrs
 
 

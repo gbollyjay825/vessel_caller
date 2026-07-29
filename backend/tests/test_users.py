@@ -146,7 +146,9 @@ def test_internal_admin_testing_rejects_email_user_actions_before_mutation(admin
 
     assert invitation.status_code == 503
     assert not Invitation.objects.filter(email="blocked-invite@acme.test").exists()
-    assert client.post(f"/api/users/{admin.id}/send-password-reset", format="json").status_code == 503
+    assert (
+        client.post(f"/api/users/{admin.id}/send-password-reset", format="json").status_code == 503
+    )
 
 
 def test_tenant_scope_hides_other_organization(admin):

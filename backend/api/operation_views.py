@@ -690,7 +690,9 @@ class InvoiceTransitionView(APIView):
         serializer = InvoiceTransitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         invoice = (
-            Invoice.objects.select_for_update()
+            # Lock only the invoice row.  `current_status` is nullable, so
+            # PostgreSQL rejects locking the outer-joined related row.
+            Invoice.objects.select_for_update(of=("self",))
             .select_related("current_status", "organization")
             .filter(pk=invoice_id, organization=request.user.organization)
             .first()

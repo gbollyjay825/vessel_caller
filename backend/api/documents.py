@@ -5,14 +5,22 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+from django.core.files.storage import default_storage
 
 
-def simple_pdf(title: str, rows: list[tuple[str, object]]) -> bytes:
+def simple_pdf(title: str, rows: list[tuple[str, object]], *, logo_key: str = "") -> bytes:
     output = BytesIO()
     page = canvas.Canvas(output, pagesize=A4, pageCompression=1)
     page.setTitle(title)
     page.setFont("Helvetica-Bold", 18)
     page.drawString(20 * mm, 275 * mm, title)
+    if logo_key:
+        try:
+            with default_storage.open(logo_key, "rb") as source:
+                page.drawImage(ImageReader(source), 160 * mm, 260 * mm, width=28 * mm, height=18 * mm, preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
     y = 260 * mm
     for label, value in rows:
         page.setFont("Helvetica-Bold", 10)

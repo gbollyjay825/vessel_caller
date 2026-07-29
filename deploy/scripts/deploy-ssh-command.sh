@@ -4,7 +4,9 @@ set -euo pipefail
 original_command="${SSH_ORIGINAL_COMMAND:-}"
 case "${original_command}" in
   "scp -t /var/tmp"|\
-  "scp -t /var/tmp/")
+  "scp -t /var/tmp/"|\
+  "scp -d -t /var/tmp"|\
+  "scp -d -t /var/tmp/")
     exec /usr/bin/scp -t /var/tmp/
     ;;
 esac

@@ -272,7 +272,7 @@ function InvoiceWorkflowSection({ store, canEdit }: { store: ReturnType<typeof u
       <div className="fl" style={{ flex: 1 }}><strong>{step.label}</strong>{!step.active && <span className="muted"> · inactive</span>}{step.isProtected && <span className="muted"> · protected</span>}</div>
       {canEdit && !step.isProtected && <>
         <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index === 0} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i - 1].id! : i === index - 1 ? list[i].id! : item.id!)))}>↑</button>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index >= steps.length - 2} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i + 1].id! : i === index + 1 ? list[i].id! : item.id!)))}>↓</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index >= steps.length - 2} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i + 1].id! : i === index + 1 ? list[i - 1].id! : item.id!)))}>↓</button>
         <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { const next = window.prompt("Status label", step.label); if (next?.trim() && next.trim() !== step.label) void save(() => store.updateInvoiceStatusStep(step.id!, { label: next.trim() })); }}>Rename</button>
         <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => save(() => store.updateInvoiceStatusStep(step.id!, { active: !step.active }))}>{step.active ? "Deactivate" : "Activate"}</button>
       </>}

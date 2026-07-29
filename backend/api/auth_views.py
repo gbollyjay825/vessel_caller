@@ -126,6 +126,9 @@ class RegisterView(APIView):
                 "UNICEM Jetty",
             ],
         )
+        from billing.services import ensure_default_steps
+
+        ensure_default_steps(organization)
         user = User.objects.create_user(
             email=email,
             password=data["password"],

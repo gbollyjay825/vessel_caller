@@ -70,6 +70,10 @@ set -a; source backend/.env.local; set +a
 export DJANGO_SETTINGS_MODULE=vessel_caller.settings.test
 cd backend
 ../.venv/bin/python -m pytest
+# Focused private organization-logo API, validation, and PDF-branding checks:
+../.venv/bin/python -m pytest tests/test_organization_logo.py -q
+# Focused configurable invoice workflow, reconciliation, and RBAC checks:
+../.venv/bin/python -m pytest tests/test_invoice_status_workflow.py -q
 ../.venv/bin/python manage.py makemigrations --check --dry-run
 ../.venv/bin/python manage.py check
 ../.venv/bin/ruff check .

@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
 import { Field } from "../components/ui";
 import { fmtNum } from "../lib/format";
+import { api } from "../lib/api";
 import { type Organization, type Settings as SettingsType } from "../types";
 
 // ---------------------------------------------------------
@@ -112,35 +113,6 @@ function toSettingsForm(s: SettingsType): SettingsForm {
   };
 }
 
-// =========================================================
-// Logo upload — reads the file, downscales on a canvas and
-// returns a compact data-URL (stored in the org record).
-// =========================================================
-function readLogoFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (!file.type || file.type.indexOf("image/") !== 0) return reject(new Error("Please choose an image file"));
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read the file"));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("Could not decode the image"));
-      img.onload = () => {
-        const MAX = 256;
-        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(img.width * scale));
-        canvas.height = Math.max(1, Math.round(img.height * scale));
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("Could not process the image"));
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/png"));
-      };
-      img.src = String(reader.result || "");
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 function LogoUploader({ logo, onChange, toast }:
   { logo: string | null; onChange: (logo: string | null) => void; toast: (m: string, t?: "success" | "error" | "info") => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -149,7 +121,9 @@ function LogoUploader({ logo, onChange, toast }:
     e.target.value = "";
     if (!file) return;
     try {
-      onChange(await readLogoFile(file));
+      const result = await api.uploadOrganizationLogo(file);
+      onChange(result.downloadUrl);
+      toast("Logo uploaded", "success");
     } catch (err: any) {
       if (toast) toast(err.message, "error");
     }
@@ -167,10 +141,10 @@ function LogoUploader({ logo, onChange, toast }:
             <Icon name="download" size={15} strokeWidth={2} style={{ transform: "rotate(180deg)" }} /> Upload logo
           </button>
           {logo && (
-            <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={() => onChange(null)}>Remove</button>
+            <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={async () => { try { await api.removeOrganizationLogo(); onChange(null); toast("Logo removed", "info"); } catch (err: any) { toast(err.message || "Could not remove logo", "error"); } }}>Remove</button>
           )}
         </div>
-        <div className="hint" style={{ marginTop: 6 }}>PNG / JPG — shown in the sidebar and on invoices &amp; reports.</div>
+        <div className="hint" style={{ marginTop: 6 }}>PNG / JPG / WebP, 2 MB max — stored privately and shown on documents.</div>
       </div>
       <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={pick} />
     </div>
@@ -281,6 +255,32 @@ function TeamSection({ canEdit }: { canEdit: boolean }) {
   );
 }
 
+function InvoiceWorkflowSection({ store, canEdit }: { store: ReturnType<typeof useStore>; canEdit: boolean }) {
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const steps = store.invoiceStatusSteps;
+  const save = async (work: () => Promise<void>) => {
+    setBusy(true);
+    try { await work(); store.toast("Invoice workflow updated", "success"); }
+    catch (error: any) { store.toast(error.message || "Could not update invoice workflow", "error"); }
+    finally { setBusy(false); }
+  };
+  return <div className="card card-pad" style={{ maxWidth: 760 }}>
+    <div className="card-title">Invoice status steps</div>
+    <p className="muted" style={{ fontSize: 13, margin: "6px 0 18px" }}>Choose the working stages used before payment. Paid is protected and is set automatically once an invoice is fully paid. Void remains a protected legacy exception.</p>
+    {steps.map((step, index) => <div key={step.id || step.code} className="fin-row" style={{ gap: 10 }}>
+      <div className="fl" style={{ flex: 1 }}><strong>{step.label}</strong>{!step.active && <span className="muted"> · inactive</span>}{step.isProtected && <span className="muted"> · protected</span>}</div>
+      {canEdit && !step.isProtected && <>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index === 0} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i - 1].id! : i === index - 1 ? list[i].id! : item.id!)))}>↑</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index >= steps.length - 2} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i + 1].id! : i === index + 1 ? list[i - 1].id! : item.id!)))}>↓</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { const next = window.prompt("Status label", step.label); if (next?.trim() && next.trim() !== step.label) void save(() => store.updateInvoiceStatusStep(step.id!, { label: next.trim() })); }}>Rename</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => save(() => store.updateInvoiceStatusStep(step.id!, { active: !step.active }))}>{step.active ? "Deactivate" : "Activate"}</button>
+      </>}
+    </div>)}
+    {canEdit && <div className="field-row" style={{ marginTop: 16 }}><Field label="Add status step"><input value={label} maxLength={80} placeholder="e.g. Awaiting documents" onChange={(event) => setLabel(event.target.value)} /></Field><button type="button" className="btn btn-primary" style={{ alignSelf: "end" }} disabled={busy || !label.trim()} onClick={() => save(async () => { await store.createInvoiceStatusStep(label.trim()); setLabel(""); })}>Add step</button></div>}
+  </div>;
+}
+
 // =========================================================
 // Settings (main export)
 // =========================================================
@@ -288,7 +288,7 @@ export function Settings() {
   const store = useStore();
   const { user, can } = useAuth();
 
-  const [tab, setTab] = useState<"organization" | "team" | "charges" | "port">("organization");
+  const [tab, setTab] = useState<"organization" | "team" | "charges" | "port" | "invoice-workflow">("organization");
   const [form, setForm] = useState<SettingsForm>(() => toSettingsForm(store.settings));
   const [dirty, setDirty] = useState(false);
   const [orgForm, setOrgForm] = useState<Organization>(() => normalizeOrg(store.org));
@@ -333,7 +333,7 @@ export function Settings() {
         const patch: Partial<Organization> = {
           name: n.name, rcNumber: n.rcNumber, email: n.email, phone: n.phone,
           address: n.address, ports: n.ports, designatedPort: n.designatedPort,
-          primaryPort: n.designatedPort, logo: n.logo,
+          primaryPort: n.designatedPort,
         };
         await store.updateOrganization(patch);
         setOrgForm(n);
@@ -359,6 +359,7 @@ export function Settings() {
     ["team", "Team & roles"],
     ["charges", "Charge configuration"],
     ["port", "Port profile"],
+    ["invoice-workflow", "Invoice workflow"],
   ];
 
   return (
@@ -384,6 +385,8 @@ export function Settings() {
       {tab === "team" && (
         <TeamSection canEdit={teamCanEdit} />
       )}
+
+      {tab === "invoice-workflow" && <InvoiceWorkflowSection store={store} canEdit={canEdit} />}
 
       {/* ---------- Charge configuration ---------- */}
       {tab === "charges" && (

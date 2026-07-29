@@ -24,17 +24,15 @@ separate Nginx site and application.
 |---|---|
 | Legacy/Future production blue | `127.0.0.1:8001` |
 | Initial Django production green | `127.0.0.1:8002` |
-| Django staging API | `127.0.0.1:8010`, public through `staging-api.vesselcalls.com` |
+| Django staging API | `127.0.0.1:8010`, same-origin through `staging.vesselcalls.com` |
 | Dedicated Redis | `127.0.0.1:6380` |
 
 The active production backend is a one-line Nginx include changed atomically only after
 candidate readiness. `/opt/vessel-caller/current` points to the same active
 release for static assets. Staging has an independent database, bucket, service
-environment, and API hostname. The exact prebuilt staging SPA is served by a
-dedicated protected Vercel project at `staging.vesselcalls.com`; its `/api`
-route proxies to the staging API so browser sessions remain same-origin.
-Vercel holds no production data or runtime credentials and runs no Django,
-Celery, Redis, or PostgreSQL service.
+environment, and hostname. The exact prebuilt staging SPA is served by Droplet
+Nginx at `staging.vesselcalls.com`; its `/api` route proxies to the staging API
+so browser sessions remain same-origin. Vercel is not part of either runtime.
 
 The Droplet allows inbound SSH, HTTP, and HTTPS only. Managed PostgreSQL,
 Spaces, Resend, Sentry, and GitHub are external dependencies. The single

@@ -3,11 +3,10 @@ import { check, sleep } from "k6";
 
 const baseUrl = __ENV.BASE_URL;
 const sessionCookie = __ENV.LOAD_TEST_COOKIE;
-const bypass = __ENV.VERCEL_AUTOMATION_BYPASS_SECRET;
 const expectedRelease = __ENV.EXPECTED_RELEASE;
 
-if (!baseUrl || !sessionCookie || !bypass || !expectedRelease) {
-  throw new Error("BASE_URL, LOAD_TEST_COOKIE, VERCEL_AUTOMATION_BYPASS_SECRET, and EXPECTED_RELEASE are required");
+if (!baseUrl || !sessionCookie || !expectedRelease) {
+  throw new Error("BASE_URL, LOAD_TEST_COOKIE, and EXPECTED_RELEASE are required");
 }
 
 export const options = {
@@ -27,7 +26,6 @@ export const options = {
 
 const headers = {
   Cookie: sessionCookie,
-  "x-vercel-protection-bypass": bypass,
   Accept: "application/json",
 };
 

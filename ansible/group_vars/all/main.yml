@@ -1,6 +1,6 @@
 vessel_preserve_flexschools: true
 vessel_domain: vesselcalls.com
-vessel_staging_domain: staging-api.vesselcalls.com
+vessel_staging_domain: staging.vesselcalls.com
 vessel_staging_frontend_origin: https://staging.vesselcalls.com
 vessel_flexschools_health_url: https://flexschools.ng/
 
@@ -26,6 +26,7 @@ vessel_production_redis_port: 6380
 vessel_staging_redis_port: 6381
 vessel_tls_ready: true
 vessel_staging_tls_ready: true
+vessel_staging_frontend_tls_ready: false
 vessel_staging_application_ready: false
 vessel_staging_runtime_enabled: false
 vessel_production_runtime_enabled: false
@@ -59,7 +60,6 @@ vessel_production_sentry_dsn: "{{ vault_vessel_production_sentry_dsn | default('
 vessel_staging_sentry_dsn: "{{ vault_vessel_staging_sentry_dsn }}"
 vessel_production_redis_password: "{{ vault_vessel_production_redis_password }}"
 vessel_staging_redis_password: "{{ vault_vessel_staging_redis_password }}"
-vessel_staging_proxy_secret: "{{ vault_vessel_staging_proxy_secret }}"
 vessel_backup_age_recipient: "{{ vault_vessel_backup_age_recipient }}"
 vessel_backup_spaces_bucket: "{{ vault_vessel_backup_spaces_bucket }}"
 vessel_backup_spaces_endpoint: "{{ vault_vessel_backup_spaces_endpoint }}"

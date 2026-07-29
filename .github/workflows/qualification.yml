@@ -59,8 +59,6 @@ jobs:
       SPACES_QUALIFICATION_SECRET_ACCESS_KEY: ${{ secrets.SPACES_QUALIFICATION_SECRET_ACCESS_KEY }}
       STAGING_DATABASE_CLUSTER_ID: ${{ vars.STAGING_DATABASE_CLUSTER_ID }}
       STAGING_E2E_PASSWORD: ${{ secrets.STAGING_E2E_PASSWORD }}
-      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -139,8 +137,6 @@ jobs:
             SPACES_QUALIFICATION_SECRET_ACCESS_KEY
             STAGING_DATABASE_CLUSTER_ID
             STAGING_E2E_PASSWORD
-            VERCEL_AUTOMATION_BYPASS_SECRET
-            VERCEL_TOKEN
           )
           missing=()
           for name in "${required[@]}"; do
@@ -233,7 +229,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY: ${{ vars.OPERATOR_EVIDENCE_SIGNING_PUBLIC_KEY }}
           RELEASE_SIGNING_PUBLIC_KEY: ${{ vars.RELEASE_SIGNING_PUBLIC_KEY }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           if [[ "${CURRENT_TAG}" == "${PREVIOUS_TAG}" ]]; then
             echo "Rollback qualification requires two distinct release tags." >&2
@@ -367,7 +362,6 @@ jobs:
           E2E_PASSWORD: ${{ secrets.STAGING_E2E_PASSWORD }}
           PLAYWRIGHT_BASE_URL: https://staging.vesselcalls.com
           PLAYWRIGHT_REAL_BACKEND: "1"
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           npm ci --prefix frontend
           cd frontend
@@ -376,7 +370,6 @@ jobs:
       - name: Run WCAG 2.2 AA automated staging scan
         env:
           ACCESSIBILITY_BASE_URL: https://staging.vesselcalls.com
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         working-directory: frontend
         run: |
           npm install \
@@ -390,11 +383,7 @@ jobs:
 
           const browser = await chromium.launch();
           try {
-            const context = await browser.newContext({
-              extraHTTPHeaders: {
-                "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
-              },
-            });
+            const context = await browser.newContext();
             for (const path of ["/", "/login", "/register"]) {
               const page = await context.newPage();
               await page.goto(`${process.env.ACCESSIBILITY_BASE_URL}${path}`, {
@@ -683,8 +672,6 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DROPLET_HOST }}
           SSH_KEY: ${{ secrets.DROPLET_DEPLOY_SSH_KEY }}
           HOST_KEY: ${{ secrets.DROPLET_HOST_KEY }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           install -d -m 0700 "${HOME}/.ssh"
           printf '%s\n' "${SSH_KEY}" > "${HOME}/.ssh/vessel-caller-deploy"
@@ -709,33 +696,19 @@ jobs:
             ssh "${ssh_options[@]}" "vessel-deploy@${DEPLOY_HOST}" \
               "${remote_command}"
           }
-          alias_tag() {
-            local tag="$1"
-            local preview_url
-            preview_url="$(
-              jq -er '.previewUrl' "artifacts/vessel-caller-${tag}.staging-deployed.json"
-            )"
-            npx --yes vercel@56.4.1 alias set \
-              "${preview_url}" \
-              staging.vesselcalls.com \
-              --token "${VERCEL_TOKEN}"
-          }
           restore_current() {
             set +e
             deploy_tag "${CURRENT_TAG}"
-            alias_tag "${CURRENT_TAG}"
           }
           trap restore_current ERR INT TERM
 
           deploy_tag "${PREVIOUS_TAG}"
-          alias_tag "${PREVIOUS_TAG}"
           deploy/scripts/smoke-test.sh \
             --qualify-release \
             https://staging.vesselcalls.com \
             "${PREVIOUS_TAG}"
 
           deploy_tag "${CURRENT_TAG}"
-          alias_tag "${CURRENT_TAG}"
           deploy/scripts/smoke-test.sh \
             --qualify-release \
             https://staging.vesselcalls.com \

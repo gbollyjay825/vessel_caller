@@ -1,11 +1,10 @@
 # Vessel Caller Droplet deployment
 
 Vessel Caller’s target deployment uses immutable, offline-installable releases
-and isolated Django blue/green services. Production is hosted only on the
-shared FlexSchools Droplet, but the live service remains legacy FastAPI blue
-until the provider-backed Django cutover is qualified. The dedicated protected
-Vercel staging SPA and its narrow authenticated API proxy are also target
-state; missing provider credentials keep those gates deferred and fail-closed.
+and isolated Django blue/green services. Production and staging are hosted on
+the shared FlexSchools Droplet. Staging serves the immutable SPA and Django API
+together at `staging.vesselcalls.com`; it never uses Vercel. Missing provider
+credentials keep external-provider gates deferred and fail-closed.
 
 ## Layout
 

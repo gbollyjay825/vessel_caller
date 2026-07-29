@@ -1,7 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:5173";
-const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 const realBackend = process.env.PLAYWRIGHT_REAL_BACKEND === "1";
 if (realBackend && !process.env.E2E_PASSWORD?.trim()) {
   throw new Error(
@@ -24,9 +23,6 @@ export default defineConfig({
     baseURL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
-    extraHTTPHeaders: bypassSecret
-      ? { "x-vercel-protection-bypass": bypassSecret }
-      : undefined,
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },

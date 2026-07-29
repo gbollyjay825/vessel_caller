@@ -2,10 +2,12 @@
 - name: Require staging TLS before the application can be marked ready
   ansible.builtin.assert:
     that:
-      - not (vessel_staging_application_ready | bool) or (vessel_staging_tls_ready | bool)
+      - >-
+        not (vessel_staging_application_ready | bool)
+        or ((vessel_staging_tls_ready | bool) and (vessel_staging_frontend_tls_ready | bool))
     fail_msg: >-
-      vessel_staging_application_ready=true requires
-      vessel_staging_tls_ready=true.
+      vessel_staging_application_ready=true requires TLS for both
+      staging-api.vesselcalls.com and staging.vesselcalls.com.
 
 - name: Create Vessel Caller Nginx include directory
   ansible.builtin.file:
@@ -31,17 +33,6 @@
     owner: root
     group: root
     mode: "0644"
-
-- name: Install protected Vercel-to-staging proxy identity
-  ansible.builtin.template:
-    src: staging-proxy-map.conf.j2
-    dest: /etc/nginx/vessel-caller/staging-proxy-map.conf
-    owner: root
-    group: www-data
-    mode: "0640"
-  no_log: true
-  when: vessel_staging_runtime_enabled | bool
-  notify: Validate and reload Nginx
 
 - name: Install maintenance page
   ansible.builtin.copy:
@@ -75,6 +66,7 @@
         (
           (vessel_staging_application_ready | bool)
           and (vessel_staging_tls_ready | bool)
+          and (vessel_staging_frontend_tls_ready | bool)
         ) | ternary(
           'nginx-vessel-caller-staging.conf',
           (vessel_staging_tls_ready | bool) | ternary(

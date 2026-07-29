@@ -64,23 +64,16 @@ buckets, enable versioning/lifecycle controls, issue least-privilege keys,
 configure encrypted off-host backups, and verify public-access denial,
 authorization, checksums, retention, and restore behavior.
 
-## 5. Approve protected Vercel staging and issue its token
+## 5. Point staging DNS to the Droplet and approve TLS issuance
 
-**Minimal action:** approve the Vercel plan/add-on needed to protect the
-`staging.vesselcalls.com` custom domain, then create a deployment token limited
-to the team that owns `vessel-caller-staging` and make it available for
-protected GitHub secret entry. Do not send it in chat or commit it to the
-repository.
+**Minimal action:** replace the `staging.vesselcalls.com` CNAME with an A record
+to the approved Droplet IP, then authorize issuance of its Let’s Encrypt
+certificate.
 
-**Why a person is required:** the project currently has Standard Vercel
-Authentication, which excludes custom domains; protecting all deployments is a
-paid-plan/add-on decision. The CI token is also a durable account credential
-that must be issued and revocable by the Vercel account owner.
+**Why a person is required:** the DNS zone owner alone can redirect a hostname.
 
-**Codex will then:** enable protection for the already-created dedicated
-project and verified domain, configure the automation bypass and proxy secret,
-store the token in the protected GitHub environment, and deploy only the signed
-prebuilt staging artifact. Git autodeploy remains disabled.
+**Codex will then:** validate DNS and certificate issuance, enable the isolated
+Droplet staging site, and deploy only the signed prebuilt artifact.
 
 ## 6. Establish signing-key custody
 

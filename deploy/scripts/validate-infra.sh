@@ -18,8 +18,6 @@ else
   echo "YAML syntax: skipped (Ruby/Psych unavailable)"
 fi
 
-python3 -m json.tool "${repo_root}/vercel.json" >/dev/null
-python3 -m json.tool "${repo_root}/deploy/vercel-output-config.json" >/dev/null
 python3 -m json.tool "${repo_root}/deploy/backup-lifecycle.json" >/dev/null
 echo "JSON syntax: passed"
 

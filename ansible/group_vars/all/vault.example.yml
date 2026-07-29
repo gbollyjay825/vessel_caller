@@ -13,7 +13,6 @@ vault_vessel_production_mfa_encryption_key: CHANGE_ME
 vault_vessel_staging_mfa_encryption_key: CHANGE_ME
 vault_vessel_production_redis_password: CHANGE_ME
 vault_vessel_staging_redis_password: CHANGE_ME
-vault_vessel_staging_proxy_secret: CHANGE_ME
 vault_vessel_production_resend_api_key: CHANGE_ME
 vault_vessel_production_email_from: CHANGE_ME
 vault_vessel_staging_resend_api_key: CHANGE_ME

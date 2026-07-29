@@ -34,7 +34,6 @@ jobs:
         env:
           BASE_URL: https://staging.vesselcalls.com
           LOAD_TEST_COOKIE: ${{ secrets.LOAD_TEST_COOKIE }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           EXPECTED_RELEASE: ${{ inputs.release }}
         run: k6 run --summary-export=load-summary.json tests/load/staging.js
       - name: Upload capacity evidence

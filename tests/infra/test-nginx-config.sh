@@ -10,6 +10,7 @@ mkdir -p \
   "${fixture_root}/logs" \
   "${fixture_root}/vessel-caller" \
   "${fixture_root}/letsencrypt/live/vesselcalls.com" \
+  "${fixture_root}/letsencrypt/live/staging.vesselcalls.com" \
   "${fixture_root}/letsencrypt/live/staging-api.vesselcalls.com" \
   "${fixture_root}/var/lib/vessel-caller" \
   "${fixture_root}/var/www/letsencrypt" \
@@ -17,7 +18,6 @@ mkdir -p \
 
 printf 'server 127.0.0.1:8001;\n' > "${fixture_root}/vessel-caller/active-upstream.conf"
 cp "${repo_root}/deploy/staff-allowlist.conf" "${fixture_root}/vessel-caller/staff-allowlist.conf"
-printf '"test-only-staging-proxy-secret" 1;\n' > "${fixture_root}/vessel-caller/staging-proxy-map.conf"
 openssl req \
   -x509 \
   -newkey rsa:2048 \
@@ -33,6 +33,12 @@ cp \
 cp \
   "${fixture_root}/letsencrypt/live/vesselcalls.com/fullchain.pem" \
   "${fixture_root}/letsencrypt/live/staging-api.vesselcalls.com/fullchain.pem"
+cp \
+  "${fixture_root}/letsencrypt/live/vesselcalls.com/privkey.pem" \
+  "${fixture_root}/letsencrypt/live/staging.vesselcalls.com/privkey.pem"
+cp \
+  "${fixture_root}/letsencrypt/live/vesselcalls.com/fullchain.pem" \
+  "${fixture_root}/letsencrypt/live/staging.vesselcalls.com/fullchain.pem"
 
 validate_variant() {
   local production_config="$1"

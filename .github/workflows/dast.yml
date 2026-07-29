@@ -27,10 +27,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: staging
-    env:
-      ZAP_AUTH_HEADER: x-vercel-protection-bypass
-      ZAP_AUTH_HEADER_VALUE: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-      ZAP_AUTH_HEADER_SITE: staging.vesselcalls.com
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,14 +34,12 @@ jobs:
       - name: Verify deployed release identity
         env:
           EXPECTED_RELEASE: ${{ inputs.release }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           release="$(
             curl \
               --fail \
               --silent \
               --show-error \
-              --header "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
               https://staging.vesselcalls.com/api/health |
               jq -er '.release.tag'
           )"

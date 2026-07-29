@@ -27,7 +27,7 @@ case "${target}" in
       --fail \
       --silent \
       --show-error \
-      --header "Host: staging-api.vesselcalls.com" \
+      --header "Host: staging.vesselcalls.com" \
       --header "X-Forwarded-Proto: https" \
       http://127.0.0.1:8010/api/readiness >/dev/null
     ;;

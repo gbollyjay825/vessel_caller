@@ -255,6 +255,32 @@ function TeamSection({ canEdit }: { canEdit: boolean }) {
   );
 }
 
+function InvoiceWorkflowSection({ store, canEdit }: { store: ReturnType<typeof useStore>; canEdit: boolean }) {
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const steps = store.invoiceStatusSteps;
+  const save = async (work: () => Promise<void>) => {
+    setBusy(true);
+    try { await work(); store.toast("Invoice workflow updated", "success"); }
+    catch (error: any) { store.toast(error.message || "Could not update invoice workflow", "error"); }
+    finally { setBusy(false); }
+  };
+  return <div className="card card-pad" style={{ maxWidth: 760 }}>
+    <div className="card-title">Invoice status steps</div>
+    <p className="muted" style={{ fontSize: 13, margin: "6px 0 18px" }}>Choose the working stages used before payment. Paid is protected and is set automatically once an invoice is fully paid. Void remains a protected legacy exception.</p>
+    {steps.map((step, index) => <div key={step.id || step.code} className="fin-row" style={{ gap: 10 }}>
+      <div className="fl" style={{ flex: 1 }}><strong>{step.label}</strong>{!step.active && <span className="muted"> · inactive</span>}{step.isProtected && <span className="muted"> · protected</span>}</div>
+      {canEdit && !step.isProtected && <>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index === 0} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i - 1].id! : i === index - 1 ? list[i].id! : item.id!)))}>↑</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index >= steps.length - 2} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i + 1].id! : i === index + 1 ? list[i].id! : item.id!)))}>↓</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { const next = window.prompt("Status label", step.label); if (next?.trim() && next.trim() !== step.label) void save(() => store.updateInvoiceStatusStep(step.id!, { label: next.trim() })); }}>Rename</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => save(() => store.updateInvoiceStatusStep(step.id!, { active: !step.active }))}>{step.active ? "Deactivate" : "Activate"}</button>
+      </>}
+    </div>)}
+    {canEdit && <div className="field-row" style={{ marginTop: 16 }}><Field label="Add status step"><input value={label} maxLength={80} placeholder="e.g. Awaiting documents" onChange={(event) => setLabel(event.target.value)} /></Field><button type="button" className="btn btn-primary" style={{ alignSelf: "end" }} disabled={busy || !label.trim()} onClick={() => save(async () => { await store.createInvoiceStatusStep(label.trim()); setLabel(""); })}>Add step</button></div>}
+  </div>;
+}
+
 // =========================================================
 // Settings (main export)
 // =========================================================
@@ -262,7 +288,7 @@ export function Settings() {
   const store = useStore();
   const { user, can } = useAuth();
 
-  const [tab, setTab] = useState<"organization" | "team" | "charges" | "port">("organization");
+  const [tab, setTab] = useState<"organization" | "team" | "charges" | "port" | "invoice-workflow">("organization");
   const [form, setForm] = useState<SettingsForm>(() => toSettingsForm(store.settings));
   const [dirty, setDirty] = useState(false);
   const [orgForm, setOrgForm] = useState<Organization>(() => normalizeOrg(store.org));
@@ -333,6 +359,7 @@ export function Settings() {
     ["team", "Team & roles"],
     ["charges", "Charge configuration"],
     ["port", "Port profile"],
+    ["invoice-workflow", "Invoice workflow"],
   ];
 
   return (
@@ -358,6 +385,8 @@ export function Settings() {
       {tab === "team" && (
         <TeamSection canEdit={teamCanEdit} />
       )}
+
+      {tab === "invoice-workflow" && <InvoiceWorkflowSection store={store} canEdit={canEdit} />}
 
       {/* ---------- Charge configuration ---------- */}
       {tab === "charges" && (

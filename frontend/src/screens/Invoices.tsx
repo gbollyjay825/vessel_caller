@@ -75,7 +75,7 @@ export function Invoices() {
     { key: "cargoType", label: "Cargo", render: (r) => r.cargoType ? <CargoTag type={r.cargoType} /> : <span className="muted">—</span> },
     { key: "dues", label: "Amount (USD)", num: true, sortable: true, render: (r) => <span className="money tnum"><span className="usd">{fmtUSD(r.dues)}</span></span> },
     { key: "commissionUsd", label: "Commission", num: true, render: (r) => <span className="money tnum"><span className="usd">{fmtUSD(r.commissionUsd)}</span><span className="ngn">{fmtNGN(r.commissionNgn)}</span></span> },
-    { key: "status", label: "Status", sortable: true, sortVal: (r) => r.effective, render: (r) => <StatusBadge status={r.effective} /> },
+    { key: "status", label: "Status", sortable: true, sortVal: (r) => r.effective, render: (r) => <><StatusBadge status={r.effective} /><div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{r.workflowStatus?.label || r.status}</div></> },
     { key: "due", label: "Due", sortable: true, sortVal: (r) => r.due, render: (r) => <span className="tnum muted">{fmtDate(r.due)}</span> },
     { key: "actions", label: "", num: true, render: (r) => (
       <div className="cell-actions">
@@ -146,6 +146,15 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
   const [reversalReason, setReversalReason] = useState("");
   const [reversing, setReversing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [nextStatusId, setNextStatusId] = useState("");
+  const workflow = row.workflowStatus;
+  const moveInvoice = async () => {
+    if (!nextStatusId) return;
+    setBusy(true);
+    try { await store.transitionInvoice(row.id, nextStatusId); store.toast(`Invoice moved to the selected status`, "success"); onClose(); }
+    catch (error) { store.toast(error instanceof Error ? error.message : "Could not update invoice status", "error"); }
+    finally { setBusy(false); }
+  };
 
   const recordPayment = async () => {
     setBusy(true);
@@ -184,7 +193,7 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
         <PdfButton kind="invoice" id={row.id} />
       </>}>
       <div className="flex between items-center" style={{ marginBottom: 20 }}>
-        <StatusBadge status={effective} />
+        <div><StatusBadge status={effective} /><div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{workflow?.label || row.status}</div></div>
         <span className="muted" style={{ fontSize: 13 }}>Issued {fmtDate(row.issued)} · Due {fmtDate(row.due)}</span>
       </div>
       <div className="card-title" style={{ marginBottom: 14 }}>Line-item breakdown</div>
@@ -194,6 +203,13 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
       <div className="fin-row"><div className="fl">NPA harbour dues</div><div className="fv tnum">{fmtUSD(row.dues)}</div></div>
       <div className="fin-row"><div className="fl">Agency commission<span className="basis">{store.settings.commissionRate}% · ₦{fmtNum(store.settings.exchangeRate)}/USD</span></div><div className="fv tnum">{fmtUSD(row.commissionUsd)} · {fmtNGN(row.commissionNgn)}</div></div>
       <div className="fin-total"><div className="fl">Invoice total</div><div className="fv tnum">{fmtUSD(row.dues)}<span className="ngn">{fmtNGN(row.dues * store.settings.exchangeRate)}</span></div></div>
+
+      <div className="card-title" style={{ margin: "26px 0 14px" }}>Status progression</div>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>{(row.statusHistory || []).map((event) => event.toLabel).join(" → ") || workflow?.label || row.status}</div>
+      {store.can("recordPayment") && effective !== "void" && (
+        <div className="field-row"><Field label="Move to status"><select value={nextStatusId} onChange={(event) => setNextStatusId(event.target.value)}><option value="">Choose status</option>{(store.invoiceStatusSteps || []).filter((step) => step.active && !step.isPaid).map((step) => <option value={step.id || ""} key={step.id}>{step.label}</option>)}</select></Field><button type="button" className="btn btn-secondary" style={{ alignSelf: "end" }} disabled={busy || !nextStatusId} onClick={moveInvoice}>Update status</button></div>
+      )}
+      {(row.statusHistory || []).length > 0 && <div className="card" style={{ padding: 12, marginBottom: 10 }}>{row.statusHistory!.map((event) => <div key={event.id} className="fin-row"><div className="fl">{event.toLabel}<span className="basis">{event.source}{event.actorName ? ` · ${event.actorName}` : ""}</span></div><div className="fv muted">{fmtDate(event.createdAt)}</div></div>)}</div>}
 
       {/* ---- Payment tracking ---- */}
       <div className="card-title" style={{ margin: "26px 0 14px" }}>Payment</div>

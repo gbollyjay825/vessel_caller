@@ -7,6 +7,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from accounts.models import User
+from billing.services import workflow_step_data
 
 
 def number(value):
@@ -193,6 +194,27 @@ def payment_data(payment) -> dict:
 
 def invoice_data(invoice) -> dict:
     current = invoice.payments.filter(reversed_at__isnull=True).first()
+    current_step = getattr(invoice, "current_status", None)
+    history = []
+    try:
+        events = invoice.status_events.select_related("actor").all()
+    except AttributeError:  # compatibility during the one-release migration window
+        events = []
+    for event in events:
+        history.append(
+            {
+                "id": event.id,
+                "fromCode": event.from_code or None,
+                "fromLabel": event.from_label or None,
+                "toCode": event.to_code,
+                "toLabel": event.to_label,
+                "source": event.source,
+                "note": event.note or None,
+                "actorId": event.actor_id,
+                "actorName": event.actor.name if event.actor else None,
+                "createdAt": iso(event.created_at),
+            }
+        )
     return {
         "id": invoice.id,
         "invoiceNo": invoice.invoice_no,
@@ -202,6 +224,8 @@ def invoice_data(invoice) -> dict:
         "issued": iso(invoice.issued_on),
         "due": iso(invoice.due_on),
         "status": invoice.status,
+        "workflowStatus": workflow_step_data(current_step, legacy_status=invoice.status),
+        "statusHistory": history,
         "dues": number(invoice.dues),
         "rate": number(invoice.rate),
         "commissionUsd": number(invoice.commission_usd),
@@ -420,3 +444,23 @@ class LogoPresignSerializer(serializers.Serializer):
 
 class LogoFinalizeSerializer(LogoPresignSerializer):
     objectKey = serializers.CharField(max_length=1024)
+
+
+class InvoiceStatusStepSerializer(serializers.Serializer):
+    code = serializers.SlugField(max_length=50, required=False)
+    label = serializers.CharField(max_length=80)
+    active = serializers.BooleanField(required=False, default=True)
+
+
+class InvoiceStatusStepUpdateSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=80, required=False)
+    active = serializers.BooleanField(required=False)
+
+
+class InvoiceStatusReorderSerializer(serializers.Serializer):
+    ids = serializers.ListField(child=serializers.CharField(max_length=32), min_length=1)
+
+
+class InvoiceTransitionSerializer(serializers.Serializer):
+    statusId = serializers.CharField(max_length=32)
+    note = serializers.CharField(max_length=500, required=False, allow_blank=True)

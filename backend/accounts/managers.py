@@ -41,5 +41,8 @@ class UserManager(BaseUserManager["User"]):
                 registered=True,
             )
             OrganizationSettings.objects.create(organization=organization)
+            from billing.services import ensure_default_steps
+
+            ensure_default_steps(organization)
             extra_fields["organization"] = organization
         return self._create_user(email, password, **extra_fields)

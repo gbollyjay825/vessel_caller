@@ -389,6 +389,11 @@ export const api = {
     return request<{ downloadUrl: string }>("/api/organization/logo", { method: "PUT", body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, checksum, objectKey: prepared.objectKey }) });
   },
   removeOrganizationLogo: () => request<void>("/api/organization/logo", { method: "DELETE" }),
+  invoiceStatusSteps: () => request<{ steps: import("../types").InvoiceWorkflowStatus[] }>("/api/invoice-status-steps"),
+  createInvoiceStatusStep: (data: { label: string; code?: string; active?: boolean }) => request<{ step: import("../types").InvoiceWorkflowStatus; rev: number }>("/api/invoice-status-steps", { method: "POST", body: JSON.stringify(data) }),
+  updateInvoiceStatusStep: (id: string, data: { label?: string; active?: boolean }) => request<{ step: import("../types").InvoiceWorkflowStatus; rev: number }>(`/api/invoice-status-steps/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  reorderInvoiceStatusSteps: (ids: string[]) => request<{ steps: import("../types").InvoiceWorkflowStatus[]; rev: number }>("/api/invoice-status-steps/reorder", { method: "POST", body: JSON.stringify({ ids }) }),
+  transitionInvoice: (id: string, data: { statusId: string; note?: string }) => request<{ invoice: Invoice; rev: number }>(`/api/invoices/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify(data) }),
 
   createCall: (data: Partial<VesselCall>) =>
     request<{ call: VesselCall; rev: number }>("/api/vessel-calls", {

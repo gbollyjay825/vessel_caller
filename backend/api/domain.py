@@ -8,6 +8,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from billing.models import Invoice, NumberSequence
+from billing.services import active_default_step, append_status_event
 from operations.models import Inspection, VesselCall
 from organizations.models import Organization, OrganizationSettings
 
@@ -91,11 +92,19 @@ def finalize_inspection(
             issued_on=now.date(),
             due_on=(now + timedelta(days=14)).date(),
             status=Invoice.Status.UNPAID,
+            current_status=active_default_step(organization_id),
             dues=dues,
             rate=rate,
             commission_usd=commission_usd,
             commission_ngn=commission_ngn,
             exchange_rate=settings_obj.exchange_rate,
+        )
+        append_status_event(
+            invoice,
+            from_step=None,
+            to_step=invoice.current_status,
+            source="created",
+            note="Invoice created from completed inspection",
         )
     except IntegrityError:
         invoice = Invoice.objects.get(inspection=inspection)

@@ -54,7 +54,7 @@ def test_logo_validation_rejects_corrupt_or_mismatched_magic(monkeypatch):
             return BytesIO(b"not an image")
 
     monkeypatch.setattr(storage, "default_storage", CorruptStorage())
-    with pytest.raises(Exception):
+    with pytest.raises(OSError):
         storage.validate_logo("organizations/org/logos/uploads/bad.png", "image/png", 12)
 
 

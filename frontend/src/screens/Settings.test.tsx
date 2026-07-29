@@ -72,7 +72,7 @@ describe("Settings", () => {
     fireEvent.change(upload, {
       target: { files: [new File(["plain text"], "logo.txt", { type: "text/plain" })] },
     });
-    await waitFor(() => expect(mocks.store.toast).toHaveBeenCalledWith("Please choose an image file", "error"));
+    await waitFor(() => expect(mocks.store.toast).toHaveBeenCalledWith("Choose a PNG, JPEG, or WebP image no larger than 2 MB.", "error"));
 
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(mocks.store.updateOrganization).toHaveBeenCalledWith(expect.objectContaining({

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
@@ -404,6 +405,17 @@ class LogoPresignSerializer(serializers.Serializer):
     contentType = serializers.ChoiceField(choices=["image/jpeg", "image/png", "image/webp"])
     size = serializers.IntegerField(min_value=1, max_value=2 * 1024 * 1024)
     checksum = serializers.RegexField(regex=r"^sha256:[0-9a-f]{64}$")
+
+    def validate(self, attrs):
+        allowed_extensions = {
+            "image/png": {".png"},
+            "image/jpeg": {".jpg", ".jpeg"},
+            "image/webp": {".webp"},
+        }
+        extension = Path(attrs["fileName"]).suffix.lower()
+        if extension not in allowed_extensions[attrs["contentType"]]:
+            raise serializers.ValidationError({"fileName": ["Filename extension does not match the image type"]})
+        return attrs
 
 
 class LogoFinalizeSerializer(LogoPresignSerializer):

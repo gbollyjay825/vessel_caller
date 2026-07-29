@@ -436,7 +436,7 @@ class PaymentCreateView(APIView):
         serializer = PaymentCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         invoice = (
-            Invoice.objects.select_for_update()
+            Invoice.objects.select_for_update(of=("self",))
             .filter(pk=invoice_id, organization=request.user.organization)
             .first()
         )

@@ -152,7 +152,7 @@ def inspection_report_sections(inspection) -> list[dict]:
             section(
                 "Jetty",
                 [
-                    ("Type", jetty.get("type")),
+                    ("Jetty type", jetty.get("type")),
                     ("Category", jetty.get("category")),
                     ("Name", jetty.get("name")),
                 ],

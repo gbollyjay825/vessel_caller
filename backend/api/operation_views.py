@@ -1250,7 +1250,7 @@ class InspectionDocumentView(APIView):
         inspection = request.user.organization.inspections.filter(pk=inspection_id).first()
         if not inspection:
             raise NotFound("Inspection not found")
-        rows = []
+        rows: list[tuple[str, object]] = []
         for section in inspection_report_sections(inspection):
             rows.append((section["title"], ""))
             rows.extend((field["label"], field["value"]) for field in section["fields"])

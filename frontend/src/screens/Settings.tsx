@@ -113,35 +113,6 @@ function toSettingsForm(s: SettingsType): SettingsForm {
   };
 }
 
-// =========================================================
-// Logo upload — reads the file, downscales on a canvas and
-// returns a compact data-URL (stored in the org record).
-// =========================================================
-function readLogoFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (!file.type || file.type.indexOf("image/") !== 0) return reject(new Error("Please choose an image file"));
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read the file"));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("Could not decode the image"));
-      img.onload = () => {
-        const MAX = 256;
-        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(img.width * scale));
-        canvas.height = Math.max(1, Math.round(img.height * scale));
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("Could not process the image"));
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/png"));
-      };
-      img.src = String(reader.result || "");
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 function LogoUploader({ logo, onChange, toast }:
   { logo: string | null; onChange: (logo: string | null) => void; toast: (m: string, t?: "success" | "error" | "info") => void }) {
   const inputRef = useRef<HTMLInputElement>(null);

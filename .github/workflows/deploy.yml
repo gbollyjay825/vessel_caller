@@ -227,7 +227,11 @@ jobs:
         run: |
           archive="vessel-caller-${RELEASE_TAG}.tar.gz"
           ssh_options=(-i "${HOME}/.ssh/vessel-caller-deploy" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes)
-          scp "${ssh_options[@]}" \
+          # The restricted deploy account intentionally accepts only the
+          # legacy scp sink command for /var/tmp release artifacts.  Newer
+          # OpenSSH clients default to SFTP, which has no shell command for
+          # the forced-command boundary to validate.
+          scp -O "${ssh_options[@]}" \
             "artifacts/${archive}" \
             "artifacts/${archive}.sha256" \
             "artifacts/${archive}.sig" \

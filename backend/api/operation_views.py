@@ -690,7 +690,7 @@ class InvoiceTransitionView(APIView):
         serializer = InvoiceTransitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         invoice = (
-            Invoice.objects.select_for_update()
+            Invoice.objects.select_for_update(of=("self",))
             .select_related("current_status", "organization")
             .filter(pk=invoice_id, organization=request.user.organization)
             .first()

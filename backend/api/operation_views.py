@@ -37,6 +37,7 @@ from .serializers import (
     call_data,
     evidence_data,
     inspection_data,
+    inspection_report_sections,
     invoice_data,
     organization_data,
     payment_data,
@@ -948,17 +949,11 @@ class InspectionDocumentView(APIView):
         inspection = request.user.organization.inspections.filter(pk=inspection_id).first()
         if not inspection:
             raise NotFound("Inspection not found")
-        content = simple_pdf(
-            f"Inspection {inspection.reference}",
-            [
-                ("Vessel", inspection.vessel_name),
-                ("Cargo type", inspection.cargo_type),
-                ("Product", inspection.product),
-                ("Reconciled tonnage", inspection.reconciled_tonnage),
-                ("Status", inspection.status),
-                ("Completed", inspection.completed_at),
-            ],
-        )
+        rows = []
+        for section in inspection_report_sections(inspection):
+            rows.append((section["title"], ""))
+            rows.extend((field["label"], field["value"]) for field in section["fields"])
+        content = simple_pdf(f"Inspection {inspection.reference}", rows)
         return HttpResponse(content, content_type="application/pdf")
 
 

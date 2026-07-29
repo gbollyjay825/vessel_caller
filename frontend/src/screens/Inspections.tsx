@@ -6,7 +6,7 @@ import { useNavigate, useSearchParams } from "../lib/navigation";
 import { useStore } from "../app/store";
 import { Icon } from "../components/Icon";
 import {
-  CargoTag, DataTable, EmptyState, Field, LiveCalc, PdfButton, StatusBadge, Stepper,
+  CargoTag, DataTable, Drawer, EmptyState, Field, LiveCalc, PdfButton, StatusBadge, Stepper,
   type Column,
 } from "../components/ui";
 import { calcPreview, rateForInspection } from "../lib/calc";
@@ -34,6 +34,7 @@ export function Inspections() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [cargoFilter, setCargoFilter] = useState<string>("all");
+  const [detail, setDetail] = useState<Inspection | null>(null);
 
   const rows = useMemo(() => store.inspections
     .filter((i) => {
@@ -92,11 +93,33 @@ export function Inspections() {
       </div>
 
       <div className="card">
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id}
+        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} onRowClick={setDetail}
           emptyState={<EmptyState icon="clipboard" title="No inspections yet" body="Start an inspection from a vessel call or create a new one." action={<button className="btn btn-primary" disabled={!store.can("addInspection")} onClick={() => navigate("/app/inspections/new")}><Icon name="plus" size={17} strokeWidth={2.2} /> New Inspection</button>} />} />
       </div>
+      {detail && <InspectionDetail inspection={detail} onClose={() => setDetail(null)} />}
     </div>
   );
+}
+
+function InspectionDetail({ inspection, onClose }: { inspection: Inspection; onClose: () => void }) {
+  const section = (title: string, fields: Array<[string, unknown]>) => (
+    <>
+      <div className="card-title" style={{ margin: "22px 0 10px" }}>{title}</div>
+      {fields.filter(([, value]) => value !== null && value !== undefined && value !== "").map(([label, value]) => (
+        <div className="fin-row" key={label}><div className="fl">{label}</div><div className="fv tnum">{String(value)}</div></div>
+      ))}
+    </>
+  );
+  const jetty = (inspection.jetty || {}) as { type?: unknown; category?: unknown; name?: unknown };
+  const measurement: Array<[string, unknown]> = inspection.cargoType === "Liquid"
+    ? [["Ullage / sounding (m)", inspection.liquid?.ullage], ["Observed volume (m³)", inspection.liquid?.observedVol], ["Temperature (°C)", inspection.liquid?.temp], ["Bill of Lading quantity (MT)", inspection.liquid?.blQty], ["Surveyor's reconciled tonnage (MT)", inspection.liquid?.surveyorTonnage]]
+    : [["Displacement before (MT)", inspection.dry?.displBefore], ["Displacement after (MT)", inspection.dry?.displAfter], ["Deductibles (MT)", inspection.dry?.deductibles], ["Constant (MT)", inspection.dry?.constant]];
+  return <Drawer title={`Inspection ${inspection.reference}`} sub={inspection.vesselName} onClose={onClose} footer={<PdfButton kind="report" id={inspection.id} />}>
+    {section("Vessel and cargo", [["Cargo type", inspection.cargoType], ["Product", inspection.product]])}
+    {section("Jetty", [["Type", jetty.type], ["Category", jetty.category], ["Name", jetty.name]])}
+    {section(inspection.cargoType === "Liquid" ? "Liquid measurements" : "Draft survey", measurement)}
+    {section("Reconciliation and completion", [["Reconciled tonnage (MT)", inspection.reconciledTonnage], ["Status", inspection.status], ["Completed", inspection.date]])}
+  </Drawer>;
 }
 
 // =========================================================

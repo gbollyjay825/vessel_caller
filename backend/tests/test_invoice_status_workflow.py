@@ -6,7 +6,13 @@ from decimal import Decimal
 import pytest
 
 from billing.models import Invoice
-from billing.services import ensure_default_steps
+from billing.services import (
+    active_default_step,
+    ensure_default_steps,
+    reconcile_payment_status,
+    transition_invoice,
+    workflow_step_data,
+)
 from operations.models import Inspection, VesselCall
 from .conftest import authenticated
 
@@ -52,6 +58,8 @@ def test_default_steps_keep_paid_protected_and_terminal(admin):
     steps = {step.code: step for step in ensure_default_steps(admin.organization)}
     assert list(steps) == ["draft", "submitted", "under-review", "approved", "paid"]
     assert steps["paid"].is_paid and steps["paid"].is_terminal and steps["paid"].is_protected
+    assert workflow_step_data(None, legacy_status=Invoice.Status.VOID)["label"] == "Void"
+    assert workflow_step_data(None)["code"] == ""
 
 
 def test_only_admin_can_configure_invoice_steps(admin, finance, viewer):
@@ -133,3 +141,17 @@ def test_payment_marks_paid_and_reversal_restores_last_active_non_paid_status(in
         "paid",
         "submitted",
     ]
+
+
+def test_workflow_service_noop_void_and_default_fallback(invoice, admin):
+    steps = {step.code: step for step in ensure_default_steps(admin.organization)}
+    assert transition_invoice(invoice, steps["draft"], source="manual", actor=admin) is None
+    invoice.status = Invoice.Status.VOID
+    invoice.save(update_fields=("status",))
+    assert reconcile_payment_status(invoice, actor=admin, source="reversal") is None
+    invoice.status = Invoice.Status.PAID
+    invoice.current_status = steps["paid"]
+    invoice.save(update_fields=("status", "current_status"))
+    assert reconcile_payment_status(invoice, actor=admin, source="reversal") is not None
+    invoice.refresh_from_db()
+    assert invoice.current_status_id == active_default_step(admin.organization_id).id

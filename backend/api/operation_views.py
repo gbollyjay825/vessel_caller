@@ -570,6 +570,10 @@ class InvoiceStatusStepsView(APIView):
         if not code or code in {"paid", "void"}:
             raise ValidationError({"code": ["Paid and Void are protected system statuses"]})
         organization = Organization.objects.select_for_update().get(pk=request.user.organization_id)
+        # Initialize the protected defaults before allocating a custom position.
+        # Otherwise a first custom step would take position 10 and collide when
+        # the draft default is subsequently provisioned.
+        ensure_default_steps(organization)
         if organization.invoice_status_steps.filter(code=code).exists():
             raise ValidationError({"code": ["This status code already exists"]})
         position = (

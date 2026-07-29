@@ -379,6 +379,16 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+  uploadOrganizationLogo: async (file: File) => {
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024) throw new ApiError("Choose a PNG, JPEG, or WebP image no larger than 2 MB.", 400);
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await fileBytes(file)));
+    const checksum = `sha256:${Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+    const prepared = await request<{ uploadUrl: string; method: "PUT"; headers: Record<string, string>; objectKey: string }>("/api/organization/logo", { method: "POST", body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, checksum }) });
+    const uploaded = await fetch(prepared.uploadUrl, { method: prepared.method, headers: prepared.headers, body: file });
+    if (!uploaded.ok) throw new ApiError("Could not upload logo", uploaded.status || 500);
+    return request<{ downloadUrl: string }>("/api/organization/logo", { method: "PUT", body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, checksum, objectKey: prepared.objectKey }) });
+  },
+  removeOrganizationLogo: () => request<void>("/api/organization/logo", { method: "DELETE" }),
 
   createCall: (data: Partial<VesselCall>) =>
     request<{ call: VesselCall; rev: number }>("/api/vessel-calls", {

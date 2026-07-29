@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
 import { Field } from "../components/ui";
 import { fmtNum } from "../lib/format";
+import { api } from "../lib/api";
 import { type Organization, type Settings as SettingsType } from "../types";
 
 // ---------------------------------------------------------
@@ -149,7 +150,9 @@ function LogoUploader({ logo, onChange, toast }:
     e.target.value = "";
     if (!file) return;
     try {
-      onChange(await readLogoFile(file));
+      const result = await api.uploadOrganizationLogo(file);
+      onChange(result.downloadUrl);
+      toast("Logo uploaded", "success");
     } catch (err: any) {
       if (toast) toast(err.message, "error");
     }
@@ -167,10 +170,10 @@ function LogoUploader({ logo, onChange, toast }:
             <Icon name="download" size={15} strokeWidth={2} style={{ transform: "rotate(180deg)" }} /> Upload logo
           </button>
           {logo && (
-            <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={() => onChange(null)}>Remove</button>
+            <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={async () => { try { await api.removeOrganizationLogo(); onChange(null); toast("Logo removed", "info"); } catch (err: any) { toast(err.message || "Could not remove logo", "error"); } }}>Remove</button>
           )}
         </div>
-        <div className="hint" style={{ marginTop: 6 }}>PNG / JPG — shown in the sidebar and on invoices &amp; reports.</div>
+        <div className="hint" style={{ marginTop: 6 }}>PNG / JPG / WebP, 2 MB max — stored privately and shown on documents.</div>
       </div>
       <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={pick} />
     </div>
@@ -333,7 +336,7 @@ export function Settings() {
         const patch: Partial<Organization> = {
           name: n.name, rcNumber: n.rcNumber, email: n.email, phone: n.phone,
           address: n.address, ports: n.ports, designatedPort: n.designatedPort,
-          primaryPort: n.designatedPort, logo: n.logo,
+          primaryPort: n.designatedPort,
         };
         await store.updateOrganization(patch);
         setOrgForm(n);

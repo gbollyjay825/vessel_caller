@@ -16,6 +16,7 @@ vessel_deploy_user: vessel-deploy
 vessel_deploy_authorized_keys: []
 vessel_python_binary: /usr/bin/python3.12
 vessel_release_signing_public_key: "{{ vault_vessel_release_signing_public_key }}"
+vessel_staging_release_signing_public_key: "{{ vault_vessel_staging_release_signing_public_key }}"
 
 vessel_app_root: /opt/vessel-caller
 vessel_state_root: /var/lib/vessel-caller

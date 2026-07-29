@@ -67,7 +67,7 @@
       {{ vessel_deploy_user }} ALL=(root) NOPASSWD: /usr/local/sbin/vessel-caller-deploy production /var/tmp/vessel-caller-v*.tar.gz
       {% endif %}
 
-- name: Pin release-signing public key
+- name: Pin production release-signing public key
   ansible.builtin.copy:
     dest: "{{ vessel_config_root }}/release-signing-public.pem"
     owner: root
@@ -75,9 +75,16 @@
     mode: "0644"
     content: "{{ vessel_release_signing_public_key }}"
   when:
-    - >-
-      (vessel_staging_runtime_enabled | bool)
-      or (vessel_production_runtime_enabled | bool)
+    - vessel_production_runtime_enabled | bool
+
+- name: Pin staging release-signing public key
+  ansible.builtin.copy:
+    dest: "{{ vessel_config_root }}/staging-release-signing-public.pem"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ vessel_staging_release_signing_public_key }}"
+  when: vessel_staging_runtime_enabled | bool
 
 - name: Install production systemd units
   ansible.builtin.copy:

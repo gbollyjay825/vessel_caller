@@ -46,10 +46,15 @@
       ansible.builtin.assert:
         that:
           - vessel_deploy_authorized_keys | length > 0
-          - "'CHANGE_ME' not in vessel_release_signing_public_key"
+          - >-
+            not (vessel_production_runtime_enabled | bool)
+            or "'CHANGE_ME' not in vessel_release_signing_public_key"
+          - >-
+            not (vessel_staging_runtime_enabled | bool)
+            or "'CHANGE_ME' not in vessel_staging_release_signing_public_key"
         fail_msg: >-
           Enabled runtimes require a restricted deployment public key and the
-          pinned release-signing public key.
+          independently pinned release-signing public key for each target.
       when:
         - >-
           (vessel_staging_runtime_enabled | bool)

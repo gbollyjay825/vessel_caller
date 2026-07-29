@@ -159,4 +159,25 @@ describe("Invoices payment workflow", () => {
     await userEvent.click(screen.getByRole("button", { name: "Update status" }));
     expect(storeMock.transitionInvoice).toHaveBeenCalledWith("invoice-1", "submitted");
   });
+
+  it("keeps workflow controls read-only when invoice permissions are absent", async () => {
+    storeMock.can.mockReturnValue(false);
+    storeMock.invoiceStatusSteps = undefined as unknown as typeof storeMock.invoiceStatusSteps;
+    storeMock.invoices = [{ ...invoice(), workflowStatus: undefined, statusHistory: [] }];
+    render(<Invoices />);
+    await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
+    expect(screen.queryByLabelText("Move to status")).not.toBeInTheDocument();
+    expect(screen.getByText(/No payment recorded yet/)).toBeInTheDocument();
+  });
+
+  it("surfaces an invoice payment failure without closing the detail", async () => {
+    storeMock.can.mockReturnValue(true);
+    storeMock.recordPayment.mockRejectedValueOnce(new Error("Bank declined"));
+    storeMock.invoices = [invoice()];
+    render(<Invoices />);
+    await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
+    await userEvent.type(screen.getByLabelText("Payment reference"), "NPA-FAILED");
+    await userEvent.click(screen.getByRole("button", { name: /Record payment/ }));
+    expect(storeMock.toast).toHaveBeenCalledWith("Bank declined", "error");
+  });
 });

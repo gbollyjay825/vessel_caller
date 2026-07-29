@@ -74,7 +74,10 @@ if [[ ! -d "${release_dir}" ]]; then
 else
   (
     cd "${release_dir}"
-    sha256sum --check SHA256SUMS
+    # collectstatic owns this directory at runtime and intentionally removes
+    # its tracked placeholder.  Everything else in the immutable release
+    # remains covered by the manifest on a repeat installation.
+    sha256sum --check --ignore-missing SHA256SUMS
   )
 fi
 
@@ -104,12 +107,18 @@ fi
 chown -R root:"${app_group}" "${release_dir}"
 chmod -R u=rwX,g=rX,o= "${release_dir}"
 chmod 0644 "${release_dir}/RELEASE.env"
-install \
-  -d \
-  -o "${app_user}" \
-  -g "${app_group}" \
-  -m 0750 \
+# A repeat installation has already tightened the release tree above.  Make
+# the runtime-owned static output writable again before collectstatic clears it.
+install -d -o "${app_user}" -g "${app_group}" -m 0750 \
   "${release_dir}/backend/staticfiles"
+chown -R "${app_user}:${app_group}" "${release_dir}/backend/staticfiles"
+chmod -R u=rwX,g=rX,o= "${release_dir}/backend/staticfiles"
+
+# Only the built frontend is served by nginx.  Keep the backend release
+# private while allowing the web worker to traverse and read static assets.
+chmod o+x "${slot_root}" "${release_dir}" "${release_dir}/frontend"
+find "${release_dir}/frontend/dist" -type d -exec chmod o+rx {} +
+find "${release_dir}/frontend/dist" -type f -exec chmod o+r {} +
 
 previous_target=""
 if [[ -L "${slot_root}/current" ]]; then

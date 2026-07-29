@@ -5,6 +5,9 @@ if (!configuredPassword || !configuredPassword.trim()) {
   throw new Error("Real-backend Playwright tests require E2E_PASSWORD from the environment.");
 }
 const password = configuredPassword;
+const sessionCookieName = process.env.PLAYWRIGHT_BASE_URL?.startsWith("https://")
+  ? "__Host-vessel_session"
+  : "vessel_test_session";
 
 async function signIn(page: Page, email: string) {
   await page.goto("/login");
@@ -47,7 +50,7 @@ test("real Django sessions enforce server RBAC without browser tokens", async ({
     session: { ...sessionStorage },
   }))).toEqual({ local: {}, session: {} });
   expect((await context.cookies()).some((cookie) => (
-    cookie.name === "vessel_test_session" && cookie.httpOnly
+    cookie.name === sessionCookieName && cookie.httpOnly
   ))).toBe(true);
 
   await signOut(page);

@@ -114,6 +114,10 @@ export interface InvoiceStatusEvent {
   id: string; fromCode?: string | null; fromLabel?: string | null; toCode: string; toLabel: string;
   source: string; note?: string | null; actorId?: string | null; actorName?: string | null; createdAt: string;
 }
+export interface InvoiceAttachment {
+  id: string; invoiceId: string; fileName: string; contentType: string; size: number;
+  checksum: string; uploadedBy: string; createdAt: string;
+}
 export interface Invoice {
   id: string;
   invoiceNo: string;

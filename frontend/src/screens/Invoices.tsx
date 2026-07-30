@@ -1,6 +1,6 @@
 // Invoices screen — harbour-dues invoices, payment-tracking KPIs, and a
 // per-invoice detail drawer for recording payments. Ported from calabar/screens-ops.jsx.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useStore } from "../app/store";
 import { Icon } from "../components/Icon";
@@ -9,7 +9,8 @@ import {
   type Column,
 } from "../components/ui";
 import { effectiveInvoiceStatus, fmtDate, fmtNGN, fmtNum, fmtUSD } from "../lib/format";
-import type { EffectiveInvoiceStatus, Invoice, VesselCall } from "../types";
+import { api } from "../lib/api";
+import type { EffectiveInvoiceStatus, Invoice, InvoiceAttachment, VesselCall } from "../types";
 
 type Store = ReturnType<typeof useStore>;
 
@@ -140,20 +141,47 @@ export function Invoices() {
 
 function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow; onClose: () => void }) {
   const call = row.call;
-  const effective = row.effective || effectiveInvoiceStatus(row as unknown as Invoice);
+  const currentInvoice: Invoice = store.invoices.find((invoice) => invoice.id === row.id)
+    || (row as unknown as Invoice);
+  const effective = effectiveInvoiceStatus(currentInvoice);
   const canPay = store.can("recordPayment");
   const [pay, setPay] = useState({ paidOn: new Date().toISOString().slice(0, 10), method: "Bank transfer", reference: "" });
   const [reversalReason, setReversalReason] = useState("");
   const [reversing, setReversing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [nextStatusId, setNextStatusId] = useState("");
-  const workflow = row.workflowStatus;
+  const [statusFeedback, setStatusFeedback] = useState("");
+  const [attachments, setAttachments] = useState<InvoiceAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState("");
+  const workflow = currentInvoice.workflowStatus;
+  useEffect(() => {
+    api.invoiceAttachments(row.id).then(({ results }) => setAttachments(results)).catch(() => setAttachmentError("Could not load uploaded invoice files."));
+  }, [row.id]);
   const moveInvoice = async () => {
     if (!nextStatusId) return;
     setBusy(true);
-    try { await store.transitionInvoice(row.id, nextStatusId); store.toast(`Invoice moved to the selected status`, "success"); onClose(); }
-    catch (error) { store.toast(error instanceof Error ? error.message : "Could not update invoice status", "error"); }
+    setStatusFeedback("");
+    try {
+      const label = store.invoiceStatusSteps?.find((step) => step.id === nextStatusId)?.label ?? "selected";
+      await store.transitionInvoice(row.id, nextStatusId);
+      setStatusFeedback(`Status saved: ${label}. The audit history has been updated.`);
+      setNextStatusId("");
+      store.toast(`Invoice moved to ${label}`, "success");
+    } catch (error) { setStatusFeedback(error instanceof Error ? error.message : "Could not update invoice status"); store.toast(error instanceof Error ? error.message : "Could not update invoice status", "error"); }
     finally { setBusy(false); }
+  };
+
+  const uploadAttachment = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true); setAttachmentError("");
+    try {
+      await api.uploadInvoiceAttachment(row.id, file);
+      const { results } = await api.invoiceAttachments(row.id);
+      setAttachments(results);
+      store.toast("Invoice file uploaded securely", "success");
+    } catch (error) { setAttachmentError(error instanceof Error ? error.message : "Could not upload invoice file"); }
+    finally { setUploading(false); }
   };
 
   const recordPayment = async () => {
@@ -193,7 +221,7 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
         <PdfButton kind="invoice" id={row.id} />
       </>}>
       <div className="flex between items-center" style={{ marginBottom: 20 }}>
-        <div><StatusBadge status={effective} /><div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{workflow?.label || row.status}</div></div>
+        <div><StatusBadge status={effective} /><div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{workflow?.label || currentInvoice.status}</div></div>
         <span className="muted" style={{ fontSize: 13 }}>Issued {fmtDate(row.issued)} · Due {fmtDate(row.due)}</span>
       </div>
       <div className="card-title" style={{ marginBottom: 14 }}>Line-item breakdown</div>
@@ -205,11 +233,21 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
       <div className="fin-total"><div className="fl">Invoice total</div><div className="fv tnum">{fmtUSD(row.dues)}<span className="ngn">{fmtNGN(row.dues * store.settings.exchangeRate)}</span></div></div>
 
       <div className="card-title" style={{ margin: "26px 0 14px" }}>Status progression</div>
-      <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>{(row.statusHistory || []).map((event) => event.toLabel).join(" → ") || workflow?.label || row.status}</div>
+      <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>{(currentInvoice.statusHistory || []).map((event) => event.toLabel).join(" → ") || workflow?.label || currentInvoice.status}</div>
       {store.can("recordPayment") && effective !== "void" && (
-        <div className="field-row"><Field label="Move to status"><select value={nextStatusId} onChange={(event) => setNextStatusId(event.target.value)}><option value="">Choose status</option>{(store.invoiceStatusSteps || []).filter((step) => step.active && !step.isPaid).map((step) => <option value={step.id || ""} key={step.id}>{step.label}</option>)}</select></Field><button type="button" className="btn btn-secondary" style={{ alignSelf: "end" }} disabled={busy || !nextStatusId} onClick={moveInvoice}>Update status</button></div>
+        <div className="card" style={{ padding: 14, marginBottom: 10 }}>
+          <Field label="Change invoice status" hint="Choose a status, then use Apply status change to save it and add a history entry."><select value={nextStatusId} onChange={(event) => { setNextStatusId(event.target.value); setStatusFeedback(""); }}><option value="">Choose status</option>{(store.invoiceStatusSteps || []).filter((step) => step.active && !step.isPaid).map((step) => <option value={step.id || ""} key={step.id}>{step.label}</option>)}</select></Field>
+          <button type="button" className="btn btn-primary" disabled={busy || !nextStatusId} onClick={moveInvoice}>{busy ? "Saving status…" : "Apply status change"}</button>
+          {statusFeedback && <p role="status" className="muted" style={{ margin: "10px 0 0", color: statusFeedback.startsWith("Status saved") ? "var(--success)" : "var(--danger)" }}>{statusFeedback}</p>}
+        </div>
       )}
-      {(row.statusHistory || []).length > 0 && <div className="card" style={{ padding: 12, marginBottom: 10 }}>{row.statusHistory!.map((event) => <div key={event.id} className="fin-row"><div className="fl">{event.toLabel}<span className="basis">{event.source}{event.actorName ? ` · ${event.actorName}` : ""}</span></div><div className="fv muted">{fmtDate(event.createdAt)}</div></div>)}</div>}
+      {(currentInvoice.statusHistory || []).length > 0 && <div className="card" style={{ padding: 12, marginBottom: 10 }}>{currentInvoice.statusHistory!.map((event) => <div key={event.id} className="fin-row"><div className="fl">{event.toLabel}<span className="basis">{event.source}{event.actorName ? ` · ${event.actorName}` : ""}</span></div><div className="fv muted">{fmtDate(event.createdAt)}</div></div>)}</div>}
+
+      <div className="card-title" style={{ margin: "26px 0 14px" }}>Uploaded invoice files</div>
+      {store.can("recordPayment") && <label className="btn btn-secondary" style={{ display: "inline-flex", cursor: uploading ? "wait" : "pointer" }}><input aria-label="Upload invoice file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" disabled={uploading} style={{ position: "absolute", width: 1, height: 1, opacity: 0 }} onChange={(event) => { void uploadAttachment(event.target.files?.[0]); event.currentTarget.value = ""; }} />{uploading ? "Uploading file…" : "Upload invoice file"}</label>}
+      <p className="muted" style={{ fontSize: 12 }}>PDF, PNG, JPEG, or WebP up to 15 MB. Files are private to this organization.</p>
+      {attachmentError && <p role="alert" style={{ color: "var(--danger)", fontSize: 13 }}>{attachmentError}</p>}
+      {attachments.length ? <div className="card" style={{ padding: 12, marginBottom: 10 }}>{attachments.map((attachment) => <div className="fin-row" key={attachment.id}><div className="fl">{attachment.fileName}<span className="basis">{Math.ceil(attachment.size / 1024)} KB</span></div><button type="button" className="btn btn-ghost btn-sm" onClick={async () => { const { downloadUrl } = await api.invoiceAttachment(attachment.id); window.open(downloadUrl, "_blank", "noopener"); }}>Open file</button></div>)}</div> : <p className="muted" style={{ fontSize: 13 }}>No supporting invoice files uploaded yet.</p>}
 
       {/* ---- Payment tracking ---- */}
       <div className="card-title" style={{ margin: "26px 0 14px" }}>Payment</div>

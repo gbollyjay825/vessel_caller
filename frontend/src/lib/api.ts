@@ -8,6 +8,7 @@ import type {
   Inspection,
   Invitation,
   Invoice,
+  InvoiceAttachment,
   Organization,
   Paginated,
   Payment,
@@ -236,6 +237,23 @@ async function uploadEvidenceFile(inspectionId: string, file: File): Promise<voi
   });
 }
 
+async function uploadInvoiceAttachment(invoiceId: string, file: File): Promise<void> {
+  const allowed = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+  if (!allowed.includes(file.type) || file.size > 15 * 1024 * 1024) {
+    throw new ApiError("Choose a PDF, PNG, JPEG, or WebP file no larger than 15 MB.", 400);
+  }
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", await fileBytes(file)));
+  const checksum = `sha256:${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  const prepared = await request<{ uploadUrl: string; method: "PUT"; headers?: Record<string, string>; objectKey: string }>("/api/invoice-attachments/presign", {
+    method: "POST", body: JSON.stringify({ invoiceId, fileName: file.name, contentType: file.type, size: file.size, checksum }),
+  });
+  const response = await fetch(prepared.uploadUrl, { method: prepared.method, headers: prepared.headers, body: file });
+  if (!response.ok) throw new ApiError("Could not upload the invoice file", response.status || 500);
+  await request("/api/invoice-attachments", {
+    method: "POST", body: JSON.stringify({ invoiceId, objectKey: prepared.objectKey, fileName: file.name, contentType: file.type, size: file.size, checksum }),
+  });
+}
+
 export const api = {
   csrf: () => ensureCsrfToken(),
 
@@ -394,6 +412,10 @@ export const api = {
   updateInvoiceStatusStep: (id: string, data: { label?: string; active?: boolean }) => request<{ step: import("../types").InvoiceWorkflowStatus; rev: number }>(`/api/invoice-status-steps/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data) }),
   reorderInvoiceStatusSteps: (ids: string[]) => request<{ steps: import("../types").InvoiceWorkflowStatus[]; rev: number }>("/api/invoice-status-steps/reorder", { method: "POST", body: JSON.stringify({ ids }) }),
   transitionInvoice: (id: string, data: { statusId: string; note?: string }) => request<{ invoice: Invoice; rev: number }>(`/api/invoices/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify(data) }),
+  invoiceAttachments: (id: string) => request<{ results: InvoiceAttachment[] }>(`/api/invoices/${encodeURIComponent(id)}/attachments`),
+  uploadInvoiceAttachment,
+  invoiceAttachment: (id: string) => request<{ attachment: InvoiceAttachment; downloadUrl: string }>(`/api/invoice-attachments/${encodeURIComponent(id)}`),
+  removeInvoiceAttachment: (id: string) => request<{ rev: number }>(`/api/invoice-attachments/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   createCall: (data: Partial<VesselCall>) =>
     request<{ call: VesselCall; rev: number }>("/api/vessel-calls", {

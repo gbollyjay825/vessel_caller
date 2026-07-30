@@ -291,6 +291,19 @@ def evidence_data(evidence) -> dict:
     }
 
 
+def invoice_attachment_data(attachment) -> dict:
+    return {
+        "id": attachment.id,
+        "invoiceId": attachment.invoice_id,
+        "fileName": attachment.file_name,
+        "contentType": attachment.content_type,
+        "size": attachment.size,
+        "checksum": attachment.checksum,
+        "uploadedBy": attachment.uploaded_by_id,
+        "createdAt": iso(attachment.created_at),
+    }
+
+
 def audit_data(event) -> dict:
     actor = event.actor
     return {
@@ -443,6 +456,20 @@ class EvidencePresignSerializer(serializers.Serializer):
 
 
 class EvidenceFinalizeSerializer(EvidencePresignSerializer):
+    objectKey = serializers.CharField(max_length=1024)
+
+
+class InvoiceAttachmentPresignSerializer(serializers.Serializer):
+    invoiceId = serializers.CharField()
+    fileName = serializers.CharField(max_length=255)
+    contentType = serializers.ChoiceField(
+        choices=["application/pdf", "image/jpeg", "image/png", "image/webp"]
+    )
+    size = serializers.IntegerField(min_value=1, max_value=15 * 1024 * 1024)
+    checksum = serializers.RegexField(regex=r"^sha256:[0-9a-f]{64}$")
+
+
+class InvoiceAttachmentFinalizeSerializer(InvoiceAttachmentPresignSerializer):
     objectKey = serializers.CharField(max_length=1024)
 
 

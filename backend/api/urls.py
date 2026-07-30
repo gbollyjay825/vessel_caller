@@ -36,6 +36,10 @@ from .operation_views import (
     InspectionEvidenceView,
     InspectionFinalizeView,
     InspectionsView,
+    InvoiceAttachmentDetailView,
+    InvoiceAttachmentFinalizeView,
+    InvoiceAttachmentPresignView,
+    InvoiceAttachmentsView,
     InvoiceDocumentView,
     InvoiceStatusStepDetailView,
     InvoiceStatusStepReorderView,
@@ -220,6 +224,26 @@ urlpatterns = [
         "invoices/<str:invoice_id>/document",
         InvoiceDocumentView.as_view(),
         name="invoice-document",
+    ),
+    path(
+        "invoices/<str:invoice_id>/attachments",
+        InvoiceAttachmentsView.as_view(),
+        name="invoice-attachments",
+    ),
+    path(
+        "invoice-attachments/presign",
+        InvoiceAttachmentPresignView.as_view(),
+        name="invoice-attachment-presign",
+    ),
+    path(
+        "invoice-attachments",
+        InvoiceAttachmentFinalizeView.as_view(),
+        name="invoice-attachment-finalize",
+    ),
+    path(
+        "invoice-attachments/<str:attachment_id>",
+        InvoiceAttachmentDetailView.as_view(),
+        name="invoice-attachment-detail",
     ),
     path(
         "payments/<str:payment_id>/reverse",

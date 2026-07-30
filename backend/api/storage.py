@@ -184,6 +184,45 @@ def presign_download(request, *, key: str) -> str:
     return request.build_absolute_uri(reverse("evidence-local-download", kwargs={"token": token}))
 
 
+def store_private_upload(*, key: str, body: bytes, content_type: str, checksum: str) -> dict | None:
+    """Store a small authenticated upload without relying on browser-to-S3 CORS.
+
+    Presigned uploads remain the preferred path for large evidence.  Logos are
+    intentionally small, so this same-origin fallback gives organizations a
+    safe upload path when a private Space has no browser CORS policy (or a
+    corporate browser blocks cross-origin PUT requests).
+    """
+    if not body or len(body) > 2 * 1024 * 1024:
+        raise ValueError("Logo upload size is invalid")
+    client = _s3_client()
+    try:
+        if client:
+            client.put_object(
+                Bucket=os.environ["VC_SPACES_BUCKET"],
+                Key=key,
+                Body=body,
+                ContentType=content_type,
+                Metadata={
+                    "declared-size": str(len(body)),
+                    "sha256": checksum.removeprefix("sha256:"),
+                },
+            )
+        else:
+            from django.core.files.base import ContentFile
+
+            if default_storage.exists(key):
+                raise ValueError("Object already exists")
+            default_storage.save(key, ContentFile(body))
+        return object_metadata(key)
+    except Exception:
+        logger.warning("Private logo upload failed", extra={"object_key": key}, exc_info=True)
+        try:
+            delete_object(key)
+        except Exception:
+            logger.warning("Failed to remove partial logo upload", extra={"object_key": key})
+        return None
+
+
 def local_upload(token: str, body: bytes, content_type: str) -> str:
     payload = signing.loads(token, salt="evidence-upload", max_age=600)
     if content_type.split(";", 1)[0] != payload["contentType"]:

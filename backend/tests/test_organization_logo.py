@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from api import documents, operation_views, storage
 from api.documents import simple_pdf
@@ -29,6 +30,43 @@ def test_logo_endpoints_require_organization_admin(admin, viewer):
     assert viewer_client.get("/api/organization/logo").status_code == 403
     assert viewer_client.post("/api/organization/logo", payload(), format="json").status_code == 403
     assert viewer_client.delete("/api/organization/logo").status_code == 403
+    assert (
+        viewer_client.post(
+            "/api/organization/logo/content",
+            {"file": SimpleUploadedFile("brand.png", b"png", content_type="image/png")},
+        ).status_code
+        == 403
+    )
+
+
+def test_logo_same_origin_fallback_stores_a_validated_private_upload(admin, monkeypatch):
+    png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0dIDATx\x9cc\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99=\x1d\x00\x00\x00\x00IEND\xaeB`\x82"
+    saved: dict[str, object] = {}
+
+    def save(**kwargs):
+        saved.update(kwargs)
+        return {"size": len(png), "checksum": kwargs["checksum"].removeprefix("sha256:")}
+
+    monkeypatch.setattr(operation_views, "store_private_upload", save)
+    monkeypatch.setattr(operation_views, "validate_logo", lambda *_: None)
+    response = authenticated(admin).post(
+        "/api/organization/logo/content",
+        {"file": SimpleUploadedFile("brand.png", png, content_type="image/png")},
+    )
+    assert response.status_code == 201
+    assert response.data["objectKey"].startswith(
+        f"organizations/{admin.organization_id}/logos/uploads/"
+    )
+    assert saved["content_type"] == "image/png"
+    assert saved["checksum"] == response.data["checksum"]
+
+
+def test_logo_same_origin_fallback_rejects_invalid_content(admin):
+    response = authenticated(admin).post(
+        "/api/organization/logo/content",
+        {"file": SimpleUploadedFile("brand.gif", b"not-an-image", content_type="image/gif")},
+    )
+    assert response.status_code == 400
 
 
 def test_logo_preview_is_private_and_admin_only(admin, viewer, monkeypatch):
@@ -164,3 +202,14 @@ def test_pdf_renders_private_logo_and_degrades_when_unavailable(monkeypatch):
     missing = simple_pdf("Invoice", [("Status", "Draft")], logo_key="missing/logo.png")
     assert rendered.startswith(b"%PDF") and len(rendered) > len(baseline)
     assert corrupt.startswith(b"%PDF") and missing.startswith(b"%PDF")
+
+
+def test_pdf_wraps_long_values_and_repeats_table_header():
+    long_value = "Long marine description & location <unquoted> " * 120
+    rendered = simple_pdf(
+        "Invoice for A & B <Marine> with a very long organization name that must wrap safely",
+        [("Description", long_value), ("Measurement", long_value)] * 18,
+    )
+    assert rendered.startswith(b"%PDF")
+    # A multi-page PDF has more than the original single-page canvas marker.
+    assert rendered.count(b"/Type /Page") > 2

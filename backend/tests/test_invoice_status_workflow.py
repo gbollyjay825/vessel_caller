@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import importlib
 from datetime import date
 from decimal import Decimal
 
 import pytest
 
-from billing.models import Invoice
+from billing.models import Invoice, InvoiceStatusStep
 from billing.services import (
     active_default_step,
     ensure_default_steps,
@@ -50,16 +51,47 @@ def invoice(admin):
         commission_usd=Decimal("3.5"),
         commission_ngn=Decimal("5600"),
         exchange_rate=Decimal("1600"),
-        current_status=steps["draft"],
+        current_status=steps["pending-director-finance-review"],
     )
 
 
 def test_default_steps_keep_paid_protected_and_terminal(admin):
     steps = {step.code: step for step in ensure_default_steps(admin.organization)}
-    assert list(steps) == ["draft", "submitted", "under-review", "approved", "paid"]
+    assert list(steps) == [
+        "pending-director-finance-review",
+        "pending-audit-review",
+        "pending-md-review",
+        "pending-accounts-review",
+        "approved",
+        "paid",
+    ]
     assert steps["paid"].is_paid and steps["paid"].is_terminal and steps["paid"].is_protected
     assert workflow_step_data(None, legacy_status=Invoice.Status.VOID)["label"] == "Void"
     assert workflow_step_data(None)["code"] == ""
+
+
+def test_director_review_migration_preserves_legacy_history(invoice, admin):
+    legacy = InvoiceStatusStep.objects.create(
+        organization=admin.organization,
+        code="draft",
+        label="Draft",
+        position=700,
+        active=True,
+    )
+    invoice.current_status = legacy
+    invoice.save(update_fields=("current_status",))
+
+    migration = importlib.import_module("billing.migrations.0004_director_review_workflow")
+    migration.install_director_review_workflow(importlib.import_module("django.apps").apps, None)
+
+    legacy.refresh_from_db()
+    invoice.refresh_from_db()
+    assert legacy.active is False
+    assert invoice.current_status.code == "pending-director-finance-review"
+    event = invoice.status_events.order_by("-created_at", "-id").first()
+    assert event is not None
+    assert event.from_code == "draft"
+    assert event.to_code == "pending-director-finance-review"
 
 
 def test_only_admin_can_configure_invoice_steps(admin, finance, viewer):
@@ -106,13 +138,15 @@ def test_finance_can_transition_non_paid_status_but_not_paid(invoice, finance):
     steps = {step.code: step for step in ensure_default_steps(finance.organization)}
     client = authenticated(finance)
     response = client.patch(
-        f"/api/invoices/{invoice.id}/status", {"statusId": steps["submitted"].id}, format="json"
+        f"/api/invoices/{invoice.id}/status",
+        {"statusId": steps["pending-audit-review"].id},
+        format="json",
     )
     assert response.status_code == 200
     invoice.refresh_from_db()
     assert (
         invoice.status == Invoice.Status.UNPAID
-        and invoice.current_status_id == steps["submitted"].id
+        and invoice.current_status_id == steps["pending-audit-review"].id
     )
     assert (
         client.patch(
@@ -127,7 +161,9 @@ def test_payment_marks_paid_and_reversal_restores_last_active_non_paid_status(in
     client = authenticated(finance)
     assert (
         client.patch(
-            f"/api/invoices/{invoice.id}/status", {"statusId": steps["submitted"].id}, format="json"
+            f"/api/invoices/{invoice.id}/status",
+            {"statusId": steps["pending-audit-review"].id},
+            format="json",
         ).status_code
         == 200
     )
@@ -153,18 +189,23 @@ def test_payment_marks_paid_and_reversal_restores_last_active_non_paid_status(in
     invoice.refresh_from_db()
     assert (
         invoice.status == Invoice.Status.UNPAID
-        and invoice.current_status_id == steps["submitted"].id
+        and invoice.current_status_id == steps["pending-audit-review"].id
     )
     assert list(invoice.status_events.values_list("to_code", flat=True)) == [
-        "submitted",
+        "pending-audit-review",
         "paid",
-        "submitted",
+        "pending-audit-review",
     ]
 
 
 def test_workflow_service_noop_void_and_default_fallback(invoice, admin):
     steps = {step.code: step for step in ensure_default_steps(admin.organization)}
-    assert transition_invoice(invoice, steps["draft"], source="manual", actor=admin) is None
+    assert (
+        transition_invoice(
+            invoice, steps["pending-director-finance-review"], source="manual", actor=admin
+        )
+        is None
+    )
     invoice.status = Invoice.Status.VOID
     invoice.save(update_fields=("status",))
     assert reconcile_payment_status(invoice, actor=admin, source="reversal") is None
@@ -240,7 +281,9 @@ def test_invoice_transition_rejects_missing_void_and_inactive_step(invoice, admi
     steps = {step.code: step for step in ensure_default_steps(admin.organization)}
     assert (
         client.patch(
-            "/api/invoices/iv-missing/status", {"statusId": steps["draft"].id}, format="json"
+            "/api/invoices/iv-missing/status",
+            {"statusId": steps["pending-director-finance-review"].id},
+            format="json",
         ).status_code
         == 404
     )
@@ -262,7 +305,9 @@ def test_invoice_transition_rejects_missing_void_and_inactive_step(invoice, admi
     invoice.save(update_fields=("status",))
     assert (
         client.patch(
-            f"/api/invoices/{invoice.id}/status", {"statusId": steps["draft"].id}, format="json"
+            f"/api/invoices/{invoice.id}/status",
+            {"statusId": steps["pending-director-finance-review"].id},
+            format="json",
         ).status_code
         == 409
     )

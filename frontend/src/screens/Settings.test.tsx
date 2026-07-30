@@ -41,9 +41,11 @@ function makeStore(overrides: Record<string, unknown> = {}) {
     updateSettings: vi.fn().mockResolvedValue(undefined),
     updateOrganization: vi.fn().mockResolvedValue(undefined),
     invoiceStatusSteps: [
-      { id: "draft", code: "draft", label: "Draft", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false },
-      { id: "submitted", code: "submitted", label: "Submitted", position: 15, active: true, isPaid: false, isTerminal: false, isProtected: false },
-      { id: "paid", code: "paid", label: "Paid", position: 20, active: true, isPaid: true, isTerminal: true, isProtected: true },
+      { id: "director", code: "pending-director-finance-review", label: "Pending Director of Finance Review", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false },
+      { id: "audit", code: "pending-audit-review", label: "Pending Audit Review", position: 20, active: true, isPaid: false, isTerminal: false, isProtected: false },
+      { id: "approved", code: "approved", label: "Approved", position: 50, active: true, isPaid: false, isTerminal: false, isProtected: false },
+      { id: "paid", code: "paid", label: "Paid", position: 60, active: true, isPaid: true, isTerminal: true, isProtected: true },
+      { id: "legacy-draft", code: "draft", label: "Draft", position: 910, active: false, isPaid: false, isTerminal: false, isProtected: false },
     ],
     createInvoiceStatusStep: vi.fn().mockResolvedValue(undefined),
     updateInvoiceStatusStep: vi.fn().mockResolvedValue(undefined),
@@ -165,11 +167,13 @@ describe("Settings", () => {
     await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
     expect(screen.getByText(/Paid is protected and is set automatically/)).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole("button", { name: "Deactivate" })[0]);
-    expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("draft", { active: false });
+    expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("director", { active: false });
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
-    expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("draft", { label: "Prepared" });
+    expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("director", { label: "Prepared" });
     await userEvent.click(screen.getAllByRole("button", { name: "↓" })[0]);
-    expect(mocks.store.reorderInvoiceStatusSteps).toHaveBeenCalledWith(["submitted", "draft", "paid"]);
+    expect(mocks.store.reorderInvoiceStatusSteps).toHaveBeenCalledWith(["audit", "director", "approved", "paid", "legacy-draft"]);
+    expect(screen.queryByText("Draft")).not.toBeInTheDocument();
+    expect(screen.getByText(/Historical inactive stages/)).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Add status step"), "Awaiting documents");
     await userEvent.click(screen.getByRole("button", { name: "Add step" }));
     expect(mocks.store.createInvoiceStatusStep).toHaveBeenCalledWith("Awaiting documents");

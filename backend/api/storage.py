@@ -184,9 +184,7 @@ def presign_download(request, *, key: str) -> str:
     return request.build_absolute_uri(reverse("evidence-local-download", kwargs={"token": token}))
 
 
-def store_private_upload(
-    *, key: str, body: bytes, content_type: str, checksum: str
-) -> dict | None:
+def store_private_upload(*, key: str, body: bytes, content_type: str, checksum: str) -> dict | None:
     """Store a small authenticated upload without relying on browser-to-S3 CORS.
 
     Presigned uploads remain the preferred path for large evidence.  Logos are

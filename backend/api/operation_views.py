@@ -682,7 +682,9 @@ class InvoiceStatusStepReorderView(APIView):
             or not active_ordered[-1].is_paid
             or any(step.is_paid for step in active_ordered[:-1])
         ):
-            raise ValidationError({"ids": ["Paid is terminal and must remain last among active steps"]})
+            raise ValidationError(
+                {"ids": ["Paid is terminal and must remain last among active steps"]}
+            )
         # Move positions out of the unique range before assigning requested positions.
         InvoiceStatusStep.objects.filter(pk__in=ids).update(position=F("position") + 10_000)
         for index, step in enumerate(ordered, start=1):

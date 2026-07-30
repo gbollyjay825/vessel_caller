@@ -138,7 +138,9 @@ def test_finance_can_transition_non_paid_status_but_not_paid(invoice, finance):
     steps = {step.code: step for step in ensure_default_steps(finance.organization)}
     client = authenticated(finance)
     response = client.patch(
-        f"/api/invoices/{invoice.id}/status", {"statusId": steps["pending-audit-review"].id}, format="json"
+        f"/api/invoices/{invoice.id}/status",
+        {"statusId": steps["pending-audit-review"].id},
+        format="json",
     )
     assert response.status_code == 200
     invoice.refresh_from_db()
@@ -159,7 +161,9 @@ def test_payment_marks_paid_and_reversal_restores_last_active_non_paid_status(in
     client = authenticated(finance)
     assert (
         client.patch(
-            f"/api/invoices/{invoice.id}/status", {"statusId": steps["pending-audit-review"].id}, format="json"
+            f"/api/invoices/{invoice.id}/status",
+            {"statusId": steps["pending-audit-review"].id},
+            format="json",
         ).status_code
         == 200
     )
@@ -196,7 +200,12 @@ def test_payment_marks_paid_and_reversal_restores_last_active_non_paid_status(in
 
 def test_workflow_service_noop_void_and_default_fallback(invoice, admin):
     steps = {step.code: step for step in ensure_default_steps(admin.organization)}
-    assert transition_invoice(invoice, steps["pending-director-finance-review"], source="manual", actor=admin) is None
+    assert (
+        transition_invoice(
+            invoice, steps["pending-director-finance-review"], source="manual", actor=admin
+        )
+        is None
+    )
     invoice.status = Invoice.Status.VOID
     invoice.save(update_fields=("status",))
     assert reconcile_payment_status(invoice, actor=admin, source="reversal") is None
@@ -272,7 +281,9 @@ def test_invoice_transition_rejects_missing_void_and_inactive_step(invoice, admi
     steps = {step.code: step for step in ensure_default_steps(admin.organization)}
     assert (
         client.patch(
-            "/api/invoices/iv-missing/status", {"statusId": steps["pending-director-finance-review"].id}, format="json"
+            "/api/invoices/iv-missing/status",
+            {"statusId": steps["pending-director-finance-review"].id},
+            format="json",
         ).status_code
         == 404
     )
@@ -294,7 +305,9 @@ def test_invoice_transition_rejects_missing_void_and_inactive_step(invoice, admi
     invoice.save(update_fields=("status",))
     assert (
         client.patch(
-            f"/api/invoices/{invoice.id}/status", {"statusId": steps["pending-director-finance-review"].id}, format="json"
+            f"/api/invoices/{invoice.id}/status",
+            {"statusId": steps["pending-director-finance-review"].id},
+            format="json",
         ).status_code
         == 409
     )

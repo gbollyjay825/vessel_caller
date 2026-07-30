@@ -8,7 +8,14 @@ from .models import Invoice, InvoiceStatusEvent, InvoiceStatusStep
 
 
 DEFAULT_WORKFLOW_STEPS = (
-    ("pending-director-finance-review", "Pending Director of Finance Review", 10, False, False, False),
+    (
+        "pending-director-finance-review",
+        "Pending Director of Finance Review",
+        10,
+        False,
+        False,
+        False,
+    ),
     ("pending-audit-review", "Pending Audit Review", 20, False, False, False),
     ("pending-md-review", "Pending MD Review", 30, False, False, False),
     ("pending-accounts-review", "Pending Accounts Review", 40, False, False, False),

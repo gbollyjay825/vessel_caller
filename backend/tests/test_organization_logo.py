@@ -30,10 +30,13 @@ def test_logo_endpoints_require_organization_admin(admin, viewer):
     assert viewer_client.get("/api/organization/logo").status_code == 403
     assert viewer_client.post("/api/organization/logo", payload(), format="json").status_code == 403
     assert viewer_client.delete("/api/organization/logo").status_code == 403
-    assert viewer_client.post(
-        "/api/organization/logo/content",
-        {"file": SimpleUploadedFile("brand.png", b"png", content_type="image/png")},
-    ).status_code == 403
+    assert (
+        viewer_client.post(
+            "/api/organization/logo/content",
+            {"file": SimpleUploadedFile("brand.png", b"png", content_type="image/png")},
+        ).status_code
+        == 403
+    )
 
 
 def test_logo_same_origin_fallback_stores_a_validated_private_upload(admin, monkeypatch):

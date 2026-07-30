@@ -18,6 +18,7 @@ on:
 permissions:
   attestations: read
   contents: write
+  deployments: write
 
 concurrency:
   group: vessel-caller-${{ inputs.target }}
@@ -278,25 +279,25 @@ jobs:
           cd frontend
           npx playwright install --with-deps
           npm run e2e
-      - name: Record successful staging deployment on the immutable release
+      - name: Record successful staging deployment
         if: inputs.target == 'staging'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          evidence="artifacts/vessel-caller-${RELEASE_TAG}.staging-deployed.json"
-          jq -n \
-            --arg release "${RELEASE_TAG}" \
-            --arg commit "$(git rev-parse HEAD)" \
-            --arg previewUrl "https://staging.vesselcalls.com" \
-            --arg runId "${GITHUB_RUN_ID}" \
-            --arg qualifiedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{
-              release: $release,
-              commit: $commit,
-              previewUrl: $previewUrl,
-              workflowRunId: $runId,
-              deployedAt: $qualifiedAt,
-              deployed: true
-            }' > "${evidence}"
-          gh release upload "${RELEASE_TAG}" "${evidence}" --clobber
+          # Immutable GitHub releases cannot accept post-publication assets.
+          # GitHub Deployments is the append-only release evidence record.
+          deployment_id="$(gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/deployments" \
+            -f ref="${RELEASE_TAG}" \
+            -f environment=staging \
+            -f description="Verified staging deployment from workflow ${GITHUB_RUN_ID}" \
+            -F auto_merge=false \
+            --jq .id)"
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/deployments/${deployment_id}/statuses" \
+            -f state=success \
+            -f environment=staging \
+            -f environment_url=https://staging.vesselcalls.com \
+            -f log_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            -f description="Immutable ${RELEASE_TAG} verified on staging" >/dev/null

@@ -10,6 +10,7 @@ from billing.models import Invoice, InvoiceStatusStep
 from billing.services import (
     active_default_step,
     ensure_default_steps,
+    paid_step,
     reconcile_payment_status,
     transition_invoice,
     workflow_step_data,
@@ -206,6 +207,9 @@ def test_workflow_service_noop_void_and_default_fallback(invoice, admin):
         )
         is None
     )
+    # An unpaid invoice already assigned to an active non-paid stage should
+    # retain its status when an unrelated payment reconciliation occurs.
+    assert reconcile_payment_status(invoice, actor=admin, source="payment") is None
     invoice.status = Invoice.Status.VOID
     invoice.save(update_fields=("status",))
     assert reconcile_payment_status(invoice, actor=admin, source="reversal") is None
@@ -215,6 +219,13 @@ def test_workflow_service_noop_void_and_default_fallback(invoice, admin):
     assert reconcile_payment_status(invoice, actor=admin, source="reversal") is not None
     invoice.refresh_from_db()
     assert invoice.current_status_id == active_default_step(admin.organization_id).id
+
+
+def test_paid_step_requires_the_protected_paid_configuration(admin, monkeypatch):
+    InvoiceStatusStep.objects.filter(organization=admin.organization, is_paid=True).delete()
+    monkeypatch.setattr("billing.services.ensure_default_steps", lambda _organization: [])
+    with pytest.raises(ValueError, match="Paid"):
+        paid_step(admin.organization_id)
 
 
 def test_admin_can_update_and_reorder_steps_but_cannot_change_paid(admin):

@@ -19,7 +19,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from audit.services import record_event
-from billing.models import Invoice, InvoiceStatusEvent, InvoiceStatusStep, Payment
+from billing.models import (
+    Invoice,
+    InvoiceAttachment,
+    InvoiceStatusEvent,
+    InvoiceStatusStep,
+    Payment,
+)
 from billing.services import (
     ensure_default_steps,
     reconcile_payment_status,
@@ -43,6 +49,8 @@ from .serializers import (
     InvoiceStatusReorderSerializer,
     InvoiceStatusStepSerializer,
     InvoiceStatusStepUpdateSerializer,
+    InvoiceAttachmentPresignSerializer,
+    InvoiceAttachmentFinalizeSerializer,
     InvoiceTransitionSerializer,
     PaymentCreateSerializer,
     ReversalSerializer,
@@ -52,6 +60,7 @@ from .serializers import (
     inspection_data,
     inspection_report_sections,
     invoice_data,
+    invoice_attachment_data,
     organization_data,
     payment_data,
     settings_data,
@@ -65,9 +74,12 @@ from .storage import (
     logo_upload_key,
     object_metadata,
     permanent_object_key,
+    invoice_upload_key,
+    permanent_invoice_object_key,
     presign_download,
     presign_upload,
     promote_object,
+    validate_invoice_attachment,
     validate_logo,
 )
 
@@ -1209,6 +1221,150 @@ class LocalEvidenceDownloadView(APIView):
         except (signing.BadSignature, OSError) as exc:
             raise NotFound("Download link is invalid or expired") from exc
         return FileResponse(handle, as_attachment=True)
+
+
+class InvoiceAttachmentsView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "invoices.view"
+
+    def get(self, request, invoice_id):
+        invoice = request.user.organization.invoices.filter(pk=invoice_id).first()
+        if not invoice:
+            raise NotFound("Invoice not found")
+        return Response(
+            {"results": [invoice_attachment_data(item) for item in invoice.attachments.all()]}
+        )
+
+
+class InvoiceAttachmentPresignView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "invoices.manage"
+
+    def post(self, request):
+        serializer = InvoiceAttachmentPresignSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        invoice = request.user.organization.invoices.filter(pk=data["invoiceId"]).first()
+        if not invoice:
+            raise NotFound("Invoice not found")
+        key = invoice_upload_key(invoice.organization_id, invoice.id, data["fileName"])
+        return Response(
+            presign_upload(
+                request,
+                key=key,
+                content_type=data["contentType"],
+                size=data["size"],
+                checksum=data["checksum"],
+            )
+        )
+
+
+class InvoiceAttachmentFinalizeView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "invoices.manage"
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = InvoiceAttachmentFinalizeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        invoice = request.user.organization.invoices.select_for_update().filter(
+            pk=data["invoiceId"]
+        ).first()
+        if not invoice:
+            raise NotFound("Invoice not found")
+        prefix = f"organizations/{invoice.organization_id}/invoices/{invoice.id}/uploads/"
+        if not data["objectKey"].startswith(prefix):
+            raise ValidationError({"objectKey": ["Object is outside this invoice"]})
+        metadata = object_metadata(data["objectKey"])
+        checksum = data["checksum"].removeprefix("sha256:")
+        if (
+            not metadata
+            or metadata["size"] != data["size"]
+            or metadata["checksum"] != checksum
+        ):
+            raise ValidationError(
+                {"objectKey": ["Uploaded file metadata does not match the signed request"]}
+            )
+        try:
+            validate_invoice_attachment(data["objectKey"], data["contentType"], data["size"])
+        except (OSError, ValueError) as exc:
+            raise ValidationError({"objectKey": [str(exc)]}) from exc
+        final_key = permanent_invoice_object_key(
+            invoice.organization_id, invoice.id, data["fileName"]
+        )
+        finalized = promote_object(data["objectKey"], final_key)
+        if (
+            not finalized
+            or finalized["size"] != metadata["size"]
+            or finalized["checksum"] != metadata["checksum"]
+        ):
+            raise ValidationError(
+                {"objectKey": ["Uploaded invoice file could not be finalized"]}
+            )
+        attachment = InvoiceAttachment.objects.create(
+            organization=request.user.organization,
+            invoice=invoice,
+            object_key=final_key,
+            file_name=data["fileName"],
+            content_type=data["contentType"],
+            size=data["size"],
+            checksum=data["checksum"],
+            uploaded_by=request.user,
+        )
+        revision = bump_revision(request.user.organization_id)
+        record_event(
+            organization=request.user.organization,
+            actor=request.user,
+            action="invoice.attachment_uploaded",
+            category="billing",
+            target=attachment,
+            target_label=attachment.file_name,
+            request=request,
+            after=invoice_attachment_data(attachment),
+        )
+        return Response(
+            {"attachment": invoice_attachment_data(attachment), "rev": revision},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class InvoiceAttachmentDetailView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "invoices.view"
+
+    def _attachment(self, request, attachment_id):
+        attachment = request.user.organization.invoice_attachments.filter(pk=attachment_id).first()
+        if not attachment:
+            raise NotFound("Invoice attachment not found")
+        return attachment
+
+    def get(self, request, attachment_id):
+        attachment = self._attachment(request, attachment_id)
+        return Response(
+            {
+                "attachment": invoice_attachment_data(attachment),
+                "downloadUrl": presign_download(request, key=attachment.object_key),
+            }
+        )
+
+    def delete(self, request, attachment_id):
+        if request.user.role not in {"Admin", "Finance"}:
+            raise NotFound("Invoice attachment not found")
+        attachment = self._attachment(request, attachment_id)
+        delete_object(attachment.object_key)
+        attachment.delete()
+        revision = bump_revision(request.user.organization_id)
+        record_event(
+            organization=request.user.organization,
+            actor=request.user,
+            action="invoice.attachment_removed",
+            category="billing",
+            target=request.user.organization,
+            target_label=attachment.file_name,
+            request=request,
+        )
+        return Response({"rev": revision}, status=status.HTTP_200_OK)
 
 
 class InvoiceDocumentView(APIView):

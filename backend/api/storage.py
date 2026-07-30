@@ -33,6 +33,20 @@ def permanent_object_key(organization_id: str, inspection_id: str, file_name: st
     )
 
 
+def invoice_upload_key(organization_id: str, invoice_id: str, file_name: str) -> str:
+    return (
+        f"organizations/{organization_id}/invoices/{invoice_id}/uploads/"
+        f"{uuid.uuid4().hex}-{safe_name(file_name)}"
+    )
+
+
+def permanent_invoice_object_key(organization_id: str, invoice_id: str, file_name: str) -> str:
+    return (
+        f"organizations/{organization_id}/invoices/{invoice_id}/attachments/"
+        f"{uuid.uuid4().hex}-{safe_name(file_name)}"
+    )
+
+
 def logo_upload_key(organization_id: str, file_name: str) -> str:
     return (
         f"organizations/{organization_id}/logos/uploads/{uuid.uuid4().hex}-{safe_name(file_name)}"
@@ -59,6 +73,32 @@ def validate_logo(key: str, content_type: str, size: int) -> None:
             16 <= width <= 4096 and 16 <= height <= 4096
         ):
             raise ValueError("Logo image format or dimensions are invalid")
+
+
+def validate_invoice_attachment(key: str, content_type: str, size: int) -> None:
+    """Verify the uploaded document before moving it into its permanent private key."""
+    allowed_images = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"}
+    if content_type not in {*allowed_images, "application/pdf"} or not (
+        1 <= size <= 15 * 1024 * 1024
+    ):
+        raise ValueError("Invoice file type or size is invalid")
+    with default_storage.open(key, "rb") as source:
+        if content_type == "application/pdf":
+            if not source.read(5).startswith(b"%PDF-"):
+                raise ValueError("Invoice file is not a valid PDF")
+            return
+
+        from PIL import Image
+
+        image = Image.open(source)
+        image.verify()
+    with default_storage.open(key, "rb") as source:
+        image = Image.open(source)
+        width, height = image.size
+        if image.format != allowed_images[content_type] or not (
+            16 <= width <= 4096 and 16 <= height <= 4096
+        ):
+            raise ValueError("Invoice image format or dimensions are invalid")
 
 
 def _s3_client():

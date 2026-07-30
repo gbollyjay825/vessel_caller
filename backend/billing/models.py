@@ -22,6 +22,10 @@ def invoice_status_event_id() -> str:
     return f"ise-{uuid.uuid4().hex[:12]}"
 
 
+def invoice_attachment_id() -> str:
+    return f"iat-{uuid.uuid4().hex[:12]}"
+
+
 class NumberSequence(models.Model):
     organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE)
     kind = models.CharField(max_length=20)
@@ -171,6 +175,28 @@ class InvoiceStatusEvent(models.Model):
 
     class Meta:
         ordering = ("created_at", "id")
+
+
+class InvoiceAttachment(models.Model):
+    """A private supporting document supplied against an invoice."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=invoice_attachment_id)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="invoice_attachments"
+    )
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="attachments")
+    object_key = models.CharField(max_length=1024, unique=True)
+    file_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=100)
+    size = models.PositiveBigIntegerField()
+    checksum = models.CharField(max_length=128)
+    uploaded_by = models.ForeignKey(
+        "accounts.User", on_delete=models.PROTECT, related_name="uploaded_invoice_attachments"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("created_at",)
 
 
 class Payment(models.Model):

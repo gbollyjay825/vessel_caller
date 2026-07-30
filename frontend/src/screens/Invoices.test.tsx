@@ -1,9 +1,21 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Invoice } from "../types";
 import { Invoices } from "./Invoices";
+
+const apiMock = vi.hoisted(() => ({
+  invoiceAttachments: vi.fn(),
+  uploadInvoiceAttachment: vi.fn(),
+  invoiceAttachment: vi.fn(),
+}));
+
+const workflowSteps = vi.hoisted(() => [
+  { id: "draft", code: "draft", label: "Draft", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false },
+  { id: "submitted", code: "submitted", label: "Submitted", position: 20, active: true, isPaid: false, isTerminal: false, isProtected: false },
+  { id: "paid", code: "paid", label: "Paid", position: 30, active: true, isPaid: true, isTerminal: true, isProtected: true },
+]);
 
 const storeMock = vi.hoisted(() => ({
   invoices: [] as Invoice[],
@@ -55,17 +67,15 @@ const storeMock = vi.hoisted(() => ({
   recordPayment: vi.fn(),
   reversePayment: vi.fn(),
   transitionInvoice: vi.fn(),
-  invoiceStatusSteps: [
-    { id: "draft", code: "draft", label: "Draft", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false },
-    { id: "submitted", code: "submitted", label: "Submitted", position: 20, active: true, isPaid: false, isTerminal: false, isProtected: false },
-    { id: "paid", code: "paid", label: "Paid", position: 30, active: true, isPaid: true, isTerminal: true, isProtected: true },
-  ],
+  invoiceStatusSteps: workflowSteps,
   toast: vi.fn(),
 }));
 
 vi.mock("../app/store", () => ({
   useStore: () => storeMock,
 }));
+
+vi.mock("../lib/api", () => ({ api: apiMock }));
 
 function invoice(payment: Invoice["payment"] = null): Invoice {
   return {
@@ -99,6 +109,12 @@ describe("Invoices payment workflow", () => {
     storeMock.transitionInvoice.mockResolvedValue(undefined);
     storeMock.toast.mockReset();
     storeMock.invoices = [invoice()];
+    storeMock.invoiceStatusSteps = workflowSteps;
+    apiMock.invoiceAttachments.mockReset();
+    apiMock.invoiceAttachments.mockResolvedValue({ results: [] });
+    apiMock.uploadInvoiceAttachment.mockReset();
+    apiMock.uploadInvoiceAttachment.mockResolvedValue(undefined);
+    apiMock.invoiceAttachment.mockReset();
   });
 
   it("records a normalized payment with a required external reference", async () => {
@@ -150,14 +166,17 @@ describe("Invoices payment workflow", () => {
     );
   });
 
-  it("shows workflow history and lets Finance move to an active non-paid status", async () => {
+  it("shows workflow history and clearly saves a Finance status transition", async () => {
     storeMock.invoices = [{ ...invoice(), workflowStatus: storeMock.invoiceStatusSteps[0], statusHistory: [{ id: "event-1", toCode: "draft", toLabel: "Draft", source: "created", createdAt: "2026-07-26T10:00:00Z" }] }];
     render(<Invoices />);
     await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
     expect(screen.getAllByText("Draft").length).toBeGreaterThan(0);
-    await userEvent.selectOptions(screen.getByLabelText("Move to status"), "submitted");
-    await userEvent.click(screen.getByRole("button", { name: "Update status" }));
+    const save = screen.getByRole("button", { name: "Apply status change" });
+    expect(save).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText("Change invoice status"), "submitted");
+    await userEvent.click(save);
     expect(storeMock.transitionInvoice).toHaveBeenCalledWith("invoice-1", "submitted");
+    expect(await screen.findByRole("status")).toHaveTextContent("Status saved: Submitted");
   });
 
   it("keeps workflow controls read-only when invoice permissions are absent", async () => {
@@ -166,8 +185,79 @@ describe("Invoices payment workflow", () => {
     storeMock.invoices = [{ ...invoice(), workflowStatus: undefined, statusHistory: [] }];
     render(<Invoices />);
     await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
-    expect(screen.queryByLabelText("Move to status")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Change invoice status")).not.toBeInTheDocument();
     expect(screen.getByText(/No payment recorded yet/)).toBeInTheDocument();
+  });
+
+  it("lets Finance upload a private invoice attachment and refreshes the visible file list", async () => {
+    apiMock.invoiceAttachments
+      .mockResolvedValueOnce({ results: [] })
+      .mockResolvedValueOnce({
+        results: [{
+          id: "iat-1", invoiceId: "invoice-1", fileName: "invoice.pdf", contentType: "application/pdf",
+          size: 1024, checksum: "sha256:test", uploadedBy: "user-1", createdAt: "2026-07-30T10:00:00Z",
+        }],
+      });
+    render(<Invoices />);
+    await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
+    const file = new File(["invoice"], "invoice.pdf", { type: "application/pdf" });
+    await userEvent.upload(screen.getByLabelText("Upload invoice file"), file);
+    expect(apiMock.uploadInvoiceAttachment).toHaveBeenCalledWith("invoice-1", file);
+    expect(await screen.findByText("invoice.pdf")).toBeInTheDocument();
+    expect(storeMock.toast).toHaveBeenCalledWith("Invoice file uploaded securely", "success");
+  });
+
+  it("keeps the drawer open and explains a rejected status transition", async () => {
+    storeMock.transitionInvoice.mockRejectedValueOnce(new Error("Status is no longer active"));
+    render(<Invoices />);
+    await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
+    await userEvent.selectOptions(screen.getByLabelText("Change invoice status"), "submitted");
+    await userEvent.click(screen.getByRole("button", { name: "Apply status change" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Status is no longer active");
+    expect(screen.getByText("Line-item breakdown")).toBeInTheDocument();
+  });
+
+  it("shows private-file load and upload failures without dismissing the invoice", async () => {
+    apiMock.invoiceAttachments.mockRejectedValueOnce(new Error("Storage unavailable"));
+    apiMock.uploadInvoiceAttachment.mockRejectedValueOnce(new Error("Upload rejected"));
+    render(<Invoices />);
+    await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load uploaded invoice files.");
+    const file = new File(["invoice"], "invoice.pdf", { type: "application/pdf" });
+    await userEvent.upload(screen.getByLabelText("Upload invoice file"), file);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Upload rejected");
+    expect(screen.getByText("Line-item breakdown")).toBeInTheDocument();
+  });
+
+  it("opens an uploaded invoice using a freshly authorized private link", async () => {
+    apiMock.invoiceAttachments.mockResolvedValueOnce({
+      results: [{
+        id: "iat-1", invoiceId: "invoice-1", fileName: "invoice.pdf", contentType: "application/pdf",
+        size: 1024, checksum: "sha256:test", uploadedBy: "user-1", createdAt: "2026-07-30T10:00:00Z",
+      }],
+    });
+    apiMock.invoiceAttachment.mockResolvedValue({ downloadUrl: "https://private.example/invoice" });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<Invoices />);
+    await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open file" }));
+    await waitFor(() => expect(apiMock.invoiceAttachment).toHaveBeenCalledWith("iat-1"));
+    expect(open).toHaveBeenCalledWith("https://private.example/invoice", "_blank", "noopener");
+    open.mockRestore();
+  });
+
+  it("keeps void invoices out of receivables and filters overdue invoices", async () => {
+    storeMock.invoices = [
+      { ...invoice(), id: "invoice-overdue", invoiceNo: "INV-OVERDUE", due: "2020-08-09" },
+      { ...invoice(), id: "invoice-void", invoiceNo: "INV-VOID", status: "void", due: "2099-08-09" },
+    ];
+    render(<Invoices />);
+    expect(screen.getByText("1 past due date")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Overdue" }));
+    expect(screen.getByText("INV-OVERDUE")).toBeInTheDocument();
+    expect(screen.queryByText("INV-VOID")).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Search invoices"), "not-a-vessel");
+    expect(screen.getByText("No invoices found")).toBeInTheDocument();
   });
 
   it("surfaces an invoice payment failure without closing the detail", async () => {

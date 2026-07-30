@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -79,6 +80,7 @@ from .storage import (
     presign_download,
     presign_upload,
     promote_object,
+    store_private_upload,
     validate_invoice_attachment,
     validate_logo,
 )
@@ -674,8 +676,13 @@ class InvoiceStatusStepReorderView(APIView):
             raise ValidationError({"ids": ["Submit every organization status exactly once"]})
         by_id = {step.id: step for step in steps}
         ordered = [by_id[identifier] for identifier in ids]
-        if not ordered[-1].is_paid or any(step.is_paid for step in ordered[:-1]):
-            raise ValidationError({"ids": ["Paid is terminal and must remain last"]})
+        active_ordered = [step for step in ordered if step.active]
+        if (
+            not active_ordered
+            or not active_ordered[-1].is_paid
+            or any(step.is_paid for step in active_ordered[:-1])
+        ):
+            raise ValidationError({"ids": ["Paid is terminal and must remain last among active steps"]})
         # Move positions out of the unique range before assigning requested positions.
         InvoiceStatusStep.objects.filter(pk__in=ids).update(position=F("position") + 10_000)
         for index, step in enumerate(ordered, start=1):
@@ -888,6 +895,59 @@ class OrganizationLogoView(APIView):
         if previous:
             delete_object(previous)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class OrganizationLogoContentUploadView(APIView):
+    """Same-origin fallback for private Spaces logo uploads.
+
+    The normal logo endpoint still provides a short-lived presigned upload.
+    This endpoint is intentionally limited to a validated 2 MB logo and is
+    used only if a browser cannot PUT directly to the private Space.
+    """
+
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "organization.manage"
+
+    def post(self, request):
+        uploaded = request.FILES.get("file")
+        if uploaded is None:
+            raise ValidationError({"file": ["Choose a logo file"]})
+        body = uploaded.read()
+        checksum = f"sha256:{hashlib.sha256(body).hexdigest()}"
+        serializer = LogoPresignSerializer(
+            data={
+                "fileName": uploaded.name,
+                "contentType": uploaded.content_type,
+                "size": len(body),
+                "checksum": checksum,
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        key = logo_upload_key(request.user.organization_id, data["fileName"])
+        metadata = store_private_upload(
+            key=key,
+            body=body,
+            content_type=data["contentType"],
+            checksum=checksum,
+        )
+        if not metadata or metadata["checksum"] != checksum.removeprefix("sha256:"):
+            raise ValidationError({"file": ["Logo could not be stored securely"]})
+        try:
+            validate_logo(key, data["contentType"], data["size"])
+        except (OSError, ValueError) as exc:
+            delete_object(key)
+            raise ValidationError({"file": [str(exc)]}) from exc
+        return Response(
+            {
+                "objectKey": key,
+                "fileName": data["fileName"],
+                "contentType": data["contentType"],
+                "size": data["size"],
+                "checksum": checksum,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SettingsView(APIView):

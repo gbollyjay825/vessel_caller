@@ -8,11 +8,14 @@ from .models import Invoice, InvoiceStatusEvent, InvoiceStatusStep
 
 
 DEFAULT_WORKFLOW_STEPS = (
-    ("draft", "Draft", 10, False, False, False),
-    ("submitted", "Submitted", 20, False, False, False),
-    ("under-review", "Under Review", 30, False, False, False),
-    ("approved", "Approved", 40, False, False, False),
-    ("paid", "Paid", 50, True, True, True),
+    ("pending-director-finance-review", "Pending Director of Finance Review", 10, False, False, False),
+    ("pending-audit-review", "Pending Audit Review", 20, False, False, False),
+    ("pending-md-review", "Pending MD Review", 30, False, False, False),
+    ("pending-accounts-review", "Pending Accounts Review", 40, False, False, False),
+    ("approved", "Approved", 50, False, False, False),
+    # Paid is system-owned rather than a manual review stage.  It remains
+    # visible wherever an invoice is settled, but users cannot select it.
+    ("paid", "Paid", 60, True, True, True),
 )
 
 

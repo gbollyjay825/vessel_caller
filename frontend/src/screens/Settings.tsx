@@ -116,17 +116,19 @@ function toSettingsForm(s: SettingsType): SettingsForm {
 function LogoUploader({ logo, onChange, toast }:
   { logo: string | null; onChange: (logo: string | null) => void; toast: (m: string, t?: "success" | "error" | "info") => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
   const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!file) return;
+    setBusy(true);
     try {
       const result = await api.uploadOrganizationLogo(file);
       onChange(result.downloadUrl);
       toast("Logo uploaded", "success");
     } catch (err: any) {
-      if (toast) toast(err.message, "error");
-    }
+      toast(err.message || "Could not upload logo", "error");
+    } finally { setBusy(false); }
   };
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -137,16 +139,16 @@ function LogoUploader({ logo, onChange, toast }:
       </div>
       <div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => inputRef.current && inputRef.current.click()}>
-            <Icon name="download" size={15} strokeWidth={2} style={{ transform: "rotate(180deg)" }} /> Upload logo
+          <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => inputRef.current && inputRef.current.click()}>
+            <Icon name="download" size={15} strokeWidth={2} style={{ transform: "rotate(180deg)" }} /> {busy ? "Uploading logo…" : "Upload logo"}
           </button>
           {logo && (
-            <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={async () => { try { await api.removeOrganizationLogo(); onChange(null); toast("Logo removed", "info"); } catch (err: any) { toast(err.message || "Could not remove logo", "error"); } }}>Remove</button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={busy} style={{ color: "var(--danger)" }} onClick={async () => { setBusy(true); try { await api.removeOrganizationLogo(); onChange(null); toast("Logo removed", "info"); } catch (err: any) { toast(err.message || "Could not remove logo", "error"); } finally { setBusy(false); } }}>Remove</button>
           )}
         </div>
         <div className="hint" style={{ marginTop: 6 }}>PNG / JPG / WebP, 2 MB max — stored privately and shown on documents.</div>
       </div>
-      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={pick} />
+      <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }} onChange={pick} />
     </div>
   );
 }
@@ -259,6 +261,15 @@ function InvoiceWorkflowSection({ store, canEdit }: { store: ReturnType<typeof u
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const steps = store.invoiceStatusSteps;
+  const activeSteps = steps.filter((step) => step.active);
+  const legacySteps = steps.filter((step) => !step.active);
+  const reorderActive = (from: number, to: number) => {
+    const reordered = [...activeSteps];
+    [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
+    // Inactive stages stay in the submitted ordering for history integrity,
+    // while only live stages are presented as the configurable workflow.
+    return [...reordered, ...legacySteps].map((step) => step.id!);
+  };
   const save = async (work: () => Promise<void>) => {
     setBusy(true);
     try { await work(); store.toast("Invoice workflow updated", "success"); }
@@ -268,15 +279,16 @@ function InvoiceWorkflowSection({ store, canEdit }: { store: ReturnType<typeof u
   return <div className="card card-pad" style={{ maxWidth: 760 }}>
     <div className="card-title">Invoice status steps</div>
     <p className="muted" style={{ fontSize: 13, margin: "6px 0 18px" }}>Choose the working stages used before payment. Paid is protected and is set automatically once an invoice is fully paid. Void remains a protected legacy exception.</p>
-    {steps.map((step, index) => <div key={step.id || step.code} className="fin-row" style={{ gap: 10 }}>
-      <div className="fl" style={{ flex: 1 }}><strong>{step.label}</strong>{!step.active && <span className="muted"> · inactive</span>}{step.isProtected && <span className="muted"> · protected</span>}</div>
+    {activeSteps.map((step, index) => <div key={step.id || step.code} className="fin-row" style={{ gap: 10 }}>
+      <div className="fl" style={{ flex: 1 }}><strong>{step.label}</strong>{step.isProtected && <span className="muted"> · system controlled</span>}</div>
       {canEdit && !step.isProtected && <>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index === 0} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i - 1].id! : i === index - 1 ? list[i].id! : item.id!)))}>↑</button>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index >= steps.length - 2} onClick={() => save(() => store.reorderInvoiceStatusSteps(steps.map((item, i, list) => i === index ? list[i + 1].id! : i === index + 1 ? list[i - 1].id! : item.id!)))}>↓</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index === 0} onClick={() => save(() => store.reorderInvoiceStatusSteps(reorderActive(index, index - 1)))}>↑</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index >= activeSteps.length - 2} onClick={() => save(() => store.reorderInvoiceStatusSteps(reorderActive(index, index + 1)))}>↓</button>
         <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { const next = window.prompt("Status label", step.label); if (next?.trim() && next.trim() !== step.label) void save(() => store.updateInvoiceStatusStep(step.id!, { label: next.trim() })); }}>Rename</button>
         <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => save(() => store.updateInvoiceStatusStep(step.id!, { active: !step.active }))}>{step.active ? "Deactivate" : "Activate"}</button>
       </>}
     </div>)}
+    {legacySteps.length > 0 && <details style={{ marginTop: 14 }}><summary className="muted">Historical inactive stages ({legacySteps.length})</summary><p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>These are retained for invoice history and cannot be selected for new status changes.</p></details>}
     {canEdit && <div className="field-row" style={{ marginTop: 16 }}><Field label="Add status step"><input value={label} maxLength={80} placeholder="e.g. Awaiting documents" onChange={(event) => setLabel(event.target.value)} /></Field><button type="button" className="btn btn-primary" style={{ alignSelf: "end" }} disabled={busy || !label.trim()} onClick={() => save(async () => { await store.createInvoiceStatusStep(label.trim()); setLabel(""); })}>Add step</button></div>}
   </div>;
 }

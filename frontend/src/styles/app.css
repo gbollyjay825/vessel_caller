@@ -493,14 +493,14 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .kv .v.tnum { font-variant-numeric: tabular-nums; }
 
 /* financial breakdown */
-.fin-row { display: flex; align-items: baseline; justify-content: space-between; padding: var(--s3) 0; border-bottom: 1px dashed var(--hairline); }
+.fin-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); min-width: 0; padding: var(--s3) 0; border-bottom: 1px dashed var(--hairline); }
 .fin-row:last-child { border-bottom: none; }
-.fin-row .fl { color: var(--slate); font-size: var(--fs-body); }
+.fin-row .fl { flex: 1 1 12rem; min-width: 0; color: var(--slate); font-size: var(--fs-body); overflow-wrap: anywhere; }
 .fin-row .fl .basis { font-size: var(--fs-xs); color: var(--slate-soft); display: block; }
-.fin-row .fv { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
-.fin-total { display: flex; align-items: baseline; justify-content: space-between; padding-top: var(--s4); margin-top: var(--s2); border-top: 2px solid var(--ink); }
-.fin-total .fl { font-weight: 600; font-size: var(--fs-card-title); }
-.fin-total .fv { font-size: var(--fs-num-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
+.fin-row .fv { flex: 0 1 58%; min-width: 0; overflow-wrap: anywhere; word-break: break-word; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
+.fin-total { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); min-width: 0; padding-top: var(--s4); margin-top: var(--s2); border-top: 2px solid var(--ink); }
+.fin-total .fl { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; font-weight: 600; font-size: var(--fs-card-title); }
+.fin-total .fv { flex: 0 1 58%; min-width: 0; overflow-wrap: anywhere; word-break: break-word; text-align: right; font-size: var(--fs-num-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
 .fin-total .fv .ngn { display: block; text-align: right; font-size: var(--fs-meta); color: var(--slate); font-weight: 500; }
 
 /* segmented big selector (cargo category) */

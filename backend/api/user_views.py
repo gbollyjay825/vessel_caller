@@ -27,7 +27,7 @@ from organizations.models import Organization
 
 from .domain import bump_revision
 from .pagination import StandardPagination
-from .permissions import HasVesselPermission
+from .permissions import HasVesselPermission, role_definitions
 from .serializers import (
     InvitationAcceptSerializer,
     InvitationCreateSerializer,
@@ -41,6 +41,16 @@ from .serializers import (
 def csv_safe(value) -> str:
     text = str(value or "")
     return f"'{text}" if text.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")) else text
+
+
+class RoleDefinitionsView(APIView):
+    """Expose the server-enforced role matrix to people who manage access."""
+
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "users.view"
+
+    def get(self, request):
+        return Response({"roles": role_definitions()})
 
 
 class UsersView(APIView):

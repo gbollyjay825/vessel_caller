@@ -19,6 +19,7 @@ import {
   type AuditEvent,
   type Invitation,
   type Role,
+  type RoleDefinition,
   type User,
   type UserStatus,
 } from "../types";
@@ -32,6 +33,77 @@ const ROLE_HELP: Record<Role, string> = {
   Finance: "Can manage invoices and record payments.",
   Viewer: "Read-only access to operational and financial records.",
 };
+
+const PERMISSION_LABELS: Record<string, string> = {
+  "organization.view": "View organization profile",
+  "organization.manage": "Manage organization profile",
+  "users.view": "View users and role access",
+  "users.manage": "Invite, edit, suspend, and remove users",
+  "audit.view": "View audit history",
+  "audit.export": "Export audit history",
+  "calls.view": "View vessel calls",
+  "calls.manage": "Create, edit, and cancel vessel calls",
+  "inspections.view": "View inspections",
+  "inspections.manage": "Create, edit, and finalize inspections",
+  "invoices.view": "View invoices",
+  "invoices.manage": "Create and progress invoices",
+  "invoices.pay": "Record and reverse payments",
+  "settings.view": "View organization settings",
+  "settings.manage": "Manage settings and invoice workflow",
+  "analytics.view": "View analytics",
+  "documents.view": "Open invoices and reports",
+  "evidence.manage": "Upload and manage inspection evidence",
+};
+
+function RoleAccessMatrix() {
+  const definitions = useQuery({
+    queryKey: ["role-definitions"],
+    queryFn: api.roleDefinitions,
+    staleTime: 5 * 60_000,
+  });
+
+  if (definitions.isPending) {
+    return <div className="card role-access-card" aria-busy="true">Loading role access…</div>;
+  }
+  if (definitions.isError || !definitions.data) {
+    return <div className="auth-error role-access-card" role="alert">Could not load the role access matrix.</div>;
+  }
+
+  const byRole = new Map(definitions.data.roles.map((definition) => [definition.role, definition]));
+  const capabilities = Object.keys(PERMISSION_LABELS);
+  return (
+    <section className="card role-access-card" aria-labelledby="role-access-title">
+      <div className="role-access-heading">
+        <div>
+          <h2 id="role-access-title">Role access matrix</h2>
+          <p>These permissions are enforced by the API. Review them before inviting or changing a user’s role.</p>
+        </div>
+      </div>
+      <div className="role-access-scroll">
+        <table className="role-access-table">
+          <thead>
+            <tr>
+              <th scope="col">Access</th>
+              {ROLES.map((role) => <th scope="col" key={role}>{role}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {capabilities.map((permission) => (
+              <tr key={permission}>
+                <th scope="row">{PERMISSION_LABELS[permission]}</th>
+                {ROLES.map((role) => {
+                  const definition: RoleDefinition | undefined = byRole.get(role);
+                  const allowed = definition?.permissions.includes(permission) ?? false;
+                  return <td key={role} aria-label={`${role} — ${PERMISSION_LABELS[permission]}: ${allowed ? "allowed" : "not allowed"}`}>{allowed ? "✓" : "—"}</td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
@@ -100,6 +172,7 @@ export function UserManagement() {
           </button>
         ))}
       </div>
+      <RoleAccessMatrix />
       {tab === "users" && <UsersTab />}
       {tab === "invitations" && <InvitationsTab />}
       {tab === "audit" && <AuditTab />}

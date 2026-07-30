@@ -26,6 +26,21 @@ def test_user_permissions_and_last_admin_protection(admin, viewer):
     assert self_demote.status_code == 400
 
 
+def test_role_matrix_uses_the_server_enforced_permissions(admin, viewer):
+    viewer_client = authenticated(viewer)
+    assert viewer_client.get("/api/roles").status_code == 403
+
+    response = authenticated(admin).get("/api/roles")
+
+    assert response.status_code == 200
+    definitions = {item["role"]: set(item["permissions"]) for item in response.json()["roles"]}
+    assert definitions["Admin"] > definitions["Finance"]
+    assert "users.manage" in definitions["Admin"]
+    assert "calls.manage" in definitions["Operations"]
+    assert "invoices.pay" in definitions["Finance"]
+    assert "calls.manage" not in definitions["Viewer"]
+
+
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_admin_changes_cannot_remove_every_active_admin(admin):
     if connection.vendor != "postgresql":

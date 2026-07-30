@@ -68,6 +68,7 @@ from .user_views import (
     InvitationDetailView,
     InvitationResendView,
     InvitationsView,
+    RoleDefinitionsView,
     UserDetailView,
     UserMFAResetView,
     UserPasswordResetDispatchView,
@@ -123,6 +124,7 @@ urlpatterns = [
     ),
     path("auth/mfa", MFADisableView.as_view(), name="auth-mfa-disable"),
     path("profile", ProfileView.as_view(), name="profile"),
+    path("roles", RoleDefinitionsView.as_view(), name="role-definitions"),
     path("users", UsersView.as_view(), name="users"),
     path("users/<str:user_id>", UserDetailView.as_view(), name="user-detail"),
     path(

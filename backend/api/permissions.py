@@ -58,6 +58,14 @@ ROLE_PERMISSIONS = {
 }
 
 
+def role_definitions() -> list[dict[str, object]]:
+    """Return the API role matrix from the same source used for authorization."""
+    return [
+        {"role": role, "permissions": sorted(ROLE_PERMISSIONS[role])}
+        for role in ("Admin", "Operations", "Finance", "Viewer")
+    ]
+
+
 def effective_permissions(user) -> list[str]:
     if not getattr(user, "is_authenticated", False) or not user.is_active:
         return []

@@ -3,6 +3,11 @@
 export type Role = "Admin" | "Operations" | "Finance" | "Viewer";
 export const ROLES: Role[] = ["Admin", "Operations", "Finance", "Viewer"];
 
+export interface RoleDefinition {
+  role: Role;
+  permissions: string[];
+}
+
 export type UserStatus = "invited" | "active" | "suspended" | "removed";
 
 export interface User {

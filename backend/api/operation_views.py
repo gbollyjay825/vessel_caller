@@ -1268,9 +1268,11 @@ class InvoiceAttachmentFinalizeView(APIView):
         serializer = InvoiceAttachmentFinalizeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        invoice = request.user.organization.invoices.select_for_update().filter(
-            pk=data["invoiceId"]
-        ).first()
+        invoice = (
+            request.user.organization.invoices.select_for_update()
+            .filter(pk=data["invoiceId"])
+            .first()
+        )
         if not invoice:
             raise NotFound("Invoice not found")
         prefix = f"organizations/{invoice.organization_id}/invoices/{invoice.id}/uploads/"
@@ -1278,11 +1280,7 @@ class InvoiceAttachmentFinalizeView(APIView):
             raise ValidationError({"objectKey": ["Object is outside this invoice"]})
         metadata = object_metadata(data["objectKey"])
         checksum = data["checksum"].removeprefix("sha256:")
-        if (
-            not metadata
-            or metadata["size"] != data["size"]
-            or metadata["checksum"] != checksum
-        ):
+        if not metadata or metadata["size"] != data["size"] or metadata["checksum"] != checksum:
             raise ValidationError(
                 {"objectKey": ["Uploaded file metadata does not match the signed request"]}
             )
@@ -1299,9 +1297,7 @@ class InvoiceAttachmentFinalizeView(APIView):
             or finalized["size"] != metadata["size"]
             or finalized["checksum"] != metadata["checksum"]
         ):
-            raise ValidationError(
-                {"objectKey": ["Uploaded invoice file could not be finalized"]}
-            )
+            raise ValidationError({"objectKey": ["Uploaded invoice file could not be finalized"]})
         attachment = InvoiceAttachment.objects.create(
             organization=request.user.organization,
             invoice=invoice,

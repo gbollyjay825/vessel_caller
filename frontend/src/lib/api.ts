@@ -14,6 +14,7 @@ import type {
   Payment,
   Profile,
   Role,
+  RoleDefinition,
   Settings,
   User,
   UserStatus,
@@ -343,6 +344,7 @@ export const api = {
       status: params.status === "all" ? undefined : params.status,
       role: params.role === "all" ? undefined : params.role,
     })}`),
+  roleDefinitions: () => request<{ roles: RoleDefinition[] }>("/api/roles"),
   updateUser: (id: string, patch: Partial<Pick<User, "name" | "role" | "status">>) =>
     request<{ user: User; rev: number }>(`/api/users/${encodeURIComponent(id)}`, {
       method: "PATCH",

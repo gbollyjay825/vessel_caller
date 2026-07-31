@@ -6,7 +6,7 @@ from django.utils import timezone
 from passlib.hash import pbkdf2_sha256
 from rest_framework.test import APIClient
 
-from accounts.models import ActionToken, User, UserSession
+from accounts.models import ActionToken, EmailOutbox, User, UserSession
 from accounts.security import issue_action_token
 
 
@@ -34,6 +34,7 @@ def test_openapi_schema_is_public_and_covers_identity(api_client):
     assert "/api/users" in schema["paths"]
 
 
+@pytest.mark.django_db(transaction=True)
 def test_registration_verification_and_session_login(api_client):
     response = api_client.post(
         "/api/auth/register",
@@ -49,6 +50,12 @@ def test_registration_verification_and_session_login(api_client):
     assert response.status_code == 202
     user = User.objects.get(email="new@example.test")
     assert user.status == User.Status.INVITED
+    verification_messages = EmailOutbox.objects.filter(
+        to_email=user.email,
+        template="verify_email",
+    )
+    assert verification_messages.count() == 1
+    assert verification_messages.get().status == EmailOutbox.Status.SENT
     assert (
         api_client.post(
             "/api/auth/login",
@@ -75,6 +82,30 @@ def test_registration_verification_and_session_login(api_client):
     assert UserSession.objects.filter(user=user, revoked_at__isnull=True).count() == 1
     assert api_client.post("/api/auth/logout").status_code == 204
     assert api_client.get("/api/auth/me").status_code in (401, 403)
+
+
+def test_duplicate_registration_does_not_leak_or_enqueue_another_email(api_client):
+    payload = {
+        "name": "New Admin",
+        "email": "duplicate@example.test",
+        "password": "A-unique-production-password-2026!",
+        "orgName": "Duplicate Shipping",
+        "designatedPort": "Port of Calabar",
+    }
+
+    first = api_client.post("/api/auth/register", payload, format="json")
+    duplicate = api_client.post("/api/auth/register", payload, format="json")
+
+    assert first.status_code == duplicate.status_code == 202
+    assert first.json() == duplicate.json()
+    assert User.objects.filter(email=payload["email"]).count() == 1
+    assert (
+        EmailOutbox.objects.filter(
+            to_email=payload["email"],
+            template="verify_email",
+        ).count()
+        == 1
+    )
 
 
 def test_legacy_passlib_password_upgrades_on_login(organization):

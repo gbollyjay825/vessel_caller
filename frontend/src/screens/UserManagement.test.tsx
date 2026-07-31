@@ -8,6 +8,7 @@ import { UserManagement } from "./UserManagement";
 
 const apiMock = vi.hoisted(() => ({
   users: vi.fn(),
+  roleDefinitions: vi.fn(),
   invitations: vi.fn(),
   audit: vi.fn(),
   auditExportUrl: vi.fn(() => "/api/audit/export"),
@@ -80,6 +81,12 @@ describe("UserManagement", () => {
     authMock.can.mockReset();
     authMock.can.mockReturnValue(true);
     apiMock.users.mockResolvedValue({ results: [], count: 0, page: 1, pageSize: 20 });
+    apiMock.roleDefinitions.mockResolvedValue({ roles: [
+      { role: "Admin", permissions: ["users.manage", "calls.manage", "invoices.pay"] },
+      { role: "Operations", permissions: ["calls.manage"] },
+      { role: "Finance", permissions: ["invoices.pay"] },
+      { role: "Viewer", permissions: [] },
+    ] });
     apiMock.invitations.mockResolvedValue({ results: [], count: 0, page: 1, pageSize: 20 });
     apiMock.audit.mockResolvedValue({ results: [], count: 0, page: 1, pageSize: 20 });
   });
@@ -92,6 +99,16 @@ describe("UserManagement", () => {
     expect(screen.getByRole("dialog", { name: "Invite user" })).toBeInTheDocument();
     expect(screen.getByText(/recipient chooses their own password/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the API-provided role matrix before an Admin grants access", async () => {
+    renderManagement();
+
+    expect(await screen.findByRole("heading", { name: "Role access matrix" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Admin — Invite, edit, suspend, and remove users: allowed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Viewer — Invite, edit, suspend, and remove users: not allowed")).toBeInTheDocument();
+    expect(screen.getByText("Invite, edit, suspend, and remove users")).toBeInTheDocument();
+    expect(apiMock.roleDefinitions).toHaveBeenCalledTimes(1);
   });
 
   it("exposes the invitations and audit workspaces as real tabs", async () => {

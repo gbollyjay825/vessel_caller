@@ -95,18 +95,19 @@ class RegisterView(APIView):
 
     @transaction.atomic
     def post(self, request):
+        response_data = {
+            "detail": "If this address can be registered, verification instructions will be sent",
+            "verificationRequired": True,
+        }
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         email = data["email"].strip().lower()
         if User.objects.filter(email=email).exists():
-            return Response(
-                {
-                    "detail": "If this address can be registered, verification instructions will be sent",
-                    "verificationRequired": True,
-                },
-                status=status.HTTP_202_ACCEPTED,
-            )
+            # Keep the result indistinguishable from a first registration.
+            # A fresh link is requested through the dedicated resend endpoint,
+            # rather than turning registration into an email-spam oracle.
+            return Response(response_data, status=status.HTTP_202_ACCEPTED)
         organization = Organization.objects.create(
             registered=False,
             name=data["orgName"].strip(),
@@ -156,13 +157,7 @@ class RegisterView(APIView):
             request=request,
             after={"email": email, "role": user.role},
         )
-        return Response(
-            {
-                "detail": "Check your email to verify your account",
-                "verificationRequired": True,
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
+        return Response(response_data, status=status.HTTP_202_ACCEPTED)
 
 
 @method_decorator(csrf_protect, name="dispatch")

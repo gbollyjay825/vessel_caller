@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from importlib import import_module
+
 import pyotp
 import pytest
+from django.apps import apps
 from django.utils import timezone
 from passlib.hash import pbkdf2_sha256
 from rest_framework.test import APIClient
 
 from accounts.models import ActionToken, EmailOutbox, User, UserSession
 from accounts.security import issue_action_token
+from organizations.defaults import CALABAR_BERTH_TERMINALS
+from organizations.models import OrganizationSettings
 
 
 pytestmark = pytest.mark.django_db
@@ -50,6 +55,9 @@ def test_registration_verification_and_session_login(api_client):
     assert response.status_code == 202
     user = User.objects.get(email="new@example.test")
     assert user.status == User.Status.INVITED
+    assert OrganizationSettings.objects.get(organization=user.organization).terminals == list(
+        CALABAR_BERTH_TERMINALS
+    )
     verification_messages = EmailOutbox.objects.filter(
         to_email=user.email,
         template="verify_email",
@@ -106,6 +114,22 @@ def test_duplicate_registration_does_not_leak_or_enqueue_another_email(api_clien
         ).count()
         == 1
     )
+
+
+def test_calabar_berth_terminal_data_migration_preserves_existing_settings(organization):
+    settings = OrganizationSettings.objects.get(organization=organization)
+    settings.terminals = ["Calabar Bulk Terminal", "ECMT"]
+    settings.save(update_fields=("terminals",))
+
+    migration = import_module("organizations.migrations.0002_add_calabar_berth_terminals")
+    migration.add_calabar_berth_terminals(apps, None)
+    settings.refresh_from_db()
+
+    assert settings.terminals == ["Calabar Bulk Terminal", "ECMT", "Intels", "NNPC"]
+
+    migration.add_calabar_berth_terminals(apps, None)
+    settings.refresh_from_db()
+    assert settings.terminals == ["Calabar Bulk Terminal", "ECMT", "Intels", "NNPC"]
 
 
 def test_legacy_passlib_password_upgrades_on_login(organization):

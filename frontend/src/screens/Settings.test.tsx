@@ -137,7 +137,14 @@ describe("Settings", () => {
     await userEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(terminals).toHaveValue("Terminal A\nTerminal B");
 
-    await userEvent.type(terminals, "\nThird Terminal");
+    const terminalToAdd = screen.getByLabelText("Add terminal");
+    await userEvent.type(terminalToAdd, "Third Terminal");
+    await userEvent.click(screen.getByRole("button", { name: "Add terminal" }));
+    expect(terminals).toHaveValue("Terminal A\nTerminal B\nThird Terminal");
+
+    await userEvent.type(terminalToAdd, "terminal a");
+    await userEvent.click(screen.getByRole("button", { name: "Add terminal" }));
+    expect(terminals).toHaveValue("Terminal A\nTerminal B\nThird Terminal");
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(mocks.store.updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       terminals: ["Terminal A", "Terminal B", "Third Terminal"],
@@ -215,5 +222,7 @@ describe("Settings", () => {
 
     await userEvent.click(screen.getByRole("tab", { name: "Port profile" }));
     expect(screen.getByLabelText("Default terminals")).toBeDisabled();
+    expect(screen.getByLabelText("Add terminal")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add terminal" })).toBeDisabled();
   });
 });

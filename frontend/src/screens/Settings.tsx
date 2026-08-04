@@ -306,6 +306,7 @@ export function Settings() {
   const [orgForm, setOrgForm] = useState<Organization>(() => normalizeOrg(store.org));
   const [orgDirty, setOrgDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [terminalToAdd, setTerminalToAdd] = useState("");
 
   const canEdit = can("manageSettings");
   const teamCanEdit = canEdit && can("manageTeam");
@@ -322,6 +323,14 @@ export function Settings() {
   const updateForm = (update: SettingsFormUpdate) => {
     setForm((current) => applySettingsFormUpdate(current, update));
     setDirty(true);
+  };
+
+  const addTerminal = () => {
+    const terminal = terminalToAdd.trim();
+    if (!terminal) return;
+    const exists = form.terminals.some((existing) => existing.trim().toLocaleLowerCase() === terminal.toLocaleLowerCase());
+    if (!exists) updateForm({ field: "terminals", value: [...form.terminals, terminal] });
+    setTerminalToAdd("");
   };
 
   const setOrgField = (key: string, val: unknown) => {
@@ -451,6 +460,23 @@ export function Settings() {
             <Field label="Default terminals" hint="One per line. Offered when registering a vessel call.">
               <textarea style={{ minHeight: 120 }} value={form.terminals.join("\n")} onChange={(e) => updateForm({ field: "terminals", value: e.target.value.split("\n") })} />
             </Field>
+            <div className="field-row" style={{ alignItems: "end" }}>
+              <Field label="Add terminal" hint="Add a berth terminal to this organization’s vessel-call list.">
+                <input
+                  value={terminalToAdd}
+                  maxLength={120}
+                  placeholder="e.g. NNPC"
+                  onChange={(event) => setTerminalToAdd(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addTerminal();
+                    }
+                  }}
+                />
+              </Field>
+              <button type="button" className="btn btn-secondary" disabled={!terminalToAdd.trim()} onClick={addTerminal}>Add terminal</button>
+            </div>
           </fieldset>
         </div>
       )}

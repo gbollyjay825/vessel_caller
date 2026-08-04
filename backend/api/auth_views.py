@@ -37,6 +37,7 @@ from accounts.services import (
     start_session,
 )
 from audit.services import record_event
+from organizations.defaults import CALABAR_BERTH_TERMINALS
 from organizations.models import Organization, OrganizationSettings
 
 from .permissions import effective_permissions
@@ -121,11 +122,7 @@ class RegisterView(APIView):
         OrganizationSettings.objects.create(
             organization=organization,
             port_name=data["designatedPort"],
-            terminals=[
-                "Calabar New Port — Berth 3",
-                "Calabar Bulk Terminal",
-                "UNICEM Jetty",
-            ],
+            terminals=list(CALABAR_BERTH_TERMINALS),
         )
         from billing.services import ensure_default_steps
 

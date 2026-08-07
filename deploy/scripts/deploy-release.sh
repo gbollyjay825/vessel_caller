@@ -23,6 +23,21 @@ case "${target}" in
     # production verifier merely to stage a candidate release.
     export RELEASE_SIGNATURE_PUBLIC_KEY=/etc/vessel-caller/staging-release-signing-public.pem
     "${script_dir}/install-release.sh" staging "${archive}"
+    # The isolated staging browser gate authenticates only deterministic
+    # fixture accounts. Refresh them on each staging release so an expired
+    # MFA grace period can never silently remove their permissions. The
+    # password remains in the root-owned staging environment file; it is
+    # neither emitted nor passed through GitHub Actions.
+    set -a
+    # shellcheck disable=SC1091
+    . /etc/vessel-caller/staging.env
+    # shellcheck disable=SC1091
+    . /opt/vessel-caller/slots/staging/current/RELEASE.env
+    set +a
+    runuser -u vessel-caller-staging --preserve-environment -- \
+      /opt/vessel-caller/slots/staging/current/backend/.venv/bin/python \
+      /opt/vessel-caller/slots/staging/current/backend/manage.py \
+      seed_e2e --force
     systemctl restart vessel-caller-staging-worker.service
     systemctl enable vessel-caller-staging-worker.service >/dev/null
     curl \

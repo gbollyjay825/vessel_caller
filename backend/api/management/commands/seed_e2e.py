@@ -114,6 +114,13 @@ class Command(BaseCommand):
             user.role = role
             user.status = User.Status.ACTIVE
             user.email_verified_at = now
+            # These accounts are a deterministic staging/CI fixture, not real
+            # users. Re-seeding must restore the complete fixture state: an
+            # expired Admin/Finance MFA grace period otherwise removes every
+            # effective permission and makes browser qualification flaky.
+            user.mfa_secret = ""
+            user.mfa_enabled_at = None
+            user.mfa_grace_ends_at = now + timedelta(days=7)
             user.set_password(password)
             user.save()
         self.stdout.write(

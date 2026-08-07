@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import ActionToken, MFAChallenge, User
+from accounts.notifications import queue_security_notice
 from accounts.security import (
     consume_action_token,
     decrypt_secret,
@@ -182,11 +183,19 @@ class VerifyEmailView(APIView):
             if User.objects.exclude(pk=user.pk).filter(email=pending).exists():
                 raise ValidationError({"token": ["That email address is no longer available"]})
             before = {"email": user.email}
+            previous_email = user.email
             user.email = pending
             user.pending_email = ""
             user.email_verified_at = now
             user.save(update_fields=("email", "pending_email", "email_verified_at", "updated_at"))
             action = "account.email_changed"
+            queue_security_notice(
+                user,
+                event_key=f"email-changed:{token_obj.id}",
+                subject="Your Vessel Caller email address was changed",
+                message="Your Vessel Caller sign-in email address was changed successfully.",
+                to_email=previous_email,
+            )
         else:
             before = {"status": user.status}
             user.status = User.Status.ACTIVE
@@ -195,6 +204,12 @@ class VerifyEmailView(APIView):
             user.organization.save(update_fields=("registered", "updated_at"))
             user.save(update_fields=("status", "email_verified_at", "updated_at"))
             action = "account.email_verified"
+            queue_security_notice(
+                user,
+                event_key=f"account-verified:{token_obj.id}",
+                subject="Your Vessel Caller account is ready",
+                message="Your email has been verified and your Vessel Caller account is now active.",
+            )
         record_event(
             organization=user.organization,
             actor=user,
@@ -379,6 +394,12 @@ class ResetPasswordView(APIView):
         user.set_password(serializer.validated_data["password"])
         user.save(update_fields=("password", "updated_at"))
         revoke_sessions(user)
+        queue_security_notice(
+            user,
+            event_key=f"password-reset:{token_obj.id}",
+            subject="Your Vessel Caller password was reset",
+            message="Your password was reset and all active sessions were signed out.",
+        )
         record_event(
             organization=user.organization,
             actor=user,
@@ -404,6 +425,12 @@ class ChangePasswordView(APIView):
         user.save(update_fields=("password", "updated_at"))
         revoke_sessions(user, request=request, keep_current=True)
         rotate_current_session(request, user)
+        queue_security_notice(
+            user,
+            event_key=f"password-changed:{user.id}:{user.updated_at.isoformat()}",
+            subject="Your Vessel Caller password was changed",
+            message="Your password was changed. Other active sessions were signed out.",
+        )
         record_event(
             organization=user.organization,
             actor=user,
@@ -450,6 +477,13 @@ class ProfileView(APIView):
                 template="verify_email",
                 context={"actionUrl": _url("/verify-email", raw)},
                 idempotency_key=f"verify:{token_obj.id}",
+            )
+            queue_security_notice(
+                user,
+                event_key=f"email-change-requested:{token_obj.id}",
+                subject="A Vessel Caller email change was requested",
+                message="A request was made to change your Vessel Caller sign-in email address. "
+                "Your current email remains active until the new address is verified.",
             )
             verification_required = True
         user.save()
@@ -546,6 +580,12 @@ class MFAConfirmView(APIView):
         request.session.pop("mfa_setup_authorized_at", None)
         recovery = generate_recovery_codes(user)
         revoke_sessions(user, request=request, keep_current=True)
+        queue_security_notice(
+            user,
+            event_key=f"mfa-enabled:{user.id}:{user.mfa_enabled_at.isoformat()}",
+            subject="Multi-factor authentication was enabled",
+            message="Multi-factor authentication was enabled for your Vessel Caller account.",
+        )
         record_event(
             organization=user.organization,
             actor=user,
@@ -580,6 +620,12 @@ class MFADisableView(APIView):
         user.save(update_fields=("mfa_secret", "mfa_enabled_at", "mfa_grace_ends_at", "updated_at"))
         user.recovery_codes.all().delete()
         revoke_sessions(user, request=request, keep_current=True)
+        queue_security_notice(
+            user,
+            event_key=f"mfa-disabled:{user.id}:{user.updated_at.isoformat()}",
+            subject="Multi-factor authentication was disabled",
+            message="Multi-factor authentication was disabled for your Vessel Caller account.",
+        )
         record_event(
             organization=user.organization,
             actor=user,

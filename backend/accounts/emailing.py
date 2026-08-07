@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import http.client
 import logging
+from html import escape
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -11,17 +13,29 @@ log = logging.getLogger(__name__)
 
 
 def _render(template: str, context: dict) -> str:
-    action_url = context.get("actionUrl", "")
+    raw_action_url = str(context.get("actionUrl", ""))
+    parsed_action_url = urlparse(raw_action_url)
+    action_url = (
+        escape(raw_action_url, quote=True)
+        if parsed_action_url.scheme == "https" and parsed_action_url.netloc
+        else ""
+    )
     messages = {
         "verify_email": "Verify your Vessel Caller email address",
         "invitation": "You have been invited to Vessel Caller",
         "reset_password": "Reset your Vessel Caller password",
         "email_changed": "Your Vessel Caller email address was changed",
+        "security_notice": "Vessel Caller security notice",
+        "vessel_call": "Vessel Caller vessel call update",
+        "inspection": "Vessel Caller inspection update",
+        "invoice": "Vessel Caller invoice update",
+        "payment": "Vessel Caller payment update",
     }
     heading = messages.get(template, "Vessel Caller notification")
+    message = escape(str(context.get("message", heading)))
     return (
         f"<h1>{heading}</h1>"
-        f"<p>{context.get('message', heading)}</p>"
+        f"<p>{message}</p>"
         + (f'<p><a href="{action_url}">Continue securely</a></p>' if action_url else "")
         + "<p>If you did not request this, contact your organization administrator.</p>"
     )

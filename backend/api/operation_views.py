@@ -19,6 +19,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.models import User
+from accounts.notifications import queue_organization_notice
 from audit.services import record_event
 from billing.models import (
     Invoice,
@@ -142,6 +144,15 @@ class VesselCallsView(APIView):
             request=request,
             after=call_data(call),
         )
+        queue_organization_notice(
+            organization=call.organization,
+            actor=request.user,
+            recipient_roles=(User.Role.ADMIN, User.Role.OPERATIONS),
+            event_key=f"vessel-call-created:{call.id}",
+            subject="New vessel call registered",
+            message=f"{call.reference} for {call.vessel_name} was registered.",
+            template="vessel_call",
+        )
         return Response(
             {"call": call_data(call), "rev": revision},
             status=status.HTTP_201_CREATED,
@@ -177,6 +188,7 @@ class VesselCallDetailView(APIView):
         data = serializer.validated_data
         _check_version(call, data.pop("version", None))
         before = call_data(call)
+        status_changed = "status" in data and data["status"] != call.status
         mapping = {
             "vesselName": "vessel_name",
             "reference": "reference",
@@ -207,6 +219,16 @@ class VesselCallDetailView(APIView):
             before=before,
             after=call_data(call),
         )
+        if status_changed:
+            queue_organization_notice(
+                organization=call.organization,
+                actor=request.user,
+                recipient_roles=(User.Role.ADMIN, User.Role.OPERATIONS),
+                event_key=f"vessel-call-status:{call.id}:{call.version}",
+                subject="Vessel call status updated",
+                message=f"{call.reference} for {call.vessel_name} is now {call.status}.",
+                template="vessel_call",
+            )
         return Response({"call": call_data(call), "rev": revision})
 
     def get_permissions(self):
@@ -252,6 +274,15 @@ class VesselCallCancelView(VesselCallDetailView):
             request=request,
             before=before,
             after=call_data(call),
+        )
+        queue_organization_notice(
+            organization=call.organization,
+            actor=request.user,
+            recipient_roles=(User.Role.ADMIN, User.Role.OPERATIONS, User.Role.FINANCE),
+            event_key=f"vessel-call-cancelled:{call.id}:{call.version}",
+            subject="Vessel call cancelled",
+            message=f"{call.reference} for {call.vessel_name} was cancelled.",
+            template="vessel_call",
         )
         return Response({"call": call_data(call), "rev": revision})
 
@@ -329,6 +360,28 @@ class InspectionsView(APIView):
         )
         if data.get("status") == "completed":
             inspection, invoice, revision = finalize_inspection(inspection.id, call.organization_id)
+            record_event(
+                organization=inspection.organization,
+                actor=request.user,
+                action="inspection.finalized",
+                category="operations",
+                target=inspection,
+                target_label=inspection.reference,
+                request=request,
+                after={"invoiceId": invoice.id, **inspection_data(inspection)},
+            )
+            queue_organization_notice(
+                organization=inspection.organization,
+                actor=request.user,
+                recipient_roles=(User.Role.ADMIN, User.Role.OPERATIONS, User.Role.FINANCE),
+                event_key=f"inspection-finalized:{inspection.id}",
+                subject="Inspection finalized and invoice created",
+                message=(
+                    f"Inspection {inspection.reference} was finalized and invoice "
+                    f"{invoice.invoice_no} was created."
+                ),
+                template="inspection",
+            )
             return Response(
                 {
                     "inspection": inspection_data(inspection),
@@ -431,6 +484,18 @@ class InspectionFinalizeView(InspectionDetailView):
                 request=request,
                 after={"invoiceId": invoice.id, **inspection_data(inspection)},
             )
+            queue_organization_notice(
+                organization=inspection.organization,
+                actor=request.user,
+                recipient_roles=(User.Role.ADMIN, User.Role.OPERATIONS, User.Role.FINANCE),
+                event_key=f"inspection-finalized:{inspection.id}",
+                subject="Inspection finalized and invoice created",
+                message=(
+                    f"Inspection {inspection.reference} was finalized and invoice "
+                    f"{invoice.invoice_no} was created."
+                ),
+                template="inspection",
+            )
         return Response(
             {
                 "inspection": inspection_data(inspection),
@@ -493,6 +558,15 @@ class PaymentCreateView(APIView):
             request=request,
             after=payment_data(payment),
         )
+        queue_organization_notice(
+            organization=invoice.organization,
+            actor=request.user,
+            recipient_roles=(User.Role.ADMIN, User.Role.FINANCE),
+            event_key=f"payment-recorded:{payment.id}",
+            subject="Invoice payment recorded",
+            message=f"Payment {payment.reference} was recorded for invoice {invoice.invoice_no}.",
+            template="payment",
+        )
         return Response(
             {
                 "payment": payment_data(payment),
@@ -545,6 +619,15 @@ class PaymentReverseView(APIView):
             target_label=payment.reference,
             request=request,
             after=payment_data(payment),
+        )
+        queue_organization_notice(
+            organization=invoice.organization,
+            actor=request.user,
+            recipient_roles=(User.Role.ADMIN, User.Role.FINANCE),
+            event_key=f"payment-reversed:{payment.id}",
+            subject="Invoice payment reversed",
+            message=f"Payment {payment.reference} was reversed for invoice {invoice.invoice_no}.",
+            template="payment",
         )
         return Response(
             {
@@ -756,6 +839,15 @@ class InvoiceTransitionView(APIView):
                 request=request,
                 before={"status": event.from_code},
                 after={"status": event.to_code, "note": event.note or None},
+            )
+            queue_organization_notice(
+                organization=invoice.organization,
+                actor=request.user,
+                recipient_roles=(User.Role.ADMIN, User.Role.FINANCE),
+                event_key=f"invoice-status:{invoice.id}:{event.id}",
+                subject="Invoice status updated",
+                message=f"Invoice {invoice.invoice_no} moved to {step.label}.",
+                template="invoice",
             )
         return Response({"invoice": invoice_data(invoice), "rev": revision})
 
@@ -1381,6 +1473,15 @@ class InvoiceAttachmentFinalizeView(APIView):
             request=request,
             after=invoice_attachment_data(attachment),
         )
+        queue_organization_notice(
+            organization=invoice.organization,
+            actor=request.user,
+            recipient_roles=(User.Role.ADMIN, User.Role.FINANCE),
+            event_key=f"invoice-attachment-uploaded:{attachment.id}",
+            subject="Invoice document uploaded",
+            message=f"{attachment.file_name} was uploaded to invoice {invoice.invoice_no}.",
+            template="invoice",
+        )
         return Response(
             {"attachment": invoice_attachment_data(attachment), "rev": revision},
             status=status.HTTP_201_CREATED,
@@ -1410,6 +1511,8 @@ class InvoiceAttachmentDetailView(APIView):
         if request.user.role not in {"Admin", "Finance"}:
             raise NotFound("Invoice attachment not found")
         attachment = self._attachment(request, attachment_id)
+        file_name = attachment.file_name
+        invoice_no = attachment.invoice.invoice_no
         delete_object(attachment.object_key)
         attachment.delete()
         revision = bump_revision(request.user.organization_id)
@@ -1419,8 +1522,17 @@ class InvoiceAttachmentDetailView(APIView):
             action="invoice.attachment_removed",
             category="billing",
             target=request.user.organization,
-            target_label=attachment.file_name,
+            target_label=file_name,
             request=request,
+        )
+        queue_organization_notice(
+            organization=request.user.organization,
+            actor=request.user,
+            recipient_roles=(User.Role.ADMIN, User.Role.FINANCE),
+            event_key=f"invoice-attachment-removed:{attachment_id}",
+            subject="Invoice document removed",
+            message=f"{file_name} was removed from invoice {invoice_no}.",
+            template="invoice",
         )
         return Response({"rev": revision}, status=status.HTTP_200_OK)
 

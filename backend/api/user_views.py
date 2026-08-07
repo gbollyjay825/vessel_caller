@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import ActionToken, Invitation, User
+from accounts.notifications import queue_security_notice
 from accounts.security import EMPTY_MFA_SECRET, issue_action_token, token_hash
 from accounts.services import opaque_token, queue_email, revoke_sessions
 from audit.models import AuditEvent
@@ -134,6 +135,18 @@ class UserDetailView(APIView):
             before=before,
             after=user_data(member),
         )
+        if changed_access:
+            changes = []
+            if before["role"] != member.role:
+                changes.append(f"your role is now {member.role}")
+            if before["status"] != member.status:
+                changes.append(f"your account status is now {member.status}")
+            queue_security_notice(
+                member,
+                event_key=f"user-access:{member.id}:{revision}",
+                subject="Your Vessel Caller access was updated",
+                message="An administrator updated your access: " + "; ".join(changes) + ".",
+            )
         return Response({"user": user_data(member), "rev": revision})
 
     @transaction.atomic
@@ -175,6 +188,13 @@ class UserDetailView(APIView):
             request=request,
             before=before,
             after=user_data(member),
+        )
+        queue_security_notice(
+            member,
+            event_key=f"user-removed:{member.id}:{revision}",
+            subject="Your Vessel Caller account was removed",
+            message="An administrator removed your Vessel Caller account and signed out its sessions.",
+            to_email=before["email"],
         )
         return Response({"ok": True, "rev": revision})
 
@@ -236,6 +256,12 @@ class UserMFAResetView(APIView):
             target=member,
             target_label=member.email,
             request=request,
+        )
+        queue_security_notice(
+            member,
+            event_key=f"mfa-reset:{member.id}:{member.updated_at.isoformat()}",
+            subject="Your Vessel Caller multi-factor authentication was reset",
+            message="An administrator reset your multi-factor authentication and signed out your sessions.",
         )
         return Response({"user": user_data(member)})
 
@@ -399,6 +425,12 @@ class InvitationAcceptView(APIView):
             target_label=user.email,
             request=request,
             after={"role": user.role},
+        )
+        queue_security_notice(
+            invitation.invited_by,
+            event_key=f"invitation-accepted:{invitation.id}",
+            subject="A Vessel Caller invitation was accepted",
+            message=f"{user.name} accepted the invitation to join {invitation.organization.name} as {user.role}.",
         )
         return Response({"detail": "Invitation accepted"}, status=status.HTTP_201_CREATED)
 

@@ -267,9 +267,6 @@ jobs:
             gh release download "${tag}" \
               --dir artifacts \
               --pattern "vessel-caller-${tag}.tar.gz*"
-            gh release download "${tag}" \
-              --dir artifacts \
-              --pattern "vessel-caller-${tag}.staging-deployed.json"
             (
               cd artifacts
               sha256sum --check "vessel-caller-${tag}.tar.gz.sha256"
@@ -292,10 +289,27 @@ jobs:
                  and .immutable == true
                  and .release == $release
                  and .commit == $commit' >/dev/null
-            jq --exit-status \
-              --arg tag "${tag}" \
-              '.release == $tag and .deployed == true and (.previewUrl | startswith("https://"))' \
-              "artifacts/vessel-caller-${tag}.staging-deployed.json" >/dev/null
+            # Deployments are GitHub's append-only release evidence.  Releases
+            # are immutable once published, so a later staging deployment must
+            # not be represented by trying to upload another release asset.
+            deployment_id="$(
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/deployments?ref=${tag}&environment=staging&per_page=100" |
+                jq -r \
+                  --arg commit "${resolved_commit}" \
+                  '[.[] | select(.environment == "staging" and .sha == $commit) | .id] | first // empty'
+            )"
+            test -n "${deployment_id}"
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/deployments/${deployment_id}/statuses?per_page=100" \
+              --jq '
+                any(
+                  .[];
+                  .state == "success" and
+                  .environment == "staging" and
+                  .environment_url == "https://staging.vesselcalls.com"
+                )
+              ' | grep -qx true
           done
           operator_evidence="vessel-caller-${CURRENT_TAG}.operator-evidence.json"
           gh release download "${CURRENT_TAG}" \

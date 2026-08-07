@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from django.core.cache import cache
 from django.core.management import call_command, CommandError
+from django.utils import timezone
 
 from accounts.models import EmailOutbox, User
 from accounts.services import queue_email
@@ -254,6 +256,27 @@ def test_seed_e2e_is_idempotent_with_explicit_local_password(settings):
     call_command("seed_e2e", password=password)
     assert User.objects.filter(email__endswith="@e2e.vesselcalls.test").count() == 4
     assert User.objects.get(email="admin@e2e.vesselcalls.test").check_password(password)
+
+
+def test_seed_e2e_restores_existing_admin_fixture_mfa_grace(settings):
+    settings.DEBUG = True
+    settings.ENVIRONMENT = "test"
+    password = "Local-E2E-Strong-Password-2026!"
+    call_command("seed_e2e", password=password)
+    admin = User.objects.get(email="admin@e2e.vesselcalls.test")
+    admin.mfa_secret = "fixture-secret"
+    admin.mfa_enabled_at = timezone.now()
+    admin.mfa_grace_ends_at = timezone.now() - timedelta(days=1)
+    admin.save()
+
+    call_command("seed_e2e", password=password)
+
+    admin.refresh_from_db()
+    assert admin.mfa_secret == ""
+    assert admin.mfa_enabled_at is None
+    assert admin.mfa_grace_ends_at is not None
+    assert admin.mfa_grace_ends_at > timezone.now()
+    assert not admin.mfa_enrollment_required
 
 
 def test_seed_e2e_requires_strong_protected_password(settings, monkeypatch):

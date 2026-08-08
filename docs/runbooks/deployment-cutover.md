@@ -27,8 +27,10 @@
    `check --deploy`, migrations, static collection, and candidate readiness.
 6. `promote-release.sh` probes FlexSchools, atomically updates only Vessel
    Caller’s upstream and static symlink, runs `nginx -t`, and reloads Nginx.
-7. It executes public smoke tests and a second FlexSchools check. A failure
-   automatically restores the prior upstream/symlink.
+7. It executes public smoke tests and a second FlexSchools check. Because an
+   Nginx graceful reload can briefly leave a retiring worker serving the prior
+   slot, release qualification retries up to six times at one-second intervals.
+   A persistent failure automatically restores the prior upstream/symlink.
 8. Observe readiness, error rate, latency, auth failures, worker/outbox lag,
    PostgreSQL, Redis, disk, and FlexSchools for at least 30 minutes.
 

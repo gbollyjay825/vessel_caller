@@ -35,6 +35,7 @@
     - verify-release.sh
     - install-release.sh
     - promote-release.sh
+    - qualify-release-with-retry.sh
     - deploy-release.sh
     - postgres-backup.sh
     - postgres-restore.sh

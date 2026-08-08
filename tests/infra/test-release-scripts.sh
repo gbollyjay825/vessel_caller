@@ -131,6 +131,79 @@ if PATH="${fake_bin}:${PATH}" \
   exit 1
 fi
 
+retry_attempt_file="${fixture_root}/promotion-attempts"
+retry_smoke_test="${fixture_root}/retry-smoke-test.sh"
+cat > "${retry_smoke_test}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$#" -ne 3 \
+  || "$1" != "--qualify-release" \
+  || "$2" != "https://production.example.test" \
+  || "$3" != "v1.2.3" ]]; then
+  exit 2
+fi
+
+attempt="$(<"${RETRY_ATTEMPT_FILE}")"
+attempt="$((attempt + 1))"
+printf '%s\n' "${attempt}" > "${RETRY_ATTEMPT_FILE}"
+[[ "${RETRY_SUCCEED_ON}" -gt 0 && "${attempt}" -ge "${RETRY_SUCCEED_ON}" ]]
+EOF
+chmod 0755 "${retry_smoke_test}"
+
+printf '0\n' > "${retry_attempt_file}"
+RETRY_ATTEMPT_FILE="${retry_attempt_file}" \
+RETRY_SUCCEED_ON=2 \
+  "${repo_root}/deploy/scripts/qualify-release-with-retry.sh" \
+  "${retry_smoke_test}" \
+  https://production.example.test \
+  "${release_tag}" \
+  4 \
+  0
+if [[ "$(<"${retry_attempt_file}")" != "2" ]]; then
+  echo "Promotion qualification did not recover after the retiring-worker response." >&2
+  exit 1
+fi
+
+printf '0\n' > "${retry_attempt_file}"
+if RETRY_ATTEMPT_FILE="${retry_attempt_file}" \
+  RETRY_SUCCEED_ON=0 \
+  "${repo_root}/deploy/scripts/qualify-release-with-retry.sh" \
+  "${retry_smoke_test}" \
+  https://production.example.test \
+  "${release_tag}" \
+  3 \
+  0 >/dev/null 2>&1; then
+  echo "Permanently mismatched release unexpectedly passed promotion qualification." >&2
+  exit 1
+fi
+if [[ "$(<"${retry_attempt_file}")" != "3" ]]; then
+  echo "Promotion qualification did not stop at its bounded attempt limit." >&2
+  exit 1
+fi
+if RETRY_ATTEMPT_FILE="${retry_attempt_file}" \
+  RETRY_SUCCEED_ON=1 \
+  "${repo_root}/deploy/scripts/qualify-release-with-retry.sh" \
+  "${retry_smoke_test}" \
+  https://production.example.test \
+  "${release_tag}" \
+  31 \
+  0 >/dev/null 2>&1; then
+  echo "Promotion qualification accepted an attempt count above its safety bound." >&2
+  exit 1
+fi
+
+promotion_script="${repo_root}/deploy/scripts/promote-release.sh"
+for promotion_guard in \
+  'VESSEL_CALLER_PROMOTION_QUALIFICATION_ATTEMPTS:-6' \
+  'VESSEL_CALLER_PROMOTION_QUALIFICATION_RETRY_SECONDS:-1' \
+  'qualify-release-with-retry.sh'; do
+  if ! grep -Fq -- "${promotion_guard}" "${promotion_script}"; then
+    echo "Production promotion is missing bounded graceful-reload guard: ${promotion_guard}" >&2
+    exit 1
+  fi
+done
+
 printf 'tamper\n' >> "${archive}"
 if REQUIRE_RELEASE_SIGNATURE=true \
   RELEASE_SIGNATURE_PUBLIC_KEY="${public_key}" \

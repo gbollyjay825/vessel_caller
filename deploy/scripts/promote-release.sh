@@ -28,6 +28,18 @@ readonly current_link="${app_root}/current"
 readonly candidate_release="${app_root}/slots/${candidate}/current"
 readonly public_url="${VESSEL_CALLER_PUBLIC_URL:-https://vesselcalls.com}"
 readonly flexschools_url="${FLEXSCHOOLS_HEALTH_URL:-https://flexschools.ng/}"
+readonly qualification_attempts="${VESSEL_CALLER_PROMOTION_QUALIFICATION_ATTEMPTS:-6}"
+readonly qualification_retry_seconds="${VESSEL_CALLER_PROMOTION_QUALIFICATION_RETRY_SECONDS:-1}"
+
+if [[ ! "${qualification_attempts}" =~ ^[1-9][0-9]*$ \
+  || ! "${qualification_retry_seconds}" =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "Promotion qualification requires 1-30 attempts and a 0-10 second retry interval." >&2
+  exit 2
+fi
+if ((qualification_attempts > 30 || qualification_retry_seconds > 10)); then
+  echo "Promotion qualification requires 1-30 attempts and a 0-10 second retry interval." >&2
+  exit 2
+fi
 
 if [[ ! -L "${candidate_release}" ]]; then
   echo "Candidate slot has no installed release: ${candidate}" >&2
@@ -96,10 +108,12 @@ fi
 systemctl reload nginx
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if ! "${script_dir}/smoke-test.sh" \
-  --qualify-release \
+if ! "${script_dir}/qualify-release-with-retry.sh" \
+  "${script_dir}/smoke-test.sh" \
   "${public_url}" \
-  "${candidate_tag}"; then
+  "${candidate_tag}" \
+  "${qualification_attempts}" \
+  "${qualification_retry_seconds}"; then
   rollback
   exit 1
 fi

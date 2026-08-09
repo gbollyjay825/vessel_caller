@@ -15,13 +15,34 @@ does not send marketing mail, credentials, or public storage links.
 | Vessel call created or status changed | Active Admin and Operations users other than the actor |
 | Vessel call cancelled | Active Admin, Operations, and Finance users other than the actor |
 | Inspection finalized and invoice created | Active Admin, Operations, and Finance users other than the actor |
-| Invoice status changed, invoice document uploaded or removed | Active Admin and Finance users other than the actor |
+| Invoice status changed | Active users in the recipient roles configured by an Admin for the destination status, other than the actor |
+| Invoice document uploaded or removed | Active Admin and Finance users other than the actor |
 | Payment recorded or reversed | Active Admin and Finance users other than the actor |
 
 The actor is deliberately excluded from team notices because the API already
 confirms their own action. Suspended and removed users never receive
 organization notices. Message text and action URLs are HTML-escaped; action
 links are emitted only for HTTPS URLs.
+
+Only organization Admins can configure invoice-status notification policies.
+Each status has an explicit enable switch and one or more validated roles from
+the fixed Admin, Operations, Finance, and Viewer role matrix. Existing
+non-Paid statuses initially retain the prior Admin-and-Finance behavior; Paid
+starts disabled to avoid an unexpected duplicate beside the separate payment
+receipt notice. Paid's workflow identity remains protected even though its
+notification policy is configurable. Manual same-status requests, partial
+payments, idempotent payment/reversal replays, void transitions, and migration
+history do not generate status-notification messages.
+
+## Broker recovery
+
+The web process writes encrypted outbox rows transactionally and attempts to
+publish their task only after commit. If Redis is unavailable, the committed
+row remains pending and the API result remains successful. Every active Celery
+worker schedules a short-lived bounded dispatcher once per minute. It
+republishes pending and conservatively stale-sending rows by durable outbox ID;
+delivery still uses the original provider idempotency key. Permanently failed
+rows are not swept and remain visible for operator investigation.
 
 ## Staging qualification
 

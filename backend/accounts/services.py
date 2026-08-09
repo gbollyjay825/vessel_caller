@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from datetime import timedelta
+from functools import partial
 
 from django.conf import settings
 from django.contrib.auth import login, logout, update_session_auth_hash
@@ -13,6 +15,26 @@ from django.utils import timezone
 from .models import EmailOutbox, User, UserSession
 from .security import encrypt_secret
 from .tasks import deliver_outbox_email
+
+
+log = logging.getLogger(__name__)
+
+
+def _publish_outbox_email(outbox_id: str) -> None:
+    """Best-effort broker publication for a durable outbox row.
+
+    The database row is the source of truth. A broker outage after commit
+    must not turn an otherwise successful API mutation into a false failure;
+    the worker's periodic dispatcher will publish any row left pending.
+    """
+
+    try:
+        deliver_outbox_email.apply_async(args=(outbox_id,), retry=False)
+    except Exception:
+        log.exception(
+            "Could not publish email outbox item %s; periodic recovery will retry",
+            outbox_id,
+        )
 
 
 def queue_email(
@@ -37,7 +59,10 @@ def queue_email(
         },
     )
     if created:
-        transaction.on_commit(lambda: deliver_outbox_email.delay(str(outbox.pk)))
+        transaction.on_commit(
+            partial(_publish_outbox_email, str(outbox.pk)),
+            robust=True,
+        )
     return outbox
 
 

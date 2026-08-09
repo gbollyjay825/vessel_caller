@@ -682,6 +682,8 @@ class InvoiceStatusStepsView(APIView):
             label=data["label"].strip(),
             position=position,
             active=data["active"],
+            notify_on_entry=data["notifyOnEntry"],
+            notification_roles=data["notificationRoles"],
         )
         revision = bump_revision(organization.id)
         record_event(
@@ -711,21 +713,55 @@ class InvoiceStatusStepDetailView(APIView):
 
     @transaction.atomic
     def patch(self, request, step_id):
-        serializer = InvoiceStatusStepUpdateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        step = (
-            InvoiceStatusStep.objects.select_for_update()
-            .filter(pk=step_id, organization=request.user.organization)
-            .first()
+        organization = Organization.objects.select_for_update().get(pk=request.user.organization_id)
+        organization_steps = list(
+            InvoiceStatusStep.objects.select_for_update().filter(
+                organization=request.user.organization
+            )
         )
+        step = next((item for item in organization_steps if item.pk == step_id), None)
         if not step:
             raise NotFound("Invoice status step not found")
-        if step.is_protected:
+        serializer = InvoiceStatusStepUpdateSerializer(step, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if step.is_protected and {"label", "active"}.intersection(data):
             raise ValidationError({"detail": ["Paid is a protected system status"]})
+        if (
+            step.active
+            and data.get("active") is False
+            and not step.is_paid
+            and not step.is_terminal
+            and not any(
+                item.pk != step.pk and item.active and not item.is_paid and not item.is_terminal
+                for item in organization_steps
+            )
+        ):
+            raise ValidationError(
+                {"active": ["At least one active non-paid invoice status is required"]}
+            )
         before = invoice_status_step_data(step)
-        for field, value in serializer.validated_data.items():
-            setattr(step, field, value.strip() if field == "label" else value)
-        step.save(update_fields=tuple(serializer.validated_data.keys()) + ("updated_at",))
+        field_mapping = {
+            "label": "label",
+            "active": "active",
+            "notifyOnEntry": "notify_on_entry",
+            "notificationRoles": "notification_roles",
+        }
+        updated_fields = []
+        for api_field, value in data.items():
+            model_field = field_mapping[api_field]
+            normalized_value = value.strip() if model_field == "label" else value
+            if getattr(step, model_field) != normalized_value:
+                setattr(step, model_field, normalized_value)
+                updated_fields.append(model_field)
+        if not updated_fields:
+            return Response(
+                {
+                    "step": invoice_status_step_data(step),
+                    "rev": organization.revision,
+                }
+            )
+        step.save(update_fields=tuple(updated_fields) + ("updated_at",))
         revision = bump_revision(step.organization_id)
         record_event(
             organization=request.user.organization,
@@ -749,6 +785,7 @@ class InvoiceStatusStepReorderView(APIView):
     def post(self, request):
         serializer = InvoiceStatusReorderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        Organization.objects.select_for_update().get(pk=request.user.organization_id)
         steps = list(
             InvoiceStatusStep.objects.select_for_update().filter(
                 organization=request.user.organization
@@ -809,6 +846,10 @@ class InvoiceTransitionView(APIView):
             raise NotFound("Invoice not found")
         if invoice.status == Invoice.Status.VOID:
             raise Conflict("A void invoice cannot be transitioned")
+        if invoice.status == Invoice.Status.PAID or (
+            invoice.current_status and invoice.current_status.is_paid
+        ):
+            raise Conflict("Reverse the payment before changing a paid invoice status")
         step = InvoiceStatusStep.objects.filter(
             pk=serializer.validated_data["statusId"],
             organization=request.user.organization,
@@ -839,15 +880,6 @@ class InvoiceTransitionView(APIView):
                 request=request,
                 before={"status": event.from_code},
                 after={"status": event.to_code, "note": event.note or None},
-            )
-            queue_organization_notice(
-                organization=invoice.organization,
-                actor=request.user,
-                recipient_roles=(User.Role.ADMIN, User.Role.FINANCE),
-                event_key=f"invoice-status:{invoice.id}:{event.id}",
-                subject="Invoice status updated",
-                message=f"Invoice {invoice.invoice_no} moved to {step.label}.",
-                template="invoice",
             )
         return Response({"invoice": invoice_data(invoice), "rev": revision})
 

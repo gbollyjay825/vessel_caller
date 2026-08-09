@@ -26,6 +26,14 @@ def invoice_attachment_id() -> str:
     return f"iat-{uuid.uuid4().hex[:12]}"
 
 
+class ImmutableInvoiceStatusEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise TypeError("Invoice status events are immutable")
+
+    def delete(self):
+        raise TypeError("Invoice status events are immutable")
+
+
 class NumberSequence(models.Model):
     organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE)
     kind = models.CharField(max_length=20)
@@ -56,6 +64,8 @@ class InvoiceStatusStep(models.Model):
     label = models.CharField(max_length=80)
     position = models.PositiveSmallIntegerField()
     active = models.BooleanField(default=True)
+    notify_on_entry = models.BooleanField(default=False)
+    notification_roles = models.JSONField(default=list, blank=True)
     is_paid = models.BooleanField(default=False)
     is_terminal = models.BooleanField(default=False)
     is_protected = models.BooleanField(default=False)
@@ -173,8 +183,18 @@ class InvoiceStatusEvent(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = ImmutableInvoiceStatusEventQuerySet.as_manager()
+
     class Meta:
         ordering = ("created_at", "id")
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise TypeError("Invoice status events are immutable")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise TypeError("Invoice status events are immutable")
 
 
 class InvoiceAttachment(models.Model):

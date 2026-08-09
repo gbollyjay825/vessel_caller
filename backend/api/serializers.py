@@ -497,15 +497,53 @@ class LogoFinalizeSerializer(LogoPresignSerializer):
     objectKey = serializers.CharField(max_length=1024)
 
 
+def _validate_invoice_status_notification_policy(attrs, instance=None):
+    roles = attrs.get(
+        "notificationRoles",
+        list(getattr(instance, "notification_roles", [])),
+    )
+    if len(roles) != len(set(roles)):
+        raise serializers.ValidationError(
+            {"notificationRoles": ["Choose each notification role only once"]}
+        )
+    attrs["notificationRoles"] = [role for role, _label in User.Role.choices if role in roles]
+    notify_on_entry = attrs.get(
+        "notifyOnEntry",
+        bool(getattr(instance, "notify_on_entry", False)),
+    )
+    if notify_on_entry and not roles:
+        raise serializers.ValidationError(
+            {"notificationRoles": ["Choose at least one role when notifications are enabled"]}
+        )
+    return attrs
+
+
 class InvoiceStatusStepSerializer(serializers.Serializer):
     code = serializers.SlugField(max_length=50, required=False)
     label = serializers.CharField(max_length=80)  # type: ignore[assignment]
     active = serializers.BooleanField(required=False, default=True)
+    notifyOnEntry = serializers.BooleanField(required=False, default=False)
+    notificationRoles = serializers.ListField(
+        child=serializers.ChoiceField(choices=User.Role.choices),
+        required=False,
+        default=list,
+    )
+
+    def validate(self, attrs):
+        return _validate_invoice_status_notification_policy(attrs)
 
 
 class InvoiceStatusStepUpdateSerializer(serializers.Serializer):
     label = serializers.CharField(max_length=80, required=False)  # type: ignore[assignment]
     active = serializers.BooleanField(required=False)
+    notifyOnEntry = serializers.BooleanField(required=False)
+    notificationRoles = serializers.ListField(
+        child=serializers.ChoiceField(choices=User.Role.choices),
+        required=False,
+    )
+
+    def validate(self, attrs):
+        return _validate_invoice_status_notification_policy(attrs, self.instance)
 
 
 class InvoiceStatusReorderSerializer(serializers.Serializer):

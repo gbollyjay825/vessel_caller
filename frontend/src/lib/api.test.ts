@@ -244,6 +244,33 @@ describe("session API client", () => {
     });
   });
 
+  it("patches invoice status email notification policy with role recipients", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
+      step: {
+        id: "approved",
+        code: "approved",
+        label: "Approved",
+        notifyOnEntry: true,
+        notificationRoles: ["Admin", "Finance"],
+      },
+      rev: 12,
+    }));
+
+    await api.updateInvoiceStatusStep("approved/status", {
+      notifyOnEntry: true,
+      notificationRoles: ["Admin", "Finance"],
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/invoice-status-steps/approved%2Fstatus");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "PATCH" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      notifyOnEntry: true,
+      notificationRoles: ["Admin", "Finance"],
+    });
+  });
+
   it("uses optimistic versions for vessel updates and soft cancellation", async () => {
     document.cookie = "csrftoken=csrf-cookie; path=/";
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({

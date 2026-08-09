@@ -114,6 +114,13 @@ export type EffectiveInvoiceStatus = "paid" | "unpaid" | "overdue" | "void";
 export interface InvoiceWorkflowStatus {
   id: string | null; code: string; label: string; position: number | null; active: boolean;
   isPaid: boolean; isTerminal: boolean; isProtected: boolean;
+  notifyOnEntry: boolean; notificationRoles: Role[];
+}
+export interface InvoiceWorkflowStatusUpdate {
+  label?: string;
+  active?: boolean;
+  notifyOnEntry?: boolean;
+  notificationRoles?: Role[];
 }
 export interface InvoiceStatusEvent {
   id: string; fromCode?: string | null; fromLabel?: string | null; toCode: string; toLabel: string;

@@ -19,11 +19,13 @@ import {
   queueInspection,
   removeQueuedInspection,
 } from "../lib/offlineQueue";
+import { ROLES } from "../types";
 import type {
   AppState,
   Inspection,
   Invoice,
   InvoiceWorkflowStatus,
+  InvoiceWorkflowStatusUpdate,
   Organization,
   Role,
   Settings,
@@ -90,13 +92,36 @@ interface Store {
   reversePayment: (paymentId: string, reason: string) => Promise<void>;
   transitionInvoice: (invoiceId: string, statusId: string, note?: string) => Promise<void>;
   createInvoiceStatusStep: (label: string) => Promise<void>;
-  updateInvoiceStatusStep: (id: string, patch: { label?: string; active?: boolean }) => Promise<void>;
+  updateInvoiceStatusStep: (id: string, patch: InvoiceWorkflowStatusUpdate) => Promise<void>;
   reorderInvoiceStatusSteps: (ids: string[]) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   updateOrganization: (patch: Partial<Organization>) => Promise<void>;
 }
 
 const StoreContext = createContext<Store | null>(null);
+
+function normalizeInvoiceWorkflowStatus(step: InvoiceWorkflowStatus): InvoiceWorkflowStatus {
+  const suppliedRoles = Array.isArray(step.notificationRoles) ? step.notificationRoles : [];
+  return {
+    ...step,
+    notifyOnEntry: step.notifyOnEntry === true,
+    notificationRoles: ROLES.filter((role) => suppliedRoles.includes(role)),
+  };
+}
+
+function normalizeInvoice(invoice: Invoice): Invoice {
+  return invoice.workflowStatus
+    ? { ...invoice, workflowStatus: normalizeInvoiceWorkflowStatus(invoice.workflowStatus) }
+    : invoice;
+}
+
+function normalizeAppState(state: AppState): AppState {
+  return {
+    ...state,
+    invoices: state.invoices.map(normalizeInvoice),
+    invoiceStatusSteps: (state.invoiceStatusSteps ?? []).map(normalizeInvoiceWorkflowStatus),
+  };
+}
 
 async function persistInspection(
   data: Record<string, unknown>,
@@ -125,7 +150,7 @@ async function persistInspection(
 
 export function StoreProvider({ initial, children }: { initial: AppState; children: ReactNode }) {
   const { can, user, org: authOrg, setOrg } = useAuth();
-  const [state, setState] = useState<AppState>(initial);
+  const [state, setState] = useState<AppState>(() => normalizeAppState(initial));
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [pendingSync, setPendingSync] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -137,7 +162,7 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
   revRef.current = state.rev;
 
   const apply = useCallback((next: AppState) => {
-    setState(next);
+    setState(normalizeAppState(next));
     if (next.org) setOrg(next.org);
   }, [setOrg]);
 
@@ -208,7 +233,7 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
         ? current.calls.map((call) => (call.id === resultCall.id ? resultCall : call))
         : current.calls,
       invoices: result.invoice
-        ? [result.invoice, ...current.invoices.filter((invoice) => invoice.id !== result.invoice?.id)]
+        ? [normalizeInvoice(result.invoice), ...current.invoices.filter((invoice) => invoice.id !== result.invoice?.id)]
         : current.invoices,
     }));
   }, []);
@@ -373,10 +398,11 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
   }, [mergeInspection, organizationId, refreshPendingSync, userId]);
 
   const mergeInvoice = useCallback((invoice: Invoice, rev: number) => {
+    const normalizedInvoice = normalizeInvoice(invoice);
     setState((current) => ({
       ...current,
       rev: Math.max(current.rev, rev),
-      invoices: current.invoices.map((item) => (item.id === invoice.id ? invoice : item)),
+      invoices: current.invoices.map((item) => (item.id === normalizedInvoice.id ? normalizedInvoice : item)),
     }));
   }, []);
 
@@ -399,15 +425,17 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
   }, [mergeInvoice]);
 
   const replaceInvoiceStatusSteps = useCallback((steps: InvoiceWorkflowStatus[], rev: number) => {
-    setState((current) => ({ ...current, invoiceStatusSteps: steps, rev: Math.max(current.rev, rev) }));
+    setState((current) => ({ ...current, invoiceStatusSteps: steps.map(normalizeInvoiceWorkflowStatus), rev: Math.max(current.rev, rev) }));
   }, []);
   const createInvoiceStatusStep = useCallback(async (label: string) => {
     const { step, rev } = await api.createInvoiceStatusStep({ label });
-    setState((current) => ({ ...current, invoiceStatusSteps: [...(current.invoiceStatusSteps || []), step], rev: Math.max(current.rev, rev) }));
+    const normalizedStep = normalizeInvoiceWorkflowStatus(step);
+    setState((current) => ({ ...current, invoiceStatusSteps: [...(current.invoiceStatusSteps || []), normalizedStep], rev: Math.max(current.rev, rev) }));
   }, []);
-  const updateInvoiceStatusStep = useCallback(async (id: string, patch: { label?: string; active?: boolean }) => {
+  const updateInvoiceStatusStep = useCallback(async (id: string, patch: InvoiceWorkflowStatusUpdate) => {
     const { step, rev } = await api.updateInvoiceStatusStep(id, patch);
-    setState((current) => ({ ...current, invoiceStatusSteps: (current.invoiceStatusSteps || []).map((item) => item.id === id ? step : item), rev: Math.max(current.rev, rev) }));
+    const normalizedStep = normalizeInvoiceWorkflowStatus(step);
+    setState((current) => ({ ...current, invoiceStatusSteps: (current.invoiceStatusSteps || []).map((item) => item.id === id ? normalizedStep : item), rev: Math.max(current.rev, rev) }));
   }, []);
   const reorderInvoiceStatusSteps = useCallback(async (ids: string[]) => {
     const { steps, rev } = await api.reorderInvoiceStatusSteps(ids);

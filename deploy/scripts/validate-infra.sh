@@ -60,4 +60,6 @@ else
   echo "Ansible syntax: skipped (ansible-playbook unavailable)"
 fi
 
+"${repo_root}/tests/infra/test-system-admin-controls.sh"
+
 echo "Available infrastructure validation completed."

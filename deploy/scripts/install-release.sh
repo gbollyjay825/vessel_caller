@@ -54,7 +54,9 @@ release_tag_root="${release_root}/${release_tag}"
 release_dir="${release_tag_root}/${instance}"
 
 install -d -o root -g root -m 0755 "${app_root}" "${release_root}" "${app_root}/slots"
-install -d -o "${app_user}" -g "${app_group}" -m 0750 "${slot_root}"
+# Only the root-owned signed deployment path may replace `current`. Runtime
+# processes need group traversal, never write permission, on their slot.
+install -d -o root -g "${app_group}" -m 0750 "${slot_root}"
 install -d -o root -g root -m 0755 "${release_tag_root}"
 
 if [[ ! -d "${release_dir}" ]]; then
@@ -114,9 +116,13 @@ install -d -o "${app_user}" -g "${app_group}" -m 0750 \
 chown -R "${app_user}:${app_group}" "${release_dir}/backend/staticfiles"
 chmod -R u=rwX,g=rX,o= "${release_dir}/backend/staticfiles"
 
-# Only the built frontend is served by nginx.  Keep the backend release
-# private while allowing the web worker to traverse and read static assets.
-chmod o+x "${slot_root}" "${release_dir}" "${release_dir}/frontend"
+# Only the built frontend is served by nginx. Keep the backend release private
+# while allowing Nginx to traverse the public frontend path. Production Nginx
+# enters through /opt/vessel-caller/current; staging also traverses its slot.
+chmod o+x "${release_dir}" "${release_dir}/frontend"
+if [[ "${instance}" == staging ]]; then
+  chmod o+x "${slot_root}"
+fi
 find "${release_dir}/frontend/dist" -type d -exec chmod o+rx {} +
 find "${release_dir}/frontend/dist" -type f -exec chmod o+r {} +
 

@@ -31,6 +31,12 @@ vessel_staging_frontend_tls_ready: false
 vessel_staging_application_ready: false
 vessel_staging_runtime_enabled: false
 vessel_production_runtime_enabled: false
+vessel_staging_system_admin_mutations_enabled: false
+vessel_production_system_admin_mutations_enabled: false
+vessel_staging_system_admin_qualified_release_tag: ""
+vessel_staging_system_admin_qualified_release_sha: ""
+vessel_production_system_admin_qualified_release_tag: ""
+vessel_production_system_admin_qualified_release_sha: ""
 vessel_provider_gates_deferred: true
 vessel_production_deferred_provider_cutover: false
 vessel_backups_enabled: false

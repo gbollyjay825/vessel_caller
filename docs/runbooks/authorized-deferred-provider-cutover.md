@@ -7,7 +7,9 @@ It does not waive any other production control.
 
 ## Exact exception
 
-Only Resend delivery and Sentry ingestion may be deferred:
+The exception originally allowed both Resend delivery and Sentry ingestion to
+be deferred. Resend is now governed independently so it can be activated and
+qualified while Sentry remains deferred:
 
 ```yaml
 vessel_provider_gates_deferred: true
@@ -15,11 +17,20 @@ vessel_production_runtime_enabled: true
 vessel_production_deferred_provider_cutover: true
 ```
 
-In that mode Ansible and Django require both provider values to be empty,
-select the disabled email backend, and skip Sentry initialization. Attempts to
-send email fail visibly and the encrypted transactional outbox remains the
-source of truth. No console, memory, mock, or fake-success adapter is allowed
-in production.
+In that mode Ansible and Django require Sentry to remain disabled with an empty
+DSN. Email remains disabled only when the protected Resend key is absent; when
+a real key is present, the Resend backend is selected and must pass its own
+qualification. Placeholder keys fail closed. The encrypted transactional
+outbox remains the source of truth. No console, memory, mock, or fake-success
+adapter is allowed in production.
+
+Rendering a key/sender into a root-owned runtime file does not activate or
+qualify it in an already running process. Redeploy the signed release through
+both production slots after the protected values are rendered so both web
+processes and the active Celery worker load the same configuration. The System
+Admin enablement gate checks effective readiness in both web slots and the
+active worker and remains disabled if any process is stale. Do not work around
+that gate by sourcing the environment manually or restarting only one slot.
 
 PostgreSQL with TLS, isolated authenticated Redis, private Spaces, strong
 Django and MFA secrets, TLS/DNS, a restricted deployment user, a pinned release
@@ -43,9 +54,11 @@ custodian blocks the cutover.
 6. Observe for at least 30 minutes. Preserve port 8001 and its compatible data
    path for rollback during the seven-day hypercare period.
 
-Do not mark Resend or Sentry qualified. After credentials arrive, complete
+Do not mark either provider qualified without its own evidence. Resend may be
+activated while the deferred flag remains in place for Sentry. After the
+remaining Sentry credential arrives, complete
 `post-credential-release-checklist.md`, turn off the deferred flag, deploy the
-same or a newer qualified release, and prove both live integrations.
+same or a newer qualified release, and prove Sentry independently.
 
 ## Administrator handoff
 

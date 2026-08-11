@@ -17,11 +17,41 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export REQUIRE_RELEASE_SIGNATURE=true
 
+fail_close_system_admin_mutations() {
+  local runtime_environment="${1}"
+  local runtime_group="${2}"
+  local config_root=/etc/vessel-caller
+  local flag_file="${config_root}/system-admin-mutations-${runtime_environment}.flag"
+  local temporary_flag
+
+  if [[ ! -d "${config_root}" || -L "${config_root}" ]] \
+    || [[ "$(stat -c '%U:%G:%a' "${config_root}")" != root:root:755 ]]; then
+    echo "The Vessel Caller configuration root is not a trusted root-owned directory." >&2
+    return 1
+  fi
+  if [[ ! -f "${flag_file}" || -L "${flag_file}" ]] \
+    || [[ "$(stat -c '%U:%G:%a' "${flag_file}")" != "root:${runtime_group}:640" ]]; then
+    echo "The environment-specific System Admin mutation flag is not trusted." >&2
+    return 1
+  fi
+
+  temporary_flag="$(mktemp "${config_root}/.system-admin-mutations-${runtime_environment}.XXXXXX")"
+  if ! printf 'disabled\n' >"${temporary_flag}" \
+    || ! chown "root:${runtime_group}" "${temporary_flag}" \
+    || ! chmod 0640 "${temporary_flag}" \
+    || ! mv -f "${temporary_flag}" "${flag_file}"; then
+    rm -f -- "${temporary_flag}"
+    echo "System Admin mutations could not be disabled safely." >&2
+    return 1
+  fi
+}
+
 case "${target}" in
   staging)
     # Staging has an independently pinned artifact key.  Never replace the
     # production verifier merely to stage a candidate release.
     export RELEASE_SIGNATURE_PUBLIC_KEY=/etc/vessel-caller/staging-release-signing-public.pem
+    fail_close_system_admin_mutations staging vessel-caller-staging
     "${script_dir}/install-release.sh" staging "${archive}"
     # The isolated staging browser gate authenticates only deterministic
     # fixture accounts. Refresh them on each staging release so an expired
@@ -63,6 +93,7 @@ case "${target}" in
       echo "Port 8001 is still reserved by legacy FastAPI blue; do not repurpose it before the approved seven-day retirement." >&2
       exit 1
     fi
+    fail_close_system_admin_mutations production vessel-caller-production
     "${script_dir}/install-release.sh" "${candidate}" "${archive}"
     "${script_dir}/promote-release.sh" "${candidate}"
     ;;

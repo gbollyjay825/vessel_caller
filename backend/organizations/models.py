@@ -11,7 +11,27 @@ def organization_id() -> str:
 
 
 class Organization(models.Model):
+    class Kind(models.TextChoices):
+        CUSTOMER = "customer", "Customer"
+        PLATFORM = "platform", "Platform"
+
+    class AccessStatus(models.TextChoices):
+        ACTIVE = "active", "Active"
+        SUSPENDED = "suspended", "Suspended"
+
     id = models.CharField(primary_key=True, max_length=32, default=organization_id)
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.CUSTOMER,
+        db_default=Kind.CUSTOMER,
+    )
+    access_status = models.CharField(
+        max_length=20,
+        choices=AccessStatus.choices,
+        default=AccessStatus.ACTIVE,
+        db_default=AccessStatus.ACTIVE,
+    )
     registered = models.BooleanField(default=False)
     name = models.CharField(max_length=255)
     rc_number = models.CharField(max_length=100, blank=True)
@@ -22,14 +42,49 @@ class Organization(models.Model):
     ports = models.JSONField(default=list, blank=True)
     logo_object_key = models.CharField(max_length=1024, blank=True)
     revision = models.PositiveBigIntegerField(default=0)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    suspension_reason = models.TextField(blank=True, db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ("name", "id")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(kind__in=["customer", "platform"]),
+                name="organizations_valid_kind",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(access_status__in=["active", "suspended"]),
+                name="organizations_valid_access_status",
+            ),
+            models.UniqueConstraint(
+                fields=("kind",),
+                condition=models.Q(kind="platform"),
+                name="organizations_one_platform_container",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        access_status="active",
+                        suspended_at__isnull=True,
+                        suspension_reason="",
+                    )
+                    | (
+                        models.Q(access_status="suspended", suspended_at__isnull=False)
+                        & ~models.Q(suspension_reason="")
+                    )
+                ),
+                name="organizations_valid_suspension_state",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
+
+    @property
+    def is_access_active(self) -> bool:
+        return self.access_status == self.AccessStatus.ACTIVE
 
 
 class OrganizationSettings(models.Model):

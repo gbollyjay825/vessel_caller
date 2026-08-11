@@ -73,7 +73,10 @@ def deliver(*, to_email: str, subject: str, template: str, context: dict, idempo
     try:
         connection.request("POST", "/emails", body=body, headers=headers)
         response = connection.getresponse()
-        payload = json.loads(response.read().decode() or "{}")
+        try:
+            payload = json.loads(response.read().decode() or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Resend returned an invalid response") from exc
     finally:
         connection.close()
     if response.status < 200 or response.status >= 300:

@@ -61,6 +61,7 @@ class Command(BaseCommand):
             template="invitation",
             context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
             idempotency_key=f"release-admin-invite:{invitation.id}",
+            organization=organization,
         )
         record_event(
             organization=organization,

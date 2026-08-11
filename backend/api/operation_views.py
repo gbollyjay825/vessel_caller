@@ -17,7 +17,6 @@ from rest_framework import status
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from accounts.models import User
 from accounts.notifications import queue_organization_notice
@@ -68,6 +67,7 @@ from .serializers import (
     payment_data,
     settings_data,
 )
+from .tenant_lifecycle import TenantLifecycleAPIView as APIView
 from .storage import (
     delete_object,
     local_download,
@@ -939,6 +939,7 @@ class OrganizationView(APIView):
 class OrganizationLogoView(APIView):
     permission_classes = [IsAuthenticated, HasVesselPermission]
     required_permission = "organization.manage"
+    lifecycle_capability_methods = frozenset({"GET"})
 
     def get(self, request):
         key = request.user.organization.logo_object_key
@@ -1131,6 +1132,9 @@ class SettingsView(APIView):
 
 
 class StateView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "organization.view"
+
     def get(self, request):
         organization = request.user.organization
         ensure_default_steps(organization)
@@ -1351,6 +1355,9 @@ class EvidenceFinalizeView(APIView):
 
 
 class InspectionEvidenceView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "inspections.view"
+
     def get(self, request, inspection_id):
         inspection = request.user.organization.inspections.filter(pk=inspection_id).first()
         if not inspection:
@@ -1359,6 +1366,10 @@ class InspectionEvidenceView(APIView):
 
 
 class EvidenceDetailView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "inspections.view"
+    lifecycle_capability_methods = frozenset({"GET"})
+
     def _get(self, request, evidence_id):
         evidence = request.user.organization.evidence.filter(pk=evidence_id).first()
         if not evidence:
@@ -1523,6 +1534,7 @@ class InvoiceAttachmentFinalizeView(APIView):
 class InvoiceAttachmentDetailView(APIView):
     permission_classes = [IsAuthenticated, HasVesselPermission]
     required_permission = "invoices.view"
+    lifecycle_capability_methods = frozenset({"GET"})
 
     def _attachment(self, request, attachment_id):
         attachment = request.user.organization.invoice_attachments.filter(pk=attachment_id).first()

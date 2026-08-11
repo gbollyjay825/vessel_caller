@@ -8,6 +8,7 @@ from rest_framework import serializers
 
 from accounts.models import User
 from billing.services import workflow_step_data
+from organizations.models import Organization
 
 
 def number(value):
@@ -259,6 +260,18 @@ def invoice_data(invoice) -> dict:
 
 def invitation_data(invitation) -> dict:
     inviter = invitation.invited_by
+    if inviter.organization.kind == Organization.Kind.PLATFORM:
+        inviter_payload = {
+            "id": None,
+            "name": "Vessel Caller System",
+            "email": "",
+        }
+    else:
+        inviter_payload = {
+            "id": inviter.id,
+            "name": inviter.name,
+            "email": inviter.email,
+        }
     return {
         "id": invitation.id,
         "name": invitation.name,
@@ -269,11 +282,7 @@ def invitation_data(invitation) -> dict:
         "createdAt": iso(invitation.created_at),
         "acceptedAt": iso(invitation.accepted_at),
         "revokedAt": iso(invitation.revoked_at),
-        "invitedBy": {
-            "id": inviter.id,
-            "name": inviter.name,
-            "email": inviter.email,
-        },
+        "invitedBy": inviter_payload,
     }
 
 

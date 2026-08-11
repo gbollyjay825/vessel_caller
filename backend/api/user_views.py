@@ -16,7 +16,6 @@ from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from accounts.models import ActionToken, Invitation, User
 from accounts.notifications import queue_security_notice
@@ -37,6 +36,7 @@ from .serializers import (
     invitation_data,
     user_data,
 )
+from .tenant_lifecycle import TenantLifecycleAPIView as APIView
 
 
 def csv_safe(value) -> str:
@@ -59,7 +59,7 @@ class UsersView(APIView):
     required_permission = "users.view"
 
     def get(self, request):
-        queryset = request.user.organization.users.all()
+        queryset = request.user.organization.users.select_related("organization")
         search = request.query_params.get("search", "").strip()
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(email__icontains=search))
@@ -203,10 +203,19 @@ class UserPasswordResetDispatchView(APIView):
     permission_classes = [IsAuthenticated, HasVesselPermission]
     required_permission = "users.manage"
 
+    @transaction.atomic
     def post(self, request, user_id):
-        member = request.user.organization.users.filter(
-            pk=user_id, status=User.Status.ACTIVE
-        ).first()
+        organization = (
+            Organization.objects.select_for_update()
+            .filter(
+                pk=request.user.organization_id,
+                access_status=Organization.AccessStatus.ACTIVE,
+            )
+            .first()
+        )
+        if not organization:
+            raise NotFound("User not found")
+        member = organization.users.filter(pk=user_id, status=User.Status.ACTIVE).first()
         if not member:
             raise NotFound("User not found")
         token_obj, raw = issue_action_token(member, ActionToken.Kind.RESET_PASSWORD, hours=1)
@@ -216,6 +225,7 @@ class UserPasswordResetDispatchView(APIView):
             template="reset_password",
             context={"actionUrl": f"{settings.FRONTEND_URL}/reset-password?token={raw}"},
             idempotency_key=f"reset:{token_obj.id}",
+            organization=organization,
         )
         record_event(
             organization=member.organization,
@@ -271,7 +281,7 @@ class InvitationsView(APIView):
     required_permission = "users.manage"
 
     def get(self, request):
-        queryset = request.user.organization.invitations.select_related("invited_by")
+        queryset = request.user.organization.invitations.select_related("invited_by__organization")
         paginator = StandardPagination()
         page = paginator.paginate_queryset(queryset, request) or []
         return paginator.get_paginated_response([invitation_data(item) for item in page])
@@ -282,33 +292,45 @@ class InvitationsView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         email = data["email"].lower()
-        if User.objects.filter(email=email).exists():
-            raise ValidationError({"email": ["A user with this email already exists"]})
+        organization = (
+            Organization.objects.select_for_update()
+            .filter(
+                pk=request.user.organization_id,
+                access_status=Organization.AccessStatus.ACTIVE,
+            )
+            .first()
+        )
+        if not organization:
+            raise ValidationError("This organization cannot receive invitations")
+        deliverable = not User.objects.filter(email=email).exists()
         Invitation.objects.filter(
-            organization=request.user.organization,
+            organization=organization,
             email=email,
             status=Invitation.Status.PENDING,
         ).update(status=Invitation.Status.REVOKED, revoked_at=timezone.now())
         raw = opaque_token()
         invitation = Invitation.objects.create(
-            organization=request.user.organization,
+            organization=organization,
             name=data["name"].strip(),
             email=email,
             role=data["role"],
             token_hash=token_hash(raw),
+            deliverable=deliverable,
             invited_by=request.user,
             expires_at=timezone.now() + timedelta(days=7),
         )
-        queue_email(
-            to_email=email,
-            subject=f"Join {request.user.organization.name} on Vessel Caller",
-            template="invitation",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
-            idempotency_key=f"invite:{invitation.id}",
-        )
-        revision = bump_revision(request.user.organization_id)
+        if invitation.deliverable:
+            queue_email(
+                to_email=email,
+                subject=f"Join {organization.name} on Vessel Caller",
+                template="invitation",
+                context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+                idempotency_key=f"invite:{invitation.id}",
+                organization=organization,
+            )
+        revision = bump_revision(organization.id)
         record_event(
-            organization=request.user.organization,
+            organization=organization,
             actor=request.user,
             action="invitation.created",
             category="identity",
@@ -329,9 +351,19 @@ class InvitationResendView(APIView):
 
     @transaction.atomic
     def post(self, request, invitation_id):
+        organization = (
+            Organization.objects.select_for_update()
+            .filter(
+                pk=request.user.organization_id,
+                access_status=Organization.AccessStatus.ACTIVE,
+            )
+            .first()
+        )
+        if not organization:
+            raise NotFound("Invitation not found")
         invitation = (
-            request.user.organization.invitations.select_for_update()
-            .select_related("invited_by")
+            organization.invitations.select_for_update()
+            .select_related("invited_by__organization")
             .filter(pk=invitation_id, status=Invitation.Status.PENDING)
             .first()
         )
@@ -341,13 +373,15 @@ class InvitationResendView(APIView):
         invitation.token_hash = token_hash(raw)
         invitation.expires_at = timezone.now() + timedelta(days=7)
         invitation.save(update_fields=("token_hash", "expires_at"))
-        queue_email(
-            to_email=invitation.email,
-            subject=f"Join {request.user.organization.name} on Vessel Caller",
-            template="invitation",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
-            idempotency_key=f"invite-resend:{invitation.id}:{secrets.token_hex(6)}",
-        )
+        if invitation.deliverable:
+            queue_email(
+                to_email=invitation.email,
+                subject=f"Join {organization.name} on Vessel Caller",
+                template="invitation",
+                context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+                idempotency_key=f"invite-resend:{invitation.id}:{secrets.token_hex(6)}",
+                organization=organization,
+            )
         return Response({"invitation": invitation_data(invitation)})
 
 
@@ -385,11 +419,33 @@ class InvitationAcceptView(APIView):
     def post(self, request):
         serializer = InvitationAcceptSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        hashed_token = token_hash(serializer.validated_data["token"])
+        candidate = (
+            Invitation.objects.filter(
+                token_hash=hashed_token,
+                status=Invitation.Status.PENDING,
+            )
+            .values("id", "organization_id")
+            .first()
+        )
+        if not candidate:
+            raise ValidationError({"token": ["This invitation is invalid or expired"]})
+        organization = (
+            Organization.objects.select_for_update()
+            .filter(
+                pk=candidate["organization_id"],
+                access_status=Organization.AccessStatus.ACTIVE,
+            )
+            .first()
+        )
+        if not organization:
+            raise ValidationError({"token": ["This invitation is invalid or expired"]})
         invitation = (
             Invitation.objects.select_for_update()
-            .select_related("organization", "invited_by")
+            .select_related("invited_by")
             .filter(
-                token_hash=token_hash(serializer.validated_data["token"]),
+                pk=candidate["id"],
+                token_hash=hashed_token,
                 status=Invitation.Status.PENDING,
             )
             .first()
@@ -401,7 +457,7 @@ class InvitationAcceptView(APIView):
         user = User.objects.create_user(
             email=invitation.email,
             password=serializer.validated_data["password"],
-            organization=invitation.organization,
+            organization=organization,
             name=serializer.validated_data.get("name") or invitation.name,
             role=invitation.role,
             status=User.Status.ACTIVE,
@@ -415,9 +471,12 @@ class InvitationAcceptView(APIView):
         invitation.status = Invitation.Status.ACCEPTED
         invitation.accepted_at = timezone.now()
         invitation.save(update_fields=("status", "accepted_at"))
-        bump_revision(invitation.organization_id)
+        if invitation.role == User.Role.ADMIN and not organization.registered:
+            organization.registered = True
+            organization.save(update_fields=("registered", "updated_at"))
+        bump_revision(organization.id)
         record_event(
-            organization=invitation.organization,
+            organization=organization,
             actor=user,
             action="invitation.accepted",
             category="identity",
@@ -430,7 +489,7 @@ class InvitationAcceptView(APIView):
             invitation.invited_by,
             event_key=f"invitation-accepted:{invitation.id}",
             subject="A Vessel Caller invitation was accepted",
-            message=f"{user.name} accepted the invitation to join {invitation.organization.name} as {user.role}.",
+            message=f"{user.name} accepted the invitation to join {organization.name} as {user.role}.",
         )
         return Response({"detail": "Invitation accepted"}, status=status.HTTP_201_CREATED)
 

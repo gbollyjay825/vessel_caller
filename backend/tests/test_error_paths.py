@@ -9,7 +9,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from accounts.models import MFAChallenge
+from accounts.models import EmailOutbox, Invitation, MFAChallenge
 from billing.models import Invoice
 
 from .conftest import authenticated
@@ -123,7 +123,10 @@ def test_user_and_invitation_not_found_conflict_paths(admin, viewer):
         {"name": "Existing", "email": viewer.email, "role": "Viewer"},
         format="json",
     )
-    assert duplicate.status_code == 400
+    assert duplicate.status_code == 201
+    suppressed = Invitation.objects.get(pk=duplicate.json()["invitation"]["id"])
+    assert suppressed.deliverable is False
+    assert not EmailOutbox.objects.filter(to_email=viewer.email, template="invitation").exists()
     assert client.post("/api/invitations/missing/resend").status_code == 404
     assert client.delete("/api/invitations/missing").status_code == 404
     public = APIClient()

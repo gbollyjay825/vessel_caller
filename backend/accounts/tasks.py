@@ -26,42 +26,77 @@ OUTBOX_STALE_SENDING_AFTER = timedelta(minutes=10)
     max_retries=5,
 )
 def deliver_outbox_email(outbox_id: str):
+    candidate = EmailOutbox.objects.filter(pk=outbox_id).values("organization_id").first()
+    if not candidate:
+        return ""
+    failure = None
+    provider_id = ""
     with transaction.atomic():
+        if candidate["organization_id"]:
+            from organizations.models import Organization
+
+            organization = Organization.objects.select_for_update().get(
+                pk=candidate["organization_id"]
+            )
+        else:
+            organization = None
         outbox = EmailOutbox.objects.select_for_update().get(pk=outbox_id)
         if outbox.status == EmailOutbox.Status.SENT:
             return outbox.provider_id
+        if organization is None:
+            if outbox.status == EmailOutbox.Status.FAILED:
+                return ""
+            outbox.status = EmailOutbox.Status.FAILED
+            outbox.last_error = "Delivery suppressed because organization scope is missing"
+            outbox.save(update_fields=("status", "last_error", "updated_at"))
+            return ""
+        if not organization.is_access_active and not outbox.allow_suspended_organization:
+            outbox.status = EmailOutbox.Status.FAILED
+            outbox.last_error = "Delivery suppressed because organization access is suspended"
+            outbox.save(update_fields=("status", "last_error", "updated_at"))
+            return ""
         outbox.status = EmailOutbox.Status.SENDING
         outbox.attempts += 1
         outbox.save(update_fields=("status", "attempts", "updated_at"))
-    try:
-        stored_context = outbox.context
-        if "ciphertext" in stored_context:
-            plaintext = decrypt_secret(stored_context["ciphertext"])
-            if not plaintext:
-                raise RuntimeError("Email outbox context could not be decrypted")
-            delivery_context = json.loads(plaintext)
+        try:
+            stored_context = outbox.context
+            if "ciphertext" in stored_context:
+                plaintext = decrypt_secret(stored_context["ciphertext"])
+                if not plaintext:
+                    raise RuntimeError("Email outbox context could not be decrypted")
+                delivery_context = json.loads(plaintext)
+            else:
+                delivery_context = stored_context
+            provider_id = deliver(
+                to_email=outbox.to_email,
+                subject=outbox.subject,
+                template=outbox.template,
+                context=delivery_context,
+                idempotency_key=outbox.idempotency_key,
+            )
+        except Exception as exc:
+            outbox.status = EmailOutbox.Status.FAILED
+            outbox.last_error = str(exc)[:2000]
+            outbox.save(update_fields=("status", "last_error", "updated_at"))
+            failure = exc
         else:
-            delivery_context = stored_context
-        provider_id = deliver(
-            to_email=outbox.to_email,
-            subject=outbox.subject,
-            template=outbox.template,
-            context=delivery_context,
-            idempotency_key=outbox.idempotency_key,
-        )
-    except Exception as exc:
-        EmailOutbox.objects.filter(pk=outbox_id).update(
-            status=EmailOutbox.Status.FAILED,
-            last_error=str(exc)[:2000],
-        )
-        raise
-    EmailOutbox.objects.filter(pk=outbox_id).update(
-        status=EmailOutbox.Status.SENT,
-        provider_id=provider_id,
-        sent_at=timezone.now(),
-        last_error="",
-        context={"redacted": True},
-    )
+            outbox.status = EmailOutbox.Status.SENT
+            outbox.provider_id = provider_id
+            outbox.sent_at = timezone.now()
+            outbox.last_error = ""
+            outbox.context = {"redacted": True}
+            outbox.save(
+                update_fields=(
+                    "status",
+                    "provider_id",
+                    "sent_at",
+                    "last_error",
+                    "context",
+                    "updated_at",
+                )
+            )
+    if failure is not None:
+        raise failure
     return provider_id
 
 

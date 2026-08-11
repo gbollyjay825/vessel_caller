@@ -23,9 +23,39 @@ def test_health_and_readiness_are_public(api_client):
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
     assert health.json()["release"]["sha"]
+    assert health.json()["capabilities"] == {
+        "organizationAccessStatus": True,
+        "systemAdminEmailDeliveryReady": False,
+    }
     ready = api_client.get("/api/readiness")
     assert ready.status_code == 200
     assert ready.json()["checks"] == {"database": True, "cache": True}
+    assert ready.json()["capabilities"] == {
+        "organizationAccessStatus": True,
+        "systemAdminEmailDeliveryReady": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("backend", "key", "sender", "expected"),
+    [
+        ("resend", "provider-key", "Vessel Caller <noreply@vesselcalls.com>", True),
+        ("resend", "", "Vessel Caller <noreply@vesselcalls.com>", False),
+        ("disabled", "provider-key", "Vessel Caller <noreply@vesselcalls.com>", False),
+        ("resend", "provider-key", "", False),
+    ],
+)
+def test_health_reports_effective_system_admin_email_delivery_readiness(
+    api_client, settings, backend, key, sender, expected
+):
+    settings.EMAIL_DELIVERY_BACKEND = backend
+    settings.RESEND_API_KEY = key
+    settings.EMAIL_FROM = sender
+
+    response = api_client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"]["systemAdminEmailDeliveryReady"] is expected
 
 
 def test_openapi_schema_is_public_and_covers_identity(api_client):
@@ -37,6 +67,15 @@ def test_openapi_schema_is_public_and_covers_identity(api_client):
     assert schema["info"]["title"] == "Vessel Caller API"
     assert "/api/auth/login" in schema["paths"]
     assert "/api/users" in schema["paths"]
+    assert "/api/system/audit" in schema["paths"]
+    assert "/api/system/organizations/{organization_id}/audit" in schema["paths"]
+    operation_ids = [
+        operation["operationId"]
+        for path in schema["paths"].values()
+        for operation in path.values()
+        if isinstance(operation, dict) and "operationId" in operation
+    ]
+    assert len(operation_ids) == len(set(operation_ids))
 
 
 @pytest.mark.django_db(transaction=True)

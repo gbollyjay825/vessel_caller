@@ -10,6 +10,7 @@ from django.core import signing
 from django.core.files.storage import default_storage
 from django.urls import reverse
 from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,12 @@ def _s3_client():
     )
 
 
+def _require_signed_capability_scope(request, key: str) -> None:
+    organization_id = getattr(request, "_tenant_lifecycle_locked_organization_id", "")
+    if not organization_id or not key.startswith(f"organizations/{organization_id}/"):
+        raise PermissionDenied("Private storage capability is not available")
+
+
 def presign_upload(
     request,
     *,
@@ -124,6 +131,7 @@ def presign_upload(
     size: int,
     checksum: str,
 ) -> dict:
+    _require_signed_capability_scope(request, key)
     client = _s3_client()
     expires = timezone.now() + timedelta(minutes=10)
     checksum_hex = checksum.removeprefix("sha256:")
@@ -173,6 +181,7 @@ def presign_upload(
 
 
 def presign_download(request, *, key: str) -> str:
+    _require_signed_capability_scope(request, key)
     client = _s3_client()
     if client:
         return client.generate_presigned_url(

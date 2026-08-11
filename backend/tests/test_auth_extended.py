@@ -73,6 +73,9 @@ def test_session_listing_selective_revoke_and_sign_out_everywhere(admin):
     listing = first.get("/api/auth/sessions")
     assert listing.status_code == 200
     assert len(listing.json()["results"]) == 2
+    real_keys = set(admin.sessions.values_list("session_key", flat=True))
+    assert all(item["id"] not in real_keys for item in listing.json()["results"])
+    assert not any(key in str(listing.json()) for key in real_keys)
     other = next(item for item in listing.json()["results"] if not item["current"])
     assert first.delete(f"/api/auth/sessions/{other['id']}").status_code == 204
     assert second.get("/api/auth/me").status_code in (401, 403)

@@ -118,6 +118,9 @@ celery -A vessel_caller worker --loglevel=INFO
 
 Run migrations and `manage.py check --deploy` before switching the Nginx
 upstream. Build static files once with `manage.py collectstatic --noinput`.
-Production email uses a transactional database outbox; Celery retries Resend
-delivery with idempotency keys. Production evidence uses private Spaces
+Production email uses an encrypted transactional database outbox. Celery retries Resend
+delivery with a stable provider idempotency key, while the active worker runs a bounded
+periodic dispatcher that republishes pending or stale-sending rows after broker/worker
+outages. Permanently failed rows are excluded from the sweep to preserve retry backoff.
+Production evidence uses private Spaces
 objects and short-lived signed upload/download URLs.

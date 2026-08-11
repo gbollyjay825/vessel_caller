@@ -12,9 +12,9 @@ const apiMock = vi.hoisted(() => ({
 }));
 
 const workflowSteps = vi.hoisted(() => [
-  { id: "draft", code: "draft", label: "Draft", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false },
-  { id: "submitted", code: "submitted", label: "Submitted", position: 20, active: true, isPaid: false, isTerminal: false, isProtected: false },
-  { id: "paid", code: "paid", label: "Paid", position: 30, active: true, isPaid: true, isTerminal: true, isProtected: true },
+  { id: "draft", code: "draft", label: "Draft", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false, notifyOnEntry: false, notificationRoles: [] },
+  { id: "submitted", code: "submitted", label: "Submitted", position: 20, active: true, isPaid: false, isTerminal: false, isProtected: false, notifyOnEntry: false, notificationRoles: [] },
+  { id: "paid", code: "paid", label: "Paid", position: 30, active: true, isPaid: true, isTerminal: true, isProtected: true, notifyOnEntry: false, notificationRoles: [] },
 ]);
 
 const storeMock = vi.hoisted(() => ({

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AppState, Inspection } from "../types";
+import type { AppState, Inspection, InvoiceWorkflowStatus } from "../types";
 import { StoreProvider, useStore } from "./store";
 
 const apiMock = vi.hoisted(() => ({
@@ -16,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
   cancelCall: vi.fn(),
   recordPayment: vi.fn(),
   reversePayment: vi.fn(),
+  updateInvoiceStatusStep: vi.fn(),
   updateSettings: vi.fn(),
   updateOrganization: vi.fn(),
 }));
@@ -173,6 +174,26 @@ function OperationsProbe() {
       <button onClick={() => store.toast("Manual toast", "info")}>Toast</button>
       <button onClick={() => store.dismissToast(store.toasts[0]?.id ?? "")}>Dismiss toast</button>
       <span data-testid="toast-count">{store.toasts.length}</span>
+    </div>
+  );
+}
+
+function WorkflowNotificationProbe() {
+  const store = useStore();
+  const step = store.invoiceStatusSteps[0];
+  return (
+    <div>
+      <span data-testid="notification-enabled">{String(step?.notifyOnEntry)}</span>
+      <span data-testid="notification-roles">{step?.notificationRoles.join(",")}</span>
+      <button
+        type="button"
+        onClick={() => void store.updateInvoiceStatusStep("paid", {
+          notifyOnEntry: true,
+          notificationRoles: ["Admin", "Finance"],
+        })}
+      >
+        Update notification policy
+      </button>
     </div>
   );
 }
@@ -363,5 +384,58 @@ describe("StoreProvider offline synchronization", () => {
     expect(screen.getByTestId("toast-count")).toHaveTextContent("1");
     await userEvent.click(screen.getByRole("button", { name: "Dismiss toast" }));
     expect(screen.getByTestId("toast-count")).toHaveTextContent("0");
+  });
+
+  it("replaces a workflow step with the saved email notification policy", async () => {
+    const paidStep = {
+      id: "paid",
+      code: "paid",
+      label: "Paid",
+      position: 50,
+      active: true,
+      isPaid: true,
+      isTerminal: true,
+      isProtected: true,
+      notifyOnEntry: false,
+      notificationRoles: [],
+    };
+    apiMock.updateInvoiceStatusStep.mockResolvedValue({
+      step: {
+        ...paidStep,
+        notifyOnEntry: true,
+        notificationRoles: ["Admin", "Finance"],
+      },
+      rev: 14,
+    });
+
+    renderStore({ ...initial, invoiceStatusSteps: [paidStep] }, <WorkflowNotificationProbe />);
+    expect(screen.getByTestId("notification-enabled")).toHaveTextContent("false");
+
+    await userEvent.click(screen.getByRole("button", { name: "Update notification policy" }));
+
+    expect(apiMock.updateInvoiceStatusStep).toHaveBeenCalledWith("paid", {
+      notifyOnEntry: true,
+      notificationRoles: ["Admin", "Finance"],
+    });
+    await waitFor(() => expect(screen.getByTestId("notification-enabled")).toHaveTextContent("true"));
+    expect(screen.getByTestId("notification-roles")).toHaveTextContent("Admin,Finance");
+  });
+
+  it("normalizes notification defaults from a rollback-slot response", () => {
+    const legacyStep = {
+      id: "legacy-approved",
+      code: "approved",
+      label: "Approved",
+      position: 40,
+      active: true,
+      isPaid: false,
+      isTerminal: false,
+      isProtected: false,
+    } as InvoiceWorkflowStatus;
+
+    renderStore({ ...initial, invoiceStatusSteps: [legacyStep] }, <WorkflowNotificationProbe />);
+
+    expect(screen.getByTestId("notification-enabled")).toHaveTextContent("false");
+    expect(screen.getByTestId("notification-roles")).toBeEmptyDOMElement();
   });
 });

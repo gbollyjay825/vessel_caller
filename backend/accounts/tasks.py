@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
+from datetime import timedelta
 
 from celery import shared_task
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .emailing import deliver
 from .models import EmailOutbox
 from .security import decrypt_secret
+
+
+log = logging.getLogger(__name__)
+OUTBOX_DISPATCH_BATCH_SIZE = 100
+OUTBOX_STALE_SENDING_AFTER = timedelta(minutes=10)
 
 
 @shared_task(
@@ -55,3 +63,37 @@ def deliver_outbox_email(outbox_id: str):
         context={"redacted": True},
     )
     return provider_id
+
+
+@shared_task
+def dispatch_pending_outbox() -> int:
+    """Republish durable rows missed during broker outages.
+
+    A bounded pass keeps the worker responsive. Failed deliveries are
+    deliberately excluded: their task owns the configured retry/backoff and a
+    periodic FAILED scan would create an unbounded hot loop. A SENDING row is
+    eligible only after a conservative lease, recovering worker crashes while
+    avoiding overlap with the 15-second provider request timeout.
+    """
+
+    stale_before = timezone.now() - OUTBOX_STALE_SENDING_AFTER
+    outbox_ids = list(
+        EmailOutbox.objects.filter(
+            Q(status=EmailOutbox.Status.PENDING)
+            | Q(status=EmailOutbox.Status.SENDING, updated_at__lt=stale_before)
+        )
+        .order_by("created_at", "id")
+        .values_list("id", flat=True)[:OUTBOX_DISPATCH_BATCH_SIZE]
+    )
+    published = 0
+    for outbox_id in outbox_ids:
+        try:
+            deliver_outbox_email.apply_async(args=(str(outbox_id),), retry=False)
+        except Exception:
+            log.exception(
+                "Could not republish email outbox item %s; a later sweep will retry",
+                outbox_id,
+            )
+            break
+        published += 1
+    return published

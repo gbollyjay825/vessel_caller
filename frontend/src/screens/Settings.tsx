@@ -8,7 +8,13 @@ import { Icon } from "../components/Icon";
 import { Field } from "../components/ui";
 import { fmtNum } from "../lib/format";
 import { api } from "../lib/api";
-import { type Organization, type Settings as SettingsType } from "../types";
+import {
+  ROLES,
+  type InvoiceWorkflowStatus,
+  type Organization,
+  type Role,
+  type Settings as SettingsType,
+} from "../types";
 
 // ---------------------------------------------------------
 // Constants + org normalisation (ported from calabar/data.jsx)
@@ -257,6 +263,198 @@ function TeamSection({ canEdit }: { canEdit: boolean }) {
   );
 }
 
+interface NotificationSettings {
+  notifyOnEntry: boolean;
+  notificationRoles: Role[];
+}
+
+function orderedRoles(roles: Role[]): Role[] {
+  const selected = new Set(roles);
+  return ROLES.filter((role) => selected.has(role));
+}
+
+function sameNotificationSettings(left: NotificationSettings, right: NotificationSettings): boolean {
+  return left.notifyOnEntry === right.notifyOnEntry
+    && orderedRoles(left.notificationRoles).join("|") === orderedRoles(right.notificationRoles).join("|");
+}
+
+function notificationPolicy(step: InvoiceWorkflowStatus): string {
+  if (!step.notifyOnEntry) return "Email notification is off for this status.";
+  const roles = orderedRoles(step.notificationRoles ?? []);
+  if (!roles.length) return "Email notification is on, but no recipient roles are configured.";
+  return `Email notification is on for ${roles.join(", ")}.`;
+}
+
+function InvoiceStatusNotificationSettings({
+  step,
+  canEdit,
+  onSave,
+  toast,
+}: {
+  step: InvoiceWorkflowStatus;
+  canEdit: boolean;
+  onSave: (id: string, patch: NotificationSettings) => Promise<void>;
+  toast: (message: string, type?: "success" | "error" | "info") => void;
+}) {
+  const incomingRoles = orderedRoles(step.notificationRoles ?? []);
+  const incomingRolesKey = incomingRoles.join("|");
+  const incomingNotifyOnEntry = Boolean(step.notifyOnEntry);
+  const incomingKey = `${step.id ?? step.code}:${String(incomingNotifyOnEntry)}:${incomingRolesKey}`;
+  const [saved, setSaved] = useState<NotificationSettings>(() => ({
+    notifyOnEntry: incomingNotifyOnEntry,
+    notificationRoles: incomingRoles,
+  }));
+  const [draft, setDraft] = useState<NotificationSettings>(() => ({
+    notifyOnEntry: incomingNotifyOnEntry,
+    notificationRoles: incomingRoles,
+  }));
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [serverConflict, setServerConflict] = useState(false);
+  const observedServerKey = useRef(incomingKey);
+
+  useEffect(() => {
+    if (observedServerKey.current === incomingKey) return;
+    observedServerKey.current = incomingKey;
+    const next = {
+      notifyOnEntry: incomingNotifyOnEntry,
+      notificationRoles: (incomingRolesKey ? incomingRolesKey.split("|") : []) as Role[],
+    };
+    const wasClean = sameNotificationSettings(saved, draft);
+    const draftMatchesServer = sameNotificationSettings(draft, next);
+    setSaved(next);
+    if (wasClean || draftMatchesServer) {
+      setDraft(next);
+      setServerConflict(false);
+    } else {
+      setServerConflict(true);
+    }
+    setFeedback(null);
+  }, [draft, incomingKey, incomingNotifyOnEntry, incomingRolesKey, saved]);
+
+  const dirty = !sameNotificationSettings(saved, draft);
+  const invalid = draft.notifyOnEntry && draft.notificationRoles.length === 0;
+  const policyId = `invoice-notification-policy-${step.id ?? step.code}`;
+  const validationId = `invoice-notification-validation-${step.id ?? step.code}`;
+
+  const changeEnabled = (enabled: boolean) => {
+    setDraft((current) => ({ ...current, notifyOnEntry: enabled }));
+    setFeedback(null);
+  };
+  const changeRole = (role: Role, selected: boolean) => {
+    setDraft((current) => ({
+      ...current,
+      notificationRoles: orderedRoles(selected
+        ? [...current.notificationRoles, role]
+        : current.notificationRoles.filter((candidate) => candidate !== role)),
+    }));
+    setFeedback(null);
+  };
+  const saveNotifications = async () => {
+    if (!canEdit || !step.id || !dirty || invalid) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const next = {
+        notifyOnEntry: draft.notifyOnEntry,
+        notificationRoles: orderedRoles(draft.notificationRoles),
+      };
+      await onSave(step.id, next);
+      setSaved(next);
+      setDraft(next);
+      setServerConflict(false);
+      setFeedback({ type: "success", message: "Notification settings saved." });
+      toast(`Email notification settings saved for ${step.label}`, "success");
+    } catch (error: any) {
+      const message = error.message || "Could not save notification settings.";
+      setFeedback({ type: "error", message });
+      toast(message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 12, padding: 14, border: "1px solid var(--hairline)", borderRadius: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 600 }}>Email notification</div>
+      <p id={policyId} className="muted" style={{ fontSize: 12, margin: "5px 0 12px" }}>
+        Current saved policy: {notificationPolicy({ ...step, ...saved })}
+      </p>
+      <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13 }}>
+        <input
+          type="checkbox"
+          checked={draft.notifyOnEntry}
+          disabled={!canEdit || busy}
+          aria-describedby={`${policyId}${invalid ? ` ${validationId}` : ""}`}
+          onChange={(event) => changeEnabled(event.target.checked)}
+        />
+        <span>Send email when an invoice enters {step.label}</span>
+      </label>
+      <fieldset
+        disabled={!canEdit || busy || !draft.notifyOnEntry}
+        style={{ border: 0, padding: 0, margin: "12px 0 0" }}
+      >
+        <legend style={{ fontSize: 12, fontWeight: 600, marginBottom: 7 }}>Recipient roles</legend>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px" }}>
+          {ROLES.map((role) => (
+            <label key={role} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+              <input
+                type="checkbox"
+                aria-label={`${role} recipients for ${step.label}`}
+                checked={draft.notificationRoles.includes(role)}
+                onChange={(event) => changeRole(role, event.target.checked)}
+              />
+              {role}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {invalid && (
+        <p id={validationId} role="alert" style={{ color: "var(--danger)", fontSize: 12, margin: "10px 0 0" }}>
+          Choose at least one recipient role before saving.
+        </p>
+      )}
+      {serverConflict && (
+        <div role="alert" style={{ color: "var(--warning, #8a5a00)", fontSize: 12, marginTop: 10 }}>
+          Notification settings changed on the server while you were editing. Your choices were preserved.
+          {canEdit && (
+            <button
+              type="button"
+              className="link-btn"
+              style={{ marginLeft: 6 }}
+              disabled={busy}
+              onClick={() => {
+                setDraft(saved);
+                setServerConflict(false);
+                setFeedback(null);
+              }}
+            >
+              Use latest saved settings
+            </button>
+          )}
+        </div>
+      )}
+      {canEdit && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={busy || !dirty || invalid || !step.id}
+            onClick={() => void saveNotifications()}
+          >
+            {busy ? "Saving notification settings…" : `Save notification settings for ${step.label}`}
+          </button>
+          {feedback && (
+            <span role={feedback.type === "error" ? "alert" : "status"} style={{ color: feedback.type === "error" ? "var(--danger)" : "var(--success)", fontSize: 12 }}>
+              {feedback.message}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InvoiceWorkflowSection({ store, canEdit }: { store: ReturnType<typeof useStore>; canEdit: boolean }) {
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -278,17 +476,21 @@ function InvoiceWorkflowSection({ store, canEdit }: { store: ReturnType<typeof u
   };
   return <div className="card card-pad" style={{ maxWidth: 760 }}>
     <div className="card-title">Invoice status steps</div>
-    <p className="muted" style={{ fontSize: 13, margin: "6px 0 18px" }}>Choose the working stages used before payment. Paid is protected and is set automatically once an invoice is fully paid. Void remains a protected legacy exception.</p>
-    {activeSteps.map((step, index) => <div key={step.id || step.code} className="fin-row" style={{ gap: 10 }}>
-      <div className="fl" style={{ flex: 1 }}><strong>{step.label}</strong>{step.isProtected && <span className="muted"> · system controlled</span>}</div>
-      {canEdit && !step.isProtected && <>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index === 0} onClick={() => save(() => store.reorderInvoiceStatusSteps(reorderActive(index, index - 1)))}>↑</button>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index >= activeSteps.length - 2} onClick={() => save(() => store.reorderInvoiceStatusSteps(reorderActive(index, index + 1)))}>↓</button>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { const next = window.prompt("Status label", step.label); if (next?.trim() && next.trim() !== step.label) void save(() => store.updateInvoiceStatusStep(step.id!, { label: next.trim() })); }}>Rename</button>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => save(() => store.updateInvoiceStatusStep(step.id!, { active: !step.active }))}>{step.active ? "Deactivate" : "Activate"}</button>
-      </>}
-    </div>)}
-    {legacySteps.length > 0 && <details style={{ marginTop: 14 }}><summary className="muted">Historical inactive stages ({legacySteps.length})</summary><p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>These are retained for invoice history and cannot be selected for new status changes.</p></details>}
+    <p className="muted" style={{ fontSize: 13, margin: "6px 0 8px" }}>Choose the working stages used before payment. Paid is protected and is set automatically once an invoice is fully paid. Void remains a protected legacy exception.</p>
+    <p className="muted" style={{ fontSize: 12, margin: "0 0 18px" }}>When enabled, email is sent only to active users in this organization whose role is selected. The person applying the status change is excluded. Payment receipt notifications are sent separately.</p>
+    {activeSteps.map((step, index) => <section key={step.id || step.code} style={{ padding: "14px 0", borderBottom: "1px solid var(--hairline)" }}>
+      <div className="fin-row" style={{ gap: 10 }}>
+        <div className="fl" style={{ flex: 1 }}><strong>{step.label}</strong>{step.isProtected && <span className="muted"> · system controlled</span>}</div>
+        {canEdit && !step.isProtected && <>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index === 0} onClick={() => save(() => store.reorderInvoiceStatusSteps(reorderActive(index, index - 1)))}>↑</button>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy || index >= activeSteps.length - 2} onClick={() => save(() => store.reorderInvoiceStatusSteps(reorderActive(index, index + 1)))}>↓</button>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { const next = window.prompt("Status label", step.label); if (next?.trim() && next.trim() !== step.label) void save(() => store.updateInvoiceStatusStep(step.id!, { label: next.trim() })); }}>Rename</button>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => save(() => store.updateInvoiceStatusStep(step.id!, { active: !step.active }))}>{step.active ? "Deactivate" : "Activate"}</button>
+        </>}
+      </div>
+      <InvoiceStatusNotificationSettings step={step} canEdit={canEdit} onSave={store.updateInvoiceStatusStep} toast={store.toast} />
+    </section>)}
+    {legacySteps.length > 0 && <details style={{ marginTop: 14 }}><summary className="muted">Historical inactive stages ({legacySteps.length})</summary><p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>These are retained for invoice history and cannot be selected for new status changes.</p>{legacySteps.map((step) => <section key={step.id || step.code} style={{ padding: "14px 0", borderBottom: "1px solid var(--hairline)" }}><div><strong>{step.label}</strong><span className="muted"> · inactive</span></div><InvoiceStatusNotificationSettings step={step} canEdit={canEdit} onSave={store.updateInvoiceStatusStep} toast={store.toast} /></section>)}</details>}
     {canEdit && <div className="field-row" style={{ marginTop: 16 }}><Field label="Add status step"><input value={label} maxLength={80} placeholder="e.g. Awaiting documents" onChange={(event) => setLabel(event.target.value)} /></Field><button type="button" className="btn btn-primary" style={{ alignSelf: "end" }} disabled={busy || !label.trim()} onClick={() => save(async () => { await store.createInvoiceStatusStep(label.trim()); setLabel(""); })}>Add step</button></div>}
   </div>;
 }

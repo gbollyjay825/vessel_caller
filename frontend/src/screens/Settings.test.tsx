@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,11 +41,11 @@ function makeStore(overrides: Record<string, unknown> = {}) {
     updateSettings: vi.fn().mockResolvedValue(undefined),
     updateOrganization: vi.fn().mockResolvedValue(undefined),
     invoiceStatusSteps: [
-      { id: "director", code: "pending-director-finance-review", label: "Pending Director of Finance Review", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false },
-      { id: "audit", code: "pending-audit-review", label: "Pending Audit Review", position: 20, active: true, isPaid: false, isTerminal: false, isProtected: false },
-      { id: "approved", code: "approved", label: "Approved", position: 50, active: true, isPaid: false, isTerminal: false, isProtected: false },
-      { id: "paid", code: "paid", label: "Paid", position: 60, active: true, isPaid: true, isTerminal: true, isProtected: true },
-      { id: "legacy-draft", code: "draft", label: "Draft", position: 910, active: false, isPaid: false, isTerminal: false, isProtected: false },
+      { id: "director", code: "pending-director-finance-review", label: "Pending Director of Finance Review", position: 10, active: true, isPaid: false, isTerminal: false, isProtected: false, notifyOnEntry: false, notificationRoles: [] },
+      { id: "audit", code: "pending-audit-review", label: "Pending Audit Review", position: 20, active: true, isPaid: false, isTerminal: false, isProtected: false, notifyOnEntry: true, notificationRoles: ["Admin"] },
+      { id: "approved", code: "approved", label: "Approved", position: 50, active: true, isPaid: false, isTerminal: false, isProtected: false, notifyOnEntry: true, notificationRoles: ["Operations", "Finance"] },
+      { id: "paid", code: "paid", label: "Paid", position: 60, active: true, isPaid: true, isTerminal: true, isProtected: true, notifyOnEntry: true, notificationRoles: ["Finance"] },
+      { id: "legacy-draft", code: "draft", label: "Draft", position: 910, active: false, isPaid: false, isTerminal: false, isProtected: false, notifyOnEntry: false, notificationRoles: [] },
     ],
     createInvoiceStatusStep: vi.fn().mockResolvedValue(undefined),
     updateInvoiceStatusStep: vi.fn().mockResolvedValue(undefined),
@@ -179,12 +179,118 @@ describe("Settings", () => {
     expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("director", { label: "Prepared" });
     await userEvent.click(screen.getAllByRole("button", { name: "↓" })[0]);
     expect(mocks.store.reorderInvoiceStatusSteps).toHaveBeenCalledWith(["audit", "director", "approved", "paid", "legacy-draft"]);
-    expect(screen.queryByText("Draft")).not.toBeInTheDocument();
+    expect(screen.getByText("Draft")).toBeInTheDocument();
     expect(screen.getByText(/Historical inactive stages/)).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Add status step"), "Awaiting documents");
     await userEvent.click(screen.getByRole("button", { name: "Add step" }));
     expect(mocks.store.createInvoiceStatusStep).toHaveBeenCalledWith("Awaiting documents");
     expect(screen.getAllByRole("button", { name: "Deactivate" }).length).toBeGreaterThan(0);
+  });
+
+  it("lets an admin validate and save role-targeted notification settings", async () => {
+    renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+
+    const notificationToggle = screen.getByRole("checkbox", {
+      name: "Send email when an invoice enters Pending Director of Finance Review",
+    });
+    const saveButton = screen.getByRole("button", {
+      name: "Save notification settings for Pending Director of Finance Review",
+    });
+    expect(saveButton).toBeDisabled();
+
+    await userEvent.click(notificationToggle);
+    expect(screen.getByRole("alert")).toHaveTextContent("Choose at least one recipient role before saving.");
+    expect(saveButton).toBeDisabled();
+    expect(mocks.store.updateInvoiceStatusStep).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("checkbox", {
+      name: "Admin recipients for Pending Director of Finance Review",
+    }));
+    await userEvent.click(screen.getByRole("checkbox", {
+      name: "Finance recipients for Pending Director of Finance Review",
+    }));
+    expect(saveButton).toBeEnabled();
+    await userEvent.click(saveButton);
+
+    await waitFor(() => expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("director", {
+      notifyOnEntry: true,
+      notificationRoles: ["Admin", "Finance"],
+    }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Notification settings saved.");
+    expect(saveButton).toBeDisabled();
+  });
+
+  it("allows notification configuration for protected Paid without unlocking its workflow controls", async () => {
+    renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+
+    const paidHeading = screen.getByText("Paid", { selector: "strong" });
+    const paidSection = paidHeading.closest("section");
+    expect(paidSection).not.toBeNull();
+    const paid = within(paidSection as HTMLElement);
+    expect(paid.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
+    expect(paid.queryByRole("button", { name: "Deactivate" })).not.toBeInTheDocument();
+    expect(paid.getByText(/system controlled/)).toBeInTheDocument();
+
+    await userEvent.click(paid.getByRole("checkbox", { name: "Admin recipients for Paid" }));
+    await userEvent.click(paid.getByRole("button", { name: "Save notification settings for Paid" }));
+    await waitFor(() => expect(mocks.store.updateInvoiceStatusStep).toHaveBeenCalledWith("paid", {
+      notifyOnEntry: true,
+      notificationRoles: ["Admin", "Finance"],
+    }));
+  });
+
+  it("shows inline error feedback when notification settings cannot be saved", async () => {
+    const updateInvoiceStatusStep = vi.fn().mockRejectedValue(new Error("Notification policy conflict"));
+    renderAdmin({ updateInvoiceStatusStep });
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Viewer recipients for Approved" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save notification settings for Approved" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Notification policy conflict");
+    expect(mocks.store.toast).toHaveBeenCalledWith("Notification policy conflict", "error");
+  });
+
+  it("preserves a dirty notification draft when polling returns a newer saved policy", async () => {
+    const view = renderAdmin();
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    await userEvent.click(screen.getByRole("checkbox", {
+      name: "Send email when an invoice enters Pending Director of Finance Review",
+    }));
+    await userEvent.click(screen.getByRole("checkbox", {
+      name: "Admin recipients for Pending Director of Finance Review",
+    }));
+
+    const serverSteps = (mocks.store.invoiceStatusSteps as Array<Record<string, unknown>>).map((step) => (
+      step.id === "director"
+        ? { ...step, notifyOnEntry: true, notificationRoles: ["Viewer"] }
+        : { ...step, notificationRoles: [...(step.notificationRoles as string[])] }
+    ));
+    mocks.store = makeStore({ invoiceStatusSteps: serverSteps });
+    view.rerender(<Settings />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Notification settings changed on the server while you were editing. Your choices were preserved.",
+    );
+    expect(screen.getByRole("checkbox", {
+      name: "Admin recipients for Pending Director of Finance Review",
+    })).toBeChecked();
+    expect(screen.getByRole("checkbox", {
+      name: "Viewer recipients for Pending Director of Finance Review",
+    })).not.toBeChecked();
+
+    await userEvent.click(screen.getByRole("button", { name: "Use latest saved settings" }));
+    expect(screen.getByRole("checkbox", {
+      name: "Admin recipients for Pending Director of Finance Review",
+    })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", {
+      name: "Viewer recipients for Pending Director of Finance Review",
+    })).toBeChecked();
+    expect(screen.queryByText(/Notification settings changed on the server/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "Save notification settings for Pending Director of Finance Review",
+    })).toBeDisabled();
   });
 
   it("does not change a workflow label when rename is cancelled", async () => {
@@ -224,5 +330,13 @@ describe("Settings", () => {
     expect(screen.getByLabelText("Default terminals")).toBeDisabled();
     expect(screen.getByLabelText("Add terminal")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add terminal" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Invoice workflow" }));
+    expect(screen.getByText("Current saved policy: Email notification is on for Finance.")).toBeInTheDocument();
+    expect(screen.getByText(/only to active users in this organization/)).toBeInTheDocument();
+    expect(screen.getByText(/person applying the status change is excluded/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Send email when an invoice enters Paid" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Finance recipients for Paid" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Save notification settings for Paid" })).not.toBeInTheDocument();
   });
 });

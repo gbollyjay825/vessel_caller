@@ -35,6 +35,7 @@ def test_broker_publication_failure_leaves_one_encrypted_pending_row_for_recover
     monkeypatch,
     caplog,
     django_capture_on_commit_callbacks,
+    organization,
 ):
     attempts = 0
 
@@ -55,6 +56,7 @@ def test_broker_publication_failure_leaves_one_encrypted_pending_row_for_recover
             template="invoice",
             context={"message": "Private transition context"},
             idempotency_key="broker-gap-event-recipient",
+            organization=organization,
         )
 
     outbox.refresh_from_db()
@@ -73,6 +75,7 @@ def test_broker_publication_failure_leaves_one_encrypted_pending_row_for_recover
             template="invoice",
             context={"message": "Private transition context"},
             idempotency_key="broker-gap-event-recipient",
+            organization=organization,
         )
     assert repeated.pk == outbox.pk
     assert attempts == 1

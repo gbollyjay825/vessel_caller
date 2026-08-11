@@ -18,6 +18,13 @@ from .defaults import CALABAR_BERTH_TERMINALS
 from .models import Organization, OrganizationSettings
 
 
+ADMIN_INVITATION_UNAVAILABLE_MESSAGE = "An invitation could not be created for this email"
+
+
+class AdminInvitationUnavailable(ValueError):
+    """The requested Admin email is unavailable without revealing why."""
+
+
 def _invitation_url(raw: str) -> str:
     return f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"
 
@@ -27,12 +34,12 @@ def create_admin_invitation(
 ) -> Invitation:
     normalized_email = email.strip().lower()
     if User.objects.filter(email=normalized_email).exists():
-        raise ValueError("A user with this email already exists")
+        raise AdminInvitationUnavailable
     if organization.invitations.filter(
         email=normalized_email,
         status=Invitation.Status.PENDING,
     ).exists():
-        raise ValueError("A pending invitation already exists for this email")
+        raise AdminInvitationUnavailable
     raw = opaque_token()
     invitation = Invitation.objects.create(
         organization=organization,

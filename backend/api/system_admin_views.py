@@ -49,6 +49,8 @@ from audit.models import PlatformAuditEvent
 from audit.services import record_event, record_platform_event
 from organizations.models import Organization
 from organizations.services import (
+    ADMIN_INVITATION_UNAVAILABLE_MESSAGE,
+    AdminInvitationUnavailable,
     create_admin_invitation,
     create_customer_organization,
     reactivate_customer_organization,
@@ -335,8 +337,8 @@ class SystemOrganizationsView(RecentMutationPermissionsMixin):
                 actor=request.user,
                 request=request,
             )
-        except ValueError as exc:
-            raise ValidationError({"initialAdmin": [str(exc)]}) from exc
+        except AdminInvitationUnavailable as exc:
+            raise ValidationError({"initialAdmin": [ADMIN_INVITATION_UNAVAILABLE_MESSAGE]}) from exc
         return Response(
             {
                 "organization": system_organization_data(organization),
@@ -544,8 +546,8 @@ class SystemOrganizationInvitationsView(RecentMutationPermissionsMixin):
                 email=serializer.validated_data["email"],
                 request=request,
             )
-        except ValueError as exc:
-            raise ValidationError({"email": [str(exc)]}) from exc
+        except AdminInvitationUnavailable as exc:
+            raise ValidationError({"email": [ADMIN_INVITATION_UNAVAILABLE_MESSAGE]}) from exc
         return Response(
             {"invitation": invitation_data(invitation), "rev": organization.revision},
             status=status.HTTP_201_CREATED,

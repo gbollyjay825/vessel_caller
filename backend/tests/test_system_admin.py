@@ -697,6 +697,28 @@ def test_create_customer_is_idempotent_private_and_onboarding(system_admin):
     assert conflicting.status_code == 409
     assert PlatformMutationRequest.objects.filter(actor=system_admin).count() == 1
 
+    unavailable_name = "Unavailable Admin Customer"
+    unavailable = client.post(
+        "/api/system/organizations",
+        {
+            **payload,
+            "name": unavailable_name,
+            "initialAdmin": {"name": "Existing", "email": system_admin.email},
+        },
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="create-unavailable-admin-001",
+    )
+    assert unavailable.status_code == 400
+    unavailable_body = unavailable.json()
+    assert unavailable_body["detail"] == "The request could not be completed"
+    assert unavailable_body["errors"] == {
+        "initialAdmin": ["An invitation could not be created for this email"]
+    }
+    assert "exists" not in json.dumps(unavailable_body).lower()
+    assert system_admin.email not in json.dumps(unavailable_body)
+    assert not Organization.objects.filter(name=unavailable_name).exists()
+    assert PlatformMutationRequest.objects.filter(actor=system_admin).count() == 1
+
 
 @override_settings(SYSTEM_ADMIN_MUTATIONS_ENABLED=True)
 def test_list_minimizes_bulk_data_and_profile_update_is_safe(system_admin):
@@ -1520,6 +1542,23 @@ def test_system_admin_invitation_and_recovery_actions_cover_success_and_fail_clo
         HTTP_IDEMPOTENCY_KEY="system-invite-existing-001",
     )
     assert existing_user.status_code == 400
+    duplicate_body = duplicate.json()
+    existing_user_body = existing_user.json()
+    assert (
+        duplicate_body["detail"]
+        == existing_user_body["detail"]
+        == ("The request could not be completed")
+    )
+    assert (
+        duplicate_body["errors"]
+        == existing_user_body["errors"]
+        == {"email": ["An invitation could not be created for this email"]}
+    )
+    serialized_errors = json.dumps([duplicate_body, existing_user_body]).lower()
+    assert "exists" not in serialized_errors
+    assert "pending" not in serialized_errors
+    assert tenant_admin.email not in serialized_errors
+    assert "new-admin@recovery.test" not in serialized_errors
 
     resent = client.post(
         f"{invitations_url}/{invitation_id}/resend",

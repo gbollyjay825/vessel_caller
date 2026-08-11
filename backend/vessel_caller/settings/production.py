@@ -1,9 +1,43 @@
 # mypy: ignore-errors
+from pathlib import Path
+from email.utils import parseaddr
+
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import *  # noqa: F403
 
 DEBUG = False
+SYSTEM_ADMIN_MUTATIONS_ENABLED = env_bool(  # noqa: F405
+    "VC_SYSTEM_ADMIN_MUTATIONS_ENABLED", False
+)
+SYSTEM_ADMIN_MUTATION_FLAG_FILE = env(  # noqa: F405
+    "VC_SYSTEM_ADMIN_MUTATION_FLAG_FILE",
+    f"/etc/vessel-caller/system-admin-mutations-{ENVIRONMENT}.flag",  # noqa: F405
+)
+expected_system_admin_flag = {
+    "production": "/etc/vessel-caller/system-admin-mutations-production.flag",
+    "staging": "/etc/vessel-caller/system-admin-mutations-staging.flag",
+}.get(ENVIRONMENT)  # noqa: F405
+if not expected_system_admin_flag:
+    raise ImproperlyConfigured(
+        "Production settings require VC_ENVIRONMENT to be production or staging"
+    )
+if SYSTEM_ADMIN_MUTATIONS_ENABLED:
+    raise ImproperlyConfigured(
+        "Production System Administrator mutations must use the dynamic flag file"
+    )
+if not SYSTEM_ADMIN_MUTATION_FLAG_FILE or not Path(SYSTEM_ADMIN_MUTATION_FLAG_FILE).is_absolute():
+    raise ImproperlyConfigured(
+        "VC_SYSTEM_ADMIN_MUTATION_FLAG_FILE must be an absolute root-managed path"
+    )
+if SYSTEM_ADMIN_MUTATION_FLAG_FILE != expected_system_admin_flag:
+    raise ImproperlyConfigured(
+        "VC_SYSTEM_ADMIN_MUTATION_FLAG_FILE must use the exact environment-specific root path"
+    )
+if not 300 <= SYSTEM_ADMIN_MFA_STEP_UP_SECONDS <= 1800:  # noqa: F405
+    raise ImproperlyConfigured(
+        "VC_SYSTEM_ADMIN_MFA_STEP_UP_SECONDS must be between 300 and 1800 seconds"
+    )
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_SSL_REDIRECT = env_bool("VC_SECURE_SSL_REDIRECT", True)  # noqa: F405
@@ -67,6 +101,18 @@ EMAIL_DELIVERY_BACKEND = env("VC_EMAIL_DELIVERY_BACKEND", "resend")  # noqa: F40
 if EMAIL_DELIVERY_BACKEND == "resend":
     if not RESEND_API_KEY:
         raise ImproperlyConfigured("Production Resend delivery requires VC_RESEND_API_KEY")
+    configured_sender = env("VC_EMAIL_FROM").strip()  # noqa: F405
+    sender_address = parseaddr(configured_sender)[1].lower()
+    if (
+        not configured_sender
+        or not sender_address
+        or "@" not in sender_address
+        or sender_address.endswith(("@example.com", "@example.test", "@localhost"))
+        or "change_me" in configured_sender.lower()
+    ):
+        raise ImproperlyConfigured(
+            "Production Resend delivery requires a real explicit VC_EMAIL_FROM sender"
+        )
 elif not (
     DEFERRED_PROVIDER_CUTOVER and EMAIL_DELIVERY_BACKEND == "disabled" and not RESEND_API_KEY
 ):

@@ -75,6 +75,7 @@ jobs:
           docker compose --file compose.yml config --quiet
           tests/infra/test-release-scripts.sh
           tests/infra/test-nginx-config.sh
+          tests/infra/test-system-admin-controls.sh
       - name: JSON validation
         run: |
           python -m json.tool deploy/backup-lifecycle.json >/dev/null

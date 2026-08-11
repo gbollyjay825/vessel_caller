@@ -343,7 +343,7 @@ describe("session API client", () => {
     await api.signOutEverywhere();
     await api.setupMfa("current-password");
     await api.confirmMfa("654321");
-    await api.regenerateRecoveryCodes();
+    await api.regenerateRecoveryCodes("987654");
     await api.disableMfa("password");
     await api.users({ role: "all", status: "all" });
     await api.updateUser("user/1", { role: "Finance" });
@@ -434,5 +434,70 @@ describe("session API client", () => {
       message: "Could not upload an evidence photo",
       status: 500,
     });
+  });
+
+  it("maps the isolated system console API and idempotency contract", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+      organization: { id: "org-1", revision: 3 },
+      invitation: { id: "invitation-1" },
+      user: { id: "user-1" },
+      results: [],
+      count: 0,
+      page: 1,
+      pageSize: 20,
+      rev: 3,
+      detail: "Queued",
+    }));
+
+    await api.systemStepUp("123456");
+    await api.systemOverview();
+    await api.systemOrganizations({ page: 2, search: "Harbour & Co", status: "active", registered: true });
+    await api.systemOrganization("org/1");
+    await api.createSystemOrganization({
+      name: "Harbour",
+      primaryPort: "Port of Calabar",
+      initialAdmin: { name: "Ada", email: "ada@example.com" },
+    }, "idem-create");
+    await api.updateSystemOrganization("org/1", { name: "Harbour Updated", revision: 2 }, "idem-update");
+    await api.suspendSystemOrganization("org/1", "Support investigation", 2, "idem-suspend");
+    await api.reactivateSystemOrganization("org/1", "Investigation complete", 3, "idem-reactivate");
+    await api.systemOrganizationUsers("org/1", { page: 1, role: "Admin" });
+    await api.systemOrganizationInvitations("org/1", { pageSize: 20 });
+    await api.inviteSystemOrganizationAdmin("org/1", { name: "Grace", email: "grace@example.com" }, "idem-invite");
+    await api.resendSystemOrganizationInvitation("org/1", "invite/1", "idem-resend");
+    await api.revokeSystemOrganizationInvitation("org/1", "invite/1", "idem-revoke");
+    await api.sendSystemAdminPasswordReset("org/1", "user/1", "Requested by customer", "idem-password");
+    await api.resetSystemAdminMfa("org/1", "user/1", "Lost authenticator", "idem-mfa");
+    await api.systemOrganizationAudit("org/1", { search: "support" });
+    await api.systemAudit({ action: "organization.suspended", actor: "operator-1" });
+
+    const calls = fetchMock.mock.calls.map(([url, options]) => ({
+      url: String(url),
+      method: String(options?.method ?? "GET"),
+      key: new Headers(options?.headers).get("Idempotency-Key"),
+      body: options?.body == null ? null : JSON.parse(String(options.body)),
+    }));
+    expect(calls.map((call) => call.url)).toEqual(expect.arrayContaining([
+      "/api/system/overview",
+      "/api/system/step-up",
+      "/api/system/organizations?page=2&search=Harbour+%26+Co&status=active&registered=true",
+      "/api/system/organizations/org%2F1",
+      "/api/system/organizations/org%2F1/users?page=1&role=Admin",
+      "/api/system/organizations/org%2F1/audit?search=support",
+      "/api/system/audit?action=organization.suspended&actor=operator-1",
+    ]));
+    expect(calls.filter((call) => call.method !== "GET" && call.url !== "/api/system/step-up").map((call) => call.key)).toEqual([
+      "idem-create", "idem-update", "idem-suspend", "idem-reactivate", "idem-invite",
+      "idem-resend", "idem-revoke", "idem-password", "idem-mfa",
+    ]);
+    const invitation = calls.find((call) => call.key === "idem-invite");
+    expect(invitation?.body).toEqual({ name: "Grace", email: "grace@example.com" });
+    expect(invitation?.body).not.toHaveProperty("role");
+    const stepUp = calls.find((call) => call.url === "/api/system/step-up");
+    expect(stepUp).toMatchObject({ method: "POST", key: null, body: { code: "123456" } });
+    expect(api.systemAuditExportUrl({ organizationId: "org/1", search: "role change" })).toBe(
+      "/api/system/audit/export?organizationId=org%2F1&search=role+change",
+    );
   });
 });

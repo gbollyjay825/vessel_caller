@@ -32,17 +32,22 @@ class UserManager(BaseUserManager["User"]):
         extra_fields.setdefault("role", "Admin")
         extra_fields.setdefault("status", "active")
         extra_fields.setdefault("email_verified_at", timezone.now())
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("A superuser must have is_staff=True")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("A superuser must have is_superuser=True")
         if not extra_fields.get("organization"):
             from organizations.models import Organization, OrganizationSettings
 
-            organization = Organization.objects.create(
-                name=extra_fields.pop("organization_name", "Platform Administration"),
-                email=email,
-                registered=True,
+            organization_name = extra_fields.pop("organization_name", "Platform Administration")
+            organization, _ = Organization.objects.get_or_create(
+                kind=Organization.Kind.PLATFORM,
+                defaults={
+                    "name": organization_name,
+                    "email": email,
+                    "registered": True,
+                },
             )
-            OrganizationSettings.objects.create(organization=organization)
-            from billing.services import ensure_default_steps
-
-            ensure_default_steps(organization)
+            OrganizationSettings.objects.get_or_create(organization=organization)
             extra_fields["organization"] = organization
         return self._create_user(email, password, **extra_fields)

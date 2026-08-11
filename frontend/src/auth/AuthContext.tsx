@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -16,7 +17,10 @@ import {
   type RegisterPayload,
 } from "../lib/api";
 import { clearQueuedInspectionsForOwner } from "../lib/offlineQueue";
+import { clearAuthenticatedQueryCache } from "../lib/queryClient";
 import type { AuthSession, Organization, User } from "../types";
+
+type PlatformAccess = NonNullable<AuthSession["platformAccess"]>;
 
 type Status = "loading" | "authenticated" | "anonymous" | "unavailable";
 
@@ -38,7 +42,13 @@ export type Permission =
   | "settings.manage"
   | "analytics.view"
   | "documents.view"
-  | "evidence.manage";
+  | "evidence.manage"
+  | "platform.organizations.view"
+  | "platform.organizations.manage"
+  | "platform.organization_users.view"
+  | "platform.organization_users.manage"
+  | "platform.audit.view"
+  | "platform.audit.export";
 
 export type Action =
   | "registerCall"
@@ -71,11 +81,13 @@ interface AuthValue {
   status: Status;
   user: User | null;
   org: Organization | null;
+  platformAccess: PlatformAccess | null;
   permissions: ReadonlySet<string>;
   authError: string | null;
   sessionExpired: boolean;
-  login: (email: string, password: string) => Promise<MfaChallenge | null>;
-  verifyMfa: (challengeId: string, code: string) => Promise<void>;
+  homePath: "/app" | "/system" | "/system/account";
+  login: (email: string, password: string) => Promise<LoginResult>;
+  verifyMfa: (challengeId: string, code: string) => Promise<AuthSession>;
   register: (data: RegisterPayload) => Promise<{ detail: string }>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -101,13 +113,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [org, setOrgState] = useState<Organization | null>(null);
+  const [platformAccess, setPlatformAccess] = useState<PlatformAccess | null>(null);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [authError, setAuthError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const identityRef = useRef<string | null>(null);
 
   const clearSession = useCallback((expired = false) => {
+    clearAuthenticatedQueryCache();
+    identityRef.current = null;
     setUser(null);
     setOrgState(null);
+    setPlatformAccess(null);
     setPermissions([]);
     setAuthError(null);
     setSessionExpired(expired);
@@ -115,9 +132,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applySession = useCallback((session: AuthSession) => {
+    if (identityRef.current && identityRef.current !== session.user.id) {
+      clearAuthenticatedQueryCache();
+    }
+    identityRef.current = session.user.id;
     setUser(session.user);
     setOrgState(session.org);
-    setPermissions(session.permissions);
+    setPlatformAccess(session.platformAccess ?? null);
+    setPermissions(Array.from(new Set([
+      ...session.permissions,
+      ...(session.platformAccess?.permissions ?? []),
+    ])));
     setAuthError(null);
     setSessionExpired(false);
     setStatus("authenticated");
@@ -140,6 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setUser(null);
       setOrgState(null);
+      setPlatformAccess(null);
       setPermissions([]);
       setStatus("unavailable");
       setAuthError("We could not reach the secure session service. Check your connection and try again.");
@@ -172,15 +198,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("auth:expired", onExpired);
   }, [clearSession]);
 
+  useEffect(() => {
+    const expiresAt = platformAccess?.assuranceExpiresAt;
+    if (!expiresAt || platformAccess.stepUpRequired) return;
+    const expires = Date.parse(expiresAt);
+    let timer: number | undefined;
+    const schedule = () => {
+      const remaining = expires - Date.now();
+      if (!Number.isFinite(expires) || remaining <= 0) {
+        setPlatformAccess((current) => current ? { ...current, stepUpRequired: true } : current);
+        return;
+      }
+      timer = window.setTimeout(schedule, Math.min(remaining, 2_147_483_647));
+    };
+    schedule();
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [platformAccess?.assuranceExpiresAt, platformAccess?.stepUpRequired]);
+
   const login = useCallback(async (email: string, password: string) => {
     const result = await api.login(email, password);
-    if (isMfaChallenge(result)) return result;
-    applySession(result);
-    return null;
+    if (!isMfaChallenge(result)) applySession(result);
+    return result;
   }, [applySession]);
 
   const verifyMfa = useCallback(async (challengeId: string, code: string) => {
-    applySession(await api.verifyMfaChallenge(challengeId, code));
+    const session = await api.verifyMfaChallenge(challengeId, code);
+    applySession(session);
+    return session;
   }, [applySession]);
 
   const register = useCallback(async (data: RegisterPayload) => {
@@ -208,6 +254,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setOrg = useCallback((next: Organization) => setOrgState(next), []);
 
   const permissionSet = useMemo(() => new Set(permissions), [permissions]);
+  const homePath = platformAccess
+    ? platformAccess.mfaEnrollmentRequired ? "/system/account" : "/system"
+    : "/app";
   const can = useCallback((action: Action | Permission) => {
     const permission = action in ACTION_PERMISSION
       ? ACTION_PERMISSION[action as Action]
@@ -219,9 +268,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     status,
     user,
     org,
+    platformAccess,
     permissions: permissionSet,
     authError,
     sessionExpired,
+    homePath,
     login,
     verifyMfa,
     register,
@@ -234,9 +285,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     status,
     user,
     org,
+    platformAccess,
     permissionSet,
     authError,
     sessionExpired,
+    homePath,
     login,
     verifyMfa,
     register,

@@ -21,6 +21,10 @@ const authMock = vi.hoisted(() => ({
   refreshSession: vi.fn(),
   logout: vi.fn(),
 }));
+const authState = vi.hoisted(() => ({
+  platformAccess: null as null | { role: "SystemAdmin"; permissions: string[] },
+  mfaEnabled: false,
+}));
 
 vi.mock("../lib/api", () => ({
   api: apiMock,
@@ -36,13 +40,14 @@ vi.mock("../auth/AuthContext", () => ({
       role: "Admin",
       status: "active",
       emailVerified: true,
-      mfaEnabled: false,
+      mfaEnabled: authState.mfaEnabled,
       mfaRequired: true,
-      mfaEnrollmentRequired: true,
+      mfaEnrollmentRequired: !authState.mfaEnabled,
       mfaGraceEndsAt: "2026-08-02T09:00:00Z",
     },
     refreshSession: authMock.refreshSession,
     logout: authMock.logout,
+    platformAccess: authState.platformAccess,
   }),
 }));
 
@@ -76,6 +81,8 @@ describe("AccountSecurity", () => {
     apiMock.sessions.mockResolvedValue({ results: [] });
     authMock.refreshSession.mockResolvedValue(undefined);
     authMock.logout.mockResolvedValue(undefined);
+    authState.platformAccess = null;
+    authState.mfaEnabled = false;
   });
 
   it("updates profile data and surfaces verified-email workflow", async () => {
@@ -101,6 +108,32 @@ describe("AccountSecurity", () => {
     });
     expect(await screen.findByText(/Check your new email address/i)).toBeInTheDocument();
     expect(authMock.refreshSession).toHaveBeenCalledOnce();
+  });
+
+  it("labels platform access without presenting it as a tenant role", async () => {
+    authState.platformAccess = { role: "SystemAdmin", permissions: [] };
+    apiMock.profile.mockResolvedValue({ user: { ...profile, role: "Viewer" } });
+    renderAccount();
+
+    expect(await screen.findByText("System Administrator")).toBeInTheDocument();
+    expect(screen.getByText(/controlled operator process/i)).toBeInTheDocument();
+    expect(screen.queryByText(/another organization Admin/i)).not.toBeInTheDocument();
+  });
+
+  it("requires a current factor for recovery codes and hides platform MFA disable", async () => {
+    authState.platformAccess = { role: "SystemAdmin", permissions: [] };
+    authState.mfaEnabled = true;
+    apiMock.regenerateRecoveryCodes.mockResolvedValue({ recoveryCodes: ["fresh-code"] });
+    renderAccount();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Password & MFA" }));
+    expect(screen.queryByRole("button", { name: "Disable MFA" })).not.toBeInTheDocument();
+    expect(screen.getByText(/cannot be disabled in the product/i)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/Current authenticator code/), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "New recovery codes" }));
+
+    expect(apiMock.regenerateRecoveryCodes).toHaveBeenCalledWith("123456");
+    expect(await screen.findByText("fresh-code")).toBeInTheDocument();
   });
 
   it("changes a password and completes authenticator enrollment", async () => {

@@ -22,6 +22,13 @@ def api_exception_handler(exc, context):
     request = context.get("request")
     request_id = getattr(request, "request_id", "") if request else ""
     raw = _plain(response.data)
+    if getattr(exc, "default_code", "") == "system_mfa_step_up_required":
+        response.data = {
+            "detail": str(getattr(exc, "detail", "Recent multi-factor verification is required")),
+            "errors": {"code": "system_mfa_step_up_required"},
+            "requestId": request_id,
+        }
+        return response
     if isinstance(raw, dict) and set(raw) == {"detail"}:
         detail = raw["detail"]
         errors = None

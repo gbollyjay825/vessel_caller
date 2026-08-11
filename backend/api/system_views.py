@@ -11,6 +11,17 @@ from rest_framework.views import APIView
 from vessel_caller import __version__
 
 
+def _runtime_capabilities() -> dict[str, bool]:
+    return {
+        "organizationAccessStatus": True,
+        "systemAdminEmailDeliveryReady": (
+            settings.EMAIL_DELIVERY_BACKEND == "resend"
+            and bool(settings.RESEND_API_KEY)
+            and bool(settings.EMAIL_FROM.strip())
+        ),
+    }
+
+
 class RuntimeConfigView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -42,6 +53,7 @@ class HealthView(APIView):
                     "sha": settings.RELEASE_SHA,
                     "tag": settings.RELEASE_TAG or None,
                 },
+                "capabilities": _runtime_capabilities(),
             }
         )
 
@@ -72,6 +84,7 @@ class ReadinessView(APIView):
                     "sha": settings.RELEASE_SHA,
                     "tag": settings.RELEASE_TAG or None,
                 },
+                "capabilities": _runtime_capabilities(),
             },
             status=status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE,
         )

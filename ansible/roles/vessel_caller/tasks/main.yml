@@ -3,15 +3,13 @@
   ansible.builtin.file:
     path: "{{ vessel_app_root }}/slots/{{ item.name }}"
     state: directory
-    owner: "{{ item.user }}"
+    owner: root
     group: "{{ item.group }}"
     mode: "0750"
   loop:
     - name: production-blue
-      user: "{{ vessel_production_user }}"
       group: "{{ vessel_production_group }}"
     - name: production-green
-      user: "{{ vessel_production_user }}"
       group: "{{ vessel_production_group }}"
   when: vessel_production_runtime_enabled | bool
 
@@ -19,9 +17,11 @@
   ansible.builtin.file:
     path: "{{ vessel_app_root }}/slots/staging"
     state: directory
-    owner: "{{ vessel_staging_user }}"
+    owner: root
     group: "{{ vessel_staging_group }}"
-    mode: "0750"
+    # Nginx must traverse the staging slot to reach the public frontend build,
+    # but neither Nginx nor the runtime account may list or replace `current`.
+    mode: "0751"
   when: vessel_staging_runtime_enabled | bool
 
 - name: Install release and operational scripts
@@ -43,6 +43,7 @@
     - monitor-health.sh
     - prune-releases.sh
     - smoke-test.sh
+    - enable-system-admin-mutations.sh
 
 - name: Install restricted deployment entrypoint
   ansible.builtin.file:
@@ -148,6 +149,24 @@
   when: vessel_staging_runtime_enabled | bool
   notify: Restart Vessel Caller staging Redis
 
+- name: Fail-close the production System Admin mutation kill switch
+  ansible.builtin.copy:
+    dest: "{{ vessel_config_root }}/system-admin-mutations-production.flag"
+    owner: root
+    group: "{{ vessel_production_group }}"
+    mode: "0640"
+    content: "disabled\n"
+  when: vessel_production_runtime_enabled | bool
+
+- name: Fail-close the staging System Admin mutation kill switch
+  ansible.builtin.copy:
+    dest: "{{ vessel_config_root }}/system-admin-mutations-staging.flag"
+    owner: root
+    group: "{{ vessel_staging_group }}"
+    mode: "0640"
+    content: "disabled\n"
+  when: vessel_staging_runtime_enabled | bool
+
 - name: Write production slot environments
   ansible.builtin.template:
     src: runtime.env.j2
@@ -163,11 +182,12 @@
     runtime_host: "{{ vessel_domain }}"
     runtime_csrf_origin: "https://{{ vessel_domain }}"
     runtime_frontend_url: "https://{{ vessel_domain }}"
+    runtime_system_admin_mutation_flag_file: "{{ vessel_config_root }}/system-admin-mutations-production.flag"
     runtime_redis_port: "{{ vessel_production_redis_port }}"
     runtime_redis_password: "{{ vessel_production_redis_password }}"
     runtime_deferred_provider_cutover: "{{ vessel_production_deferred_provider_cutover }}"
     runtime_email_delivery_backend: >-
-      {{ 'disabled' if (vessel_production_deferred_provider_cutover | bool) else 'resend' }}
+      {{ 'resend' if ((vessel_production_resend_api_key | length > 0) and ('CHANGE_ME' not in vessel_production_resend_api_key)) else 'disabled' }}
     runtime_resend_api_key: "{{ vessel_production_resend_api_key }}"
     runtime_email_from: "{{ vessel_production_email_from }}"
     runtime_spaces_key: "{{ vessel_production_spaces_key }}"
@@ -197,6 +217,7 @@
     runtime_host: "{{ vessel_staging_domain }}"
     runtime_csrf_origin: "{{ vessel_staging_frontend_origin }}"
     runtime_frontend_url: "{{ vessel_staging_frontend_origin }}"
+    runtime_system_admin_mutation_flag_file: "{{ vessel_config_root }}/system-admin-mutations-staging.flag"
     runtime_redis_port: "{{ vessel_staging_redis_port }}"
     runtime_redis_password: "{{ vessel_staging_redis_password }}"
     runtime_deferred_provider_cutover: false
@@ -211,6 +232,34 @@
     runtime_mfa_encryption_key: "{{ vessel_staging_mfa_encryption_key }}"
   no_log: true
   when: vessel_staging_runtime_enabled | bool
+
+- name: Verify and enable staging System Admin mutations under the release lock
+  ansible.builtin.command:
+    argv:
+      - /usr/local/lib/vessel-caller/enable-system-admin-mutations.sh
+      - staging
+      - "{{ vessel_staging_system_admin_qualified_release_tag }}"
+      - "{{ vessel_staging_system_admin_qualified_release_sha }}"
+      - "{{ vessel_staging_resend_api_key | hash('sha256') }}"
+      - "{{ vessel_staging_email_from | hash('sha256') }}"
+  no_log: true
+  when:
+    - vessel_staging_runtime_enabled | bool
+    - vessel_staging_system_admin_mutations_enabled | bool
+
+- name: Verify and enable production System Admin mutations under the release lock
+  ansible.builtin.command:
+    argv:
+      - /usr/local/lib/vessel-caller/enable-system-admin-mutations.sh
+      - production
+      - "{{ vessel_production_system_admin_qualified_release_tag }}"
+      - "{{ vessel_production_system_admin_qualified_release_sha }}"
+      - "{{ vessel_production_resend_api_key | hash('sha256') }}"
+      - "{{ vessel_production_email_from | hash('sha256') }}"
+  no_log: true
+  when:
+    - vessel_production_runtime_enabled | bool
+    - vessel_production_system_admin_mutations_enabled | bool
 
 - name: Write staging E2E seed environment
   ansible.builtin.template:

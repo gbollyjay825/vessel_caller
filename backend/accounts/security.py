@@ -19,6 +19,10 @@ from .models import ActionToken, MFARecoveryCode, User
 EMPTY_MFA_SECRET = ""  # nosec B105
 
 
+class InactiveActionTarget(Exception):
+    """The identity's organization cannot issue or consume an action token."""
+
+
 def token_hash(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -31,11 +35,20 @@ def issue_action_token(
     hours: int,
     metadata: dict | None = None,
 ) -> tuple[ActionToken, str]:
-    User.objects.select_for_update().get(pk=user.pk)
+    from organizations.models import Organization
+
+    organization = (
+        Organization.objects.select_for_update()
+        .filter(pk=user.organization_id, access_status=Organization.AccessStatus.ACTIVE)
+        .first()
+    )
+    if not organization:
+        raise InactiveActionTarget
+    locked_user = User.objects.select_for_update().get(pk=user.pk, organization=organization)
     raw = secrets.token_urlsafe(48)
-    ActionToken.objects.filter(user=user, kind=kind, used_at__isnull=True).delete()
+    ActionToken.objects.filter(user=locked_user, kind=kind, used_at__isnull=True).delete()
     obj = ActionToken.objects.create(
-        user=user,
+        user=locked_user,
         kind=kind,
         token_hash=token_hash(raw),
         metadata=metadata or {},
@@ -46,15 +59,49 @@ def issue_action_token(
 
 @transaction.atomic
 def consume_action_token(raw: str, kind: str) -> ActionToken | None:
-    try:
-        token = (
-            ActionToken.objects.select_for_update()
-            .select_related("user")
-            .get(token_hash=token_hash(raw), kind=kind, used_at__isnull=True)
-        )
-    except ActionToken.DoesNotExist:
+    from organizations.models import Organization
+
+    hashed = token_hash(raw)
+    candidate = (
+        ActionToken.objects.filter(token_hash=hashed, kind=kind, used_at__isnull=True)
+        .values("user_id", "user__organization_id")
+        .first()
+    )
+    if not candidate:
         return None
-    if token.expires_at <= timezone.now():
+    organization = (
+        Organization.objects.select_for_update()
+        .filter(
+            pk=candidate["user__organization_id"],
+            access_status=Organization.AccessStatus.ACTIVE,
+        )
+        .first()
+    )
+    if not organization:
+        return None
+    user = User.objects.select_for_update().get(
+        pk=candidate["user_id"],
+        organization=organization,
+    )
+    token = (
+        ActionToken.objects.select_for_update()
+        .select_related("user__organization")
+        .filter(
+            token_hash=hashed,
+            kind=kind,
+            used_at__isnull=True,
+            user=user,
+        )
+        .first()
+    )
+    if not token:
+        return None
+    if (
+        token.expires_at <= timezone.now()
+        or not token.user.organization.is_access_active
+        or token.user.is_staff
+        or token.user.is_superuser
+    ):
         return None
     token.used_at = timezone.now()
     token.save(update_fields=("used_at",))

@@ -36,11 +36,77 @@
           - >-
             not (vessel_backups_enabled | bool)
             or (vessel_production_runtime_enabled | bool)
+          - >-
+            not (vessel_staging_system_admin_mutations_enabled | bool)
+            or (
+              (vessel_staging_runtime_enabled | bool)
+              and (vessel_staging_application_ready | bool)
+              and (vessel_staging_system_admin_qualified_release_tag is match('^v[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?$'))
+              and (vessel_staging_system_admin_qualified_release_sha is match('^[0-9a-f]{40}$'))
+            )
+          - >-
+            not (vessel_production_system_admin_mutations_enabled | bool)
+            or (
+              (vessel_production_runtime_enabled | bool)
+              and (vessel_backups_enabled | bool)
+              and (vessel_production_resend_api_key | length > 0)
+              and ('CHANGE_ME' not in vessel_production_resend_api_key)
+              and (vessel_production_email_from | length > 0)
+              and (vessel_production_system_admin_qualified_release_tag is match('^v[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?$'))
+              and (vessel_production_system_admin_qualified_release_sha is match('^[0-9a-f]{40}$'))
+            )
         fail_msg: >-
           Deferred provider gates cannot enable staging. Production may use the
           explicit deferred-provider cutover only while those gates remain
           deferred; staging readiness requires staging runtime, and backups
-          require production runtime.
+          require production runtime. System Admin mutations additionally
+          require a qualified staging application, or a production runtime
+          with verified backups and live Resend delivery, respectively. Sentry
+          remains governed independently by the deferred-provider gate.
+
+    - name: Require status-aware runtime in every System Admin rollback slot
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ item.port }}/api/readiness"
+        headers:
+          Host: "{{ item.host }}"
+          X-Forwarded-Proto: https
+        return_content: true
+        status_code: 200
+        timeout: 5
+      register: system_admin_capability_probe
+      changed_when: false
+      failed_when: >-
+        system_admin_capability_probe.status != 200
+        or system_admin_capability_probe.json.status != 'ready'
+        or system_admin_capability_probe.json.release.tag != item.expected_tag
+        or system_admin_capability_probe.json.release.sha != item.expected_sha
+        or not (
+          system_admin_capability_probe.json.get('capabilities', {}).get(
+            'organizationAccessStatus', false
+          ) | bool
+        )
+        or not (
+          system_admin_capability_probe.json.get('capabilities', {}).get(
+            'systemAdminEmailDeliveryReady', false
+          ) | bool
+        )
+      loop:
+        - port: 8010
+          host: "{{ vessel_staging_domain }}"
+          enabled: "{{ vessel_staging_system_admin_mutations_enabled }}"
+          expected_tag: "{{ vessel_staging_system_admin_qualified_release_tag }}"
+          expected_sha: "{{ vessel_staging_system_admin_qualified_release_sha }}"
+        - port: 8001
+          host: "{{ vessel_domain }}"
+          enabled: "{{ vessel_production_system_admin_mutations_enabled }}"
+          expected_tag: "{{ vessel_production_system_admin_qualified_release_tag }}"
+          expected_sha: "{{ vessel_production_system_admin_qualified_release_sha }}"
+        - port: 8002
+          host: "{{ vessel_domain }}"
+          enabled: "{{ vessel_production_system_admin_mutations_enabled }}"
+          expected_tag: "{{ vessel_production_system_admin_qualified_release_tag }}"
+          expected_sha: "{{ vessel_production_system_admin_qualified_release_sha }}"
+      when: item.enabled | bool
 
     - name: Require release trust for enabled runtimes
       ansible.builtin.assert:
@@ -118,6 +184,8 @@
         that:
           - vessel_production_resend_api_key | length > 0
           - "'CHANGE_ME' not in vessel_production_resend_api_key"
+          - vessel_production_email_from | length > 0
+          - "'CHANGE_ME' not in vessel_production_email_from"
           - vessel_production_sentry_dsn | length > 0
           - "'CHANGE_ME' not in vessel_production_sentry_dsn"
         fail_msg: >-
@@ -128,14 +196,22 @@
         - not (vessel_production_deferred_provider_cutover | bool)
       no_log: true
 
-    - name: Keep deferred production providers disabled and empty
+    - name: Keep deferred production telemetry disabled and reject placeholder email keys
       ansible.builtin.assert:
         that:
-          - vessel_production_resend_api_key | length == 0
           - vessel_production_sentry_dsn | length == 0
+          - >-
+            (vessel_production_resend_api_key | length == 0)
+            or (
+              ('CHANGE_ME' not in vessel_production_resend_api_key)
+              and (vessel_production_email_from | length > 0)
+              and ('CHANGE_ME' not in vessel_production_email_from)
+            )
         fail_msg: >-
-          Deferred production cutover must not retain unqualified Resend or
-          Sentry credentials.
+          Deferred production telemetry must not retain an unqualified Sentry
+          credential. Resend delivery is governed independently, but any
+          configured key must be a real protected value rather than a
+          placeholder.
       when:
         - vessel_production_runtime_enabled | bool
         - vessel_production_deferred_provider_cutover | bool
@@ -148,7 +224,7 @@
           - vessel_secret_key != vessel_staging_secret_key
           - vessel_production_mfa_encryption_key != vessel_staging_mfa_encryption_key
           - >-
-            (vessel_production_deferred_provider_cutover | bool)
+            (vessel_production_resend_api_key | length == 0)
             or vessel_production_resend_api_key != vessel_staging_resend_api_key
           - vessel_production_spaces_key != vessel_staging_spaces_key
           - vessel_production_spaces_secret != vessel_staging_spaces_secret

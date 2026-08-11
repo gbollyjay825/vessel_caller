@@ -15,7 +15,7 @@ EnvironmentFile=/etc/vessel-caller/staging.env
 EnvironmentFile=/opt/vessel-caller/slots/staging/current/RELEASE.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/gunicorn vessel_caller.wsgi:application --bind ${VC_BIND} --workers 3 --threads 2 --worker-class gthread --timeout 60 --graceful-timeout 30 --max-requests 1000 --max-requests-jitter 100 --access-logfile - --error-logfile -
+ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/gunicorn vessel_caller.wsgi:application --bind ${VC_BIND} --workers 3 --threads 2 --worker-class gthread --timeout 60 --graceful-timeout 30 --max-requests 1000 --max-requests-jitter 100 --error-logfile -
 ExecReload=/bin/kill -s HUP $MAINPID
 KillSignal=SIGQUIT
 TimeoutStartSec=60

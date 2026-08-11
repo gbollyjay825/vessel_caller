@@ -61,6 +61,24 @@ from .operation_views import (
     VesselCallStatusView,
 )
 from .system_views import HealthView, ReadinessView, RuntimeConfigView
+from .system_admin_views import (
+    SystemAccountView,
+    SystemAuditExportView,
+    SystemAuditView,
+    SystemOrganizationDetailView,
+    SystemOrganizationAuditView,
+    SystemOrganizationInvitationDetailView,
+    SystemOrganizationInvitationResendView,
+    SystemOrganizationInvitationsView,
+    SystemOrganizationReactivateView,
+    SystemOrganizationSuspendView,
+    SystemOrganizationUserMFAResetView,
+    SystemOrganizationUserPasswordResetView,
+    SystemOrganizationUsersView,
+    SystemOrganizationsView,
+    SystemOverviewView,
+    SystemStepUpView,
+)
 from .user_views import (
     AuditExportView,
     AuditView,
@@ -89,6 +107,62 @@ urlpatterns = [
     path("readiness", ReadinessView.as_view(), name="readiness"),
     path("runtime-config", RuntimeConfigView.as_view(), name="runtime-config"),
     path("openapi", openapi_view, name="openapi"),
+    path("system/account", SystemAccountView.as_view(), name="system-account"),
+    path("system/step-up", SystemStepUpView.as_view(), name="system-step-up"),
+    path("system/overview", SystemOverviewView.as_view(), name="system-overview"),
+    path("system/organizations", SystemOrganizationsView.as_view(), name="system-organizations"),
+    path(
+        "system/organizations/<str:organization_id>",
+        SystemOrganizationDetailView.as_view(),
+        name="system-organization-detail",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/suspend",
+        SystemOrganizationSuspendView.as_view(),
+        name="system-organization-suspend",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/reactivate",
+        SystemOrganizationReactivateView.as_view(),
+        name="system-organization-reactivate",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/users",
+        SystemOrganizationUsersView.as_view(),
+        name="system-organization-users",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/invitations",
+        SystemOrganizationInvitationsView.as_view(),
+        name="system-organization-invitations",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/invitations/<str:invitation_id>",
+        SystemOrganizationInvitationDetailView.as_view(),
+        name="system-organization-invitation-detail",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/invitations/<str:invitation_id>/resend",
+        SystemOrganizationInvitationResendView.as_view(),
+        name="system-organization-invitation-resend",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/users/<str:user_id>/send-password-reset",
+        SystemOrganizationUserPasswordResetView.as_view(),
+        name="system-organization-user-password-reset",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/users/<str:user_id>/reset-mfa",
+        SystemOrganizationUserMFAResetView.as_view(),
+        name="system-organization-user-mfa-reset",
+    ),
+    path("system/audit", SystemAuditView.as_view(), name="system-audit"),
+    path("system/audit/export", SystemAuditExportView.as_view(), name="system-audit-export"),
+    path(
+        "system/organizations/<str:organization_id>/audit",
+        SystemOrganizationAuditView.as_view(),
+        name="system-organization-audit",
+    ),
     path("auth/csrf", CsrfView.as_view(), name="auth-csrf"),
     path("auth/register", RegisterView.as_view(), name="auth-register"),
     path("auth/verify-email", VerifyEmailView.as_view(), name="auth-verify-email"),

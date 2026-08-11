@@ -16,12 +16,18 @@ from accounts.tasks import deliver_outbox_email
 from billing.models import Invoice, Payment
 from operations.models import Inspection, VesselCall
 from organizations.models import Organization, OrganizationSettings
-from vessel_caller.sentry import _before_send
+from vessel_caller.sentry import (
+    _before_breadcrumb,
+    _before_send,
+    _before_send_transaction,
+    _strip_query,
+)
 
 pytestmark = pytest.mark.django_db
 
 
 def test_transactional_outbox_memory_delivery(django_capture_on_commit_callbacks):
+    organization = Organization.objects.create(name="Outbox Test Organization")
     with django_capture_on_commit_callbacks(execute=True):
         outbox = queue_email(
             to_email="recipient@example.test",
@@ -29,6 +35,7 @@ def test_transactional_outbox_memory_delivery(django_capture_on_commit_callbacks
             template="verify_email",
             context={"actionUrl": "https://example.test/verify"},
             idempotency_key="test-outbox-1",
+            organization=organization,
         )
         assert "actionUrl" not in json.dumps(outbox.context)
         assert "ciphertext" in outbox.context
@@ -48,17 +55,73 @@ def test_sentry_redacts_request_and_user_data():
                 "Authorization": "Bearer secret",
                 "Cookie": "session=secret",
                 "Accept": "application/json",
+                "Referer": "https://vesselcalls.test/system?email=private@example.test",
             },
             "cookies": {"session": "secret"},
             "data": {"password": "secret"},
+            "env": {"QUERY_STRING": "phone=08000000000"},
+            "query_string": "search=RC-PRIVATE&email=private@example.test",
+            "url": "https://vesselcalls.test/api/system/organizations?search=RC-PRIVATE#private",
         },
+        "transaction": "/api/system/organizations?search=private@example.test",
+        "breadcrumbs": {
+            "values": [
+                {
+                    "category": "http",
+                    "data": {
+                        "url": "https://vesselcalls.test/api/system/audit?search=private@example.test",
+                        "params": {"search": "private@example.test"},
+                    },
+                }
+            ]
+        },
+        "spans": [{"description": "search=private@example.test"}],
         "user": {"id": "u-1", "email": "private@example.test"},
     }
     redacted = _before_send(event, {})
     assert redacted["request"]["headers"]["Authorization"] == "[REDACTED]"
     assert "cookies" not in redacted["request"]
     assert "data" not in redacted["request"]
+    assert "env" not in redacted["request"]
+    assert "query_string" not in redacted["request"]
+    assert redacted["request"]["url"] == "https://vesselcalls.test/api/system/organizations"
+    assert redacted["request"]["headers"]["Referer"] == "[REDACTED]"
+    assert redacted["transaction"] == "/api/system/organizations"
+    assert "spans" not in redacted
     assert redacted["user"] == {"id": "u-1"}
+    assert "private@example.test" not in json.dumps(redacted)
+    assert "08000000000" not in json.dumps(redacted)
+    assert "RC-PRIVATE" not in json.dumps(redacted)
+    transaction_redacted = _before_send_transaction(event, {})
+    assert "private@example.test" not in json.dumps(transaction_redacted)
+    breadcrumb = _before_breadcrumb(
+        {
+            "data": {
+                "url": "https://vesselcalls.test/api/system/audit?search=private@example.test",
+                "query_string": "search=private@example.test",
+            }
+        },
+        {},
+    )
+    assert "private@example.test" not in json.dumps(breadcrumb)
+
+
+def test_sentry_sanitizers_are_safe_for_non_platform_and_malformed_shapes():
+    assert _strip_query(None) is None
+    assert _strip_query("http://[invalid?secret=value") == "http://[invalid"
+    event = {
+        "request": {
+            "headers": {},
+            "url": "https://vesselcalls.test/api/health?probe=private",
+        },
+        "breadcrumbs": {"values": ["opaque", {"data": "not-a-mapping"}]},
+        "spans": [{"description": "non-platform-span"}],
+    }
+    sanitized = _before_send(event, {})
+    assert sanitized["request"]["url"] == "https://vesselcalls.test/api/health"
+    assert sanitized["spans"] == [{"description": "non-platform-span"}]
+    assert sanitized["breadcrumbs"]["values"] == ["opaque", {"data": "not-a-mapping"}]
+    assert _before_send({}, {}) == {}
 
 
 def create_legacy_database(path: Path):

@@ -143,7 +143,7 @@ STORAGES = {
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_NAME = "__Host-vessel_session"
 SESSION_COOKIE_AGE = 60 * 60 * 12
-SESSION_SAVE_EVERY_REQUEST = True
+SESSION_SAVE_EVERY_REQUEST = False
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = env_bool("VC_SESSION_COOKIE_SECURE", True)
@@ -159,7 +159,7 @@ X_FRAME_OPTIONS = "DENY"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_PERMISSION_CLASSES": ["api.permissions.IsActiveAccount"],
     "DEFAULT_PAGINATION_CLASS": "api.pagination.StandardPagination",
     "PAGE_SIZE": 25,
     "EXCEPTION_HANDLER": "api.exceptions.api_exception_handler",
@@ -184,6 +184,12 @@ MFA_GRACE_DAYS = 7
 RELEASE_SHA = env("VC_RELEASE_SHA", "development")
 RELEASE_TAG = env("VC_RELEASE_TAG", "")
 SENTRY_DSN = env("VC_SENTRY_DSN")
+SYSTEM_ADMIN_MUTATIONS_ENABLED = env_bool(
+    "VC_SYSTEM_ADMIN_MUTATIONS_ENABLED",
+    ENVIRONMENT != "production",
+)
+SYSTEM_ADMIN_MUTATION_FLAG_FILE = env("VC_SYSTEM_ADMIN_MUTATION_FLAG_FILE", "")
+SYSTEM_ADMIN_MFA_STEP_UP_SECONDS = int(env("VC_SYSTEM_ADMIN_MFA_STEP_UP_SECONDS", "900"))
 
 CELERY_BROKER_URL = env("VC_REDIS_URL", "redis://127.0.0.1:6379/0")
 CELERY_RESULT_BACKEND = env("VC_REDIS_URL", "redis://127.0.0.1:6379/1")

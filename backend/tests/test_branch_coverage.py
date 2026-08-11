@@ -170,14 +170,16 @@ def test_email_delivery_backends_and_resend_status(monkeypatch):
             )
 
     class FakeResponse:
-        def __init__(self, status):
+        def __init__(self, status, body):
             self.status = status
+            self.body = body
 
         def read(self):
-            return json.dumps({"id": "provider-1"}).encode()
+            return self.body
 
     class FakeConnection:
         next_status = 202
+        next_body = json.dumps({"id": "provider-1"}).encode()
 
         def __init__(self, *args, **kwargs):
             self.request_args = None
@@ -186,7 +188,7 @@ def test_email_delivery_backends_and_resend_status(monkeypatch):
             self.request_args = (args, kwargs)
 
         def getresponse(self):
-            return FakeResponse(self.next_status)
+            return FakeResponse(self.next_status, self.next_body)
 
         def close(self):
             return None
@@ -224,6 +226,16 @@ def test_email_delivery_backends_and_resend_status(monkeypatch):
                 template="reset_password",
                 context={},
                 idempotency_key="resend-3",
+            )
+        FakeConnection.next_status = 202
+        FakeConnection.next_body = b"not-json"
+        with pytest.raises(RuntimeError, match="invalid response"):
+            deliver(
+                to_email="x@example.test",
+                subject="Subject",
+                template="reset_password",
+                context={},
+                idempotency_key="resend-invalid-json",
             )
 
 
@@ -290,6 +302,7 @@ def test_spaces_presigning_existence_and_deletion_branches(monkeypatch):
     monkeypatch.setenv("VC_SPACES_ENDPOINT_URL", "https://spaces.example")
     monkeypatch.setattr(boto3, "client", lambda *args, **kwargs: fake)
     request = RequestFactory().get("/")
+    request.__dict__["_tenant_lifecycle_locked_organization_id"] = "org-1"
     key = object_key("org-1", "in-1", "../../ unsafe image.png")
     assert key.startswith("organizations/org-1/inspections/in-1/")
     assert safe_name("////") == "evidence"

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "../lib/navigation";
 
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../lib/api";
+import type { AuthSession } from "../types";
 
 const anchor = (
   <svg
@@ -37,7 +38,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [code, setCode] = useState("");
-  const [redirectAfterAuth, setRedirectAfterAuth] = useState(false);
+  const [redirectAfterAuth, setRedirectAfterAuth] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,12 +46,32 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const [orgName, setOrgName] = useState("");
   const [port, setPort] = useState("Port of Calabar");
 
-  const destination = (
+  const requestedDestination = (
     location.state
     && typeof location.state === "object"
     && "from" in location.state
     && typeof location.state.from === "string"
-  ) ? location.state.from : "/app";
+  ) ? location.state.from : null;
+  const safeRequestedDestination = (
+    requestedDestination
+    && requestedDestination.startsWith("/")
+    && !requestedDestination.startsWith("//")
+  ) ? requestedDestination : null;
+  const isWithin = (path: string, prefix: string) => (
+    path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`)
+  );
+  const destinationFor = (session: AuthSession): string => {
+    const platform = Boolean(session.platformAccess);
+    const home = platform
+      ? session.platformAccess?.mfaEnrollmentRequired ? "/system/account" : "/system"
+      : "/app";
+    if (!safeRequestedDestination) return home;
+    if (platform) return isWithin(safeRequestedDestination, "/system") ? safeRequestedDestination : home;
+    return (
+      isWithin(safeRequestedDestination, "/app")
+      || isWithin(safeRequestedDestination, "/capture")
+    ) ? safeRequestedDestination : home;
+  };
   const sessionExpired = Boolean(
     location.state
     && typeof location.state === "object"
@@ -60,9 +81,9 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
 
   useEffect(() => {
     if (redirectAfterAuth && status === "authenticated") {
-      navigate(destination, { replace: true });
+      navigate(redirectAfterAuth, { replace: true });
     }
-  }, [destination, navigate, redirectAfterAuth, status]);
+  }, [navigate, redirectAfterAuth, status]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -70,18 +91,18 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
     setError(null);
     try {
       if (challengeId) {
-        await verifyMfa(challengeId, code.trim());
-        setRedirectAfterAuth(true);
+        const session = await verifyMfa(challengeId, code.trim());
+        setRedirectAfterAuth(destinationFor(session));
         return;
       }
       if (mode === "login") {
-        const challenge = await login(email.trim().toLowerCase(), password);
-        if (challenge) {
-          setChallengeId(challenge.challengeId);
+        const result = await login(email.trim().toLowerCase(), password);
+        if ("mfaRequired" in result) {
+          setChallengeId(result.challengeId);
           setPassword("");
           return;
         }
-        setRedirectAfterAuth(true);
+        setRedirectAfterAuth(destinationFor(result));
         return;
       }
       const result = await register({

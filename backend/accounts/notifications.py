@@ -22,6 +22,7 @@ def queue_security_notice(
     message: str,
     to_email: str | None = None,
     template: str = "security_notice",
+    allow_suspended_organization: bool = False,
 ) -> None:
     """Notify one user about a material security or access change."""
 
@@ -34,6 +35,8 @@ def queue_security_notice(
         template=template,
         context={"message": message},
         idempotency_key=f"notice:{event_key}:{user.pk}",
+        organization=user.organization,
+        allow_suspended_organization=allow_suspended_organization,
     )
 
 

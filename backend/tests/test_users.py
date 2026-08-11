@@ -111,7 +111,10 @@ def test_concurrent_admin_changes_cannot_remove_every_active_admin(admin):
     assert not second.is_alive()
     assert "first_error" not in outcomes
     assert "second_error" not in outcomes
-    assert outcomes["second_status"] == 400
+    # The lifecycle boundary reloads the waiting actor after the first
+    # transaction commits, so the now-Viewer actor is denied before the
+    # last-Admin service invariant needs to run.
+    assert outcomes["second_status"] == 403
     assert (
         User.objects.filter(
             organization=admin.organization,

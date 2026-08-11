@@ -1,12 +1,13 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
 import type { ReactNode } from "react";
 
 import { AppLoader } from "./app/AppLoader";
 import { AppShell } from "./app/AppShell";
-import { AuthProvider, type Permission } from "./auth/AuthContext";
+import { AuthProvider, useAuth, type Permission } from "./auth/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Navigate } from "./lib/navigation";
+import { queryClient } from "./lib/queryClient";
 import { MobileApp } from "./mobile/MobileApp";
 import { AccountSecurity } from "./screens/AccountSecurity";
 import { Analytics } from "./screens/Analytics";
@@ -21,19 +22,12 @@ import { ForgotPassword, ResetPassword } from "./screens/PasswordRecovery";
 import { Settings } from "./screens/Settings";
 import { UserManagement } from "./screens/UserManagement";
 import { VesselCallDetail, VesselCalls } from "./screens/VesselCalls";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: (failureCount, error) => (
-        !(error && typeof error === "object" && "status" in error && Number(error.status) < 500)
-        && failureCount < 2
-      ),
-      refetchOnWindowFocus: true,
-    },
-  },
-});
+import { SystemAudit } from "./system/SystemAudit";
+import { SystemAccount } from "./system/SystemAccount";
+import { SystemOrganizationDetail } from "./system/SystemOrganizationDetail";
+import { SystemOrganizations } from "./system/SystemOrganizations";
+import { SystemOverview } from "./system/SystemOverview";
+import { PlatformRoute, SystemShell } from "./system/SystemShell";
 
 function SecureScreen({ permission, children }: { permission?: Permission; children: ReactNode }) {
   return <ProtectedRoute permission={permission}>{children}</ProtectedRoute>;
@@ -66,12 +60,46 @@ function WorkspaceRoutes() {
 }
 
 function Workspace() {
+  const { platformAccess, homePath } = useAuth();
   return (
     <ProtectedRoute>
-      <AppLoader>
-        <AppShell><WorkspaceRoutes /></AppShell>
-      </AppLoader>
+      {platformAccess ? <Navigate to={homePath} replace /> : (
+        <AppLoader>
+          <AppShell><WorkspaceRoutes /></AppShell>
+        </AppLoader>
+      )}
     </ProtectedRoute>
+  );
+}
+
+function SystemRoutes() {
+  return (
+    <Switch>
+      <Route path="/system">
+        <PlatformRoute permission="platform.organizations.view"><SystemOverview /></PlatformRoute>
+      </Route>
+      <Route path="/system/organizations/:id">
+        <PlatformRoute permission="platform.organizations.view"><SystemOrganizationDetail /></PlatformRoute>
+      </Route>
+      <Route path="/system/organizations">
+        <PlatformRoute permission="platform.organizations.view"><SystemOrganizations /></PlatformRoute>
+      </Route>
+      <Route path="/system/audit">
+        <PlatformRoute permission="platform.audit.view"><SystemAudit /></PlatformRoute>
+      </Route>
+      <Route path="/system/account">
+        <PlatformRoute allowDuringEnrollment><SystemAccount /></PlatformRoute>
+      </Route>
+      <Route><Navigate to="/system" replace /></Route>
+    </Switch>
+  );
+}
+
+function SystemWorkspace() {
+  return (
+    <PlatformRoute allowDuringEnrollment>
+      <SystemShell><SystemRoutes /></SystemShell>
+    </PlatformRoute>
   );
 }
 
@@ -96,6 +124,8 @@ export default function App() {
           <Route path="/reset-password"><ResetPassword /></Route>
           <Route path="/accept-invitation"><InvitationAccept /></Route>
           <Route path="/capture"><Capture /></Route>
+          <Route path="/system"><SystemWorkspace /></Route>
+          <Route path="/system/*"><SystemWorkspace /></Route>
           <Route path="/app"><Workspace /></Route>
           <Route path="/app/*"><Workspace /></Route>
           <Route><Navigate to="/" replace /></Route>

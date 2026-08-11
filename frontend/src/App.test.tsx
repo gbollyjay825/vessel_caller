@@ -4,8 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 
+const authMock = vi.hoisted(() => ({
+  platformAccess: null as null | { role: "SystemAdmin" },
+  homePath: "/app",
+}));
+
 vi.mock("./auth/AuthContext", () => ({
   AuthProvider: ({ children }: { children: ReactNode }) => <div data-testid="auth-provider">{children}</div>,
+  useAuth: () => authMock,
 }));
 vi.mock("./components/ProtectedRoute", () => ({
   ProtectedRoute: ({ permission, children }: { permission?: string; children: ReactNode }) => (
@@ -43,6 +49,17 @@ vi.mock("./screens/UserManagement", () => ({ UserManagement: () => <div>User man
 vi.mock("./screens/VesselCalls", () => ({
   VesselCalls: () => <div>Vessel calls screen</div>,
   VesselCallDetail: () => <div>Vessel call detail screen</div>,
+}));
+vi.mock("./system/SystemAudit", () => ({ SystemAudit: () => <div>System audit screen</div> }));
+vi.mock("./system/SystemAccount", () => ({ SystemAccount: () => <div>System account screen</div> }));
+vi.mock("./system/SystemOrganizationDetail", () => ({ SystemOrganizationDetail: () => <div>System organization detail screen</div> }));
+vi.mock("./system/SystemOrganizations", () => ({ SystemOrganizations: () => <div>System organizations screen</div> }));
+vi.mock("./system/SystemOverview", () => ({ SystemOverview: () => <div>System overview screen</div> }));
+vi.mock("./system/SystemShell", () => ({
+  PlatformRoute: ({ permission, children }: { permission?: string; children: ReactNode }) => (
+    <div data-platform-permission={permission ?? "authenticated"}>{children}</div>
+  ),
+  SystemShell: ({ children }: { children: ReactNode }) => <div data-testid="system-shell">{children}</div>,
 }));
 
 afterEach(() => cleanup());
@@ -98,5 +115,20 @@ describe("App route contract", () => {
 
     renderPath("/not-a-route");
     expect(screen.getByText("Navigate:/")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["/system", "System overview screen", "platform.organizations.view"],
+    ["/system/organizations", "System organizations screen", "platform.organizations.view"],
+    ["/system/organizations/org-1", "System organization detail screen", "platform.organizations.view"],
+    ["/system/audit", "System audit screen", "platform.audit.view"],
+    ["/system/account", "System account screen", "authenticated"],
+  ])("routes %s through the isolated platform shell", (path, expected, permission) => {
+    const view = renderPath(path);
+    expect(screen.getByText(expected)).toBeInTheDocument();
+    expect(screen.getByTestId("system-shell")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-loader")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("app-shell")).not.toBeInTheDocument();
+    expect(view.container.querySelector(`[data-platform-permission="${permission}"]`)).toBeInTheDocument();
   });
 });

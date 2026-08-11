@@ -3,7 +3,15 @@ import type { ReactNode } from "react";
 import { useAuth, type Permission } from "../auth/AuthContext";
 import { Navigate, useLocation } from "../lib/navigation";
 
-export function ProtectedRoute({ permission, children }: { permission?: Permission; children: ReactNode }) {
+export function ProtectedRoute({
+  permission,
+  deniedTo = "/app",
+  children,
+}: {
+  permission?: Permission;
+  deniedTo?: string;
+  children: ReactNode;
+}) {
   const {
     status,
     can,
@@ -43,6 +51,6 @@ export function ProtectedRoute({ permission, children }: { permission?: Permissi
       />
     );
   }
-  if (permission && !can(permission)) return <Navigate to="/app" replace />;
+  if (permission && !can(permission)) return <Navigate to={deniedTo} replace />;
   return <>{children}</>;
 }

@@ -14,6 +14,13 @@ import type {
   Organization,
   Paginated,
   Payment,
+  PlatformAuditEvent,
+  PlatformAccess,
+  PlatformOrganization,
+  PlatformOrganizationDetail,
+  PlatformOrganizationSummary,
+  PlatformOrganizationStatus,
+  PlatformOverview,
   Profile,
   Role,
   RoleDefinition,
@@ -52,6 +59,16 @@ export class ApiError extends Error {
     this.errors = errors;
     this.requestId = requestId;
   }
+}
+
+export function createIdempotencyKey(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function idempotencyHeaders(key: string): HeadersInit {
+  return { "Idempotency-Key": key };
 }
 
 function readCookie(name: string): string | null {
@@ -179,6 +196,19 @@ export interface AuditListParams {
   action?: string;
   actor?: string;
   search?: string;
+}
+
+export interface SystemAuditParams extends AuditListParams {
+  organizationId?: string;
+}
+
+export interface SystemOrganizationListParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: PlatformOrganizationStatus | "all";
+  primaryPort?: string;
+  registered?: boolean;
 }
 
 export interface InspectionMutationResult {
@@ -333,8 +363,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
-  regenerateRecoveryCodes: () =>
-    request<{ recoveryCodes: string[] }>("/api/auth/mfa/recovery-codes", { method: "POST" }),
+  regenerateRecoveryCodes: (code: string) =>
+    request<{ recoveryCodes: string[] }>("/api/auth/mfa/recovery-codes", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
   disableMfa: (password: string) =>
     request<void>("/api/auth/mfa", { method: "DELETE", body: JSON.stringify({ password }) }),
 
@@ -389,6 +422,115 @@ export const api = {
   auditExportUrl: (params: AuditListParams = {}) => `${BASE}/api/audit/export${buildQuery({
     page: params.page,
     pageSize: params.pageSize,
+    action: params.action,
+    actor: params.actor,
+    search: params.search,
+  })}`,
+
+  systemOverview: () => request<PlatformOverview>("/api/system/overview"),
+  systemStepUp: (code: string) => request<{ detail: string; platformAccess: PlatformAccess }>(
+    "/api/system/step-up",
+    { method: "POST", body: JSON.stringify({ code }) },
+  ),
+  systemOrganizations: (params: SystemOrganizationListParams = {}) =>
+    request<Paginated<PlatformOrganizationSummary>>(`/api/system/organizations${buildQuery({
+      page: params.page,
+      pageSize: params.pageSize,
+      search: params.search,
+      status: params.status === "all" ? undefined : params.status,
+      primaryPort: params.primaryPort,
+      registered: params.registered == null ? undefined : String(params.registered),
+    })}`),
+  systemOrganization: (id: string) =>
+    request<PlatformOrganizationDetail>(`/api/system/organizations/${encodeURIComponent(id)}`),
+  createSystemOrganization: (data: {
+    name: string;
+    rcNumber?: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    primaryPort: string;
+    ports?: string[];
+    initialAdmin: { name: string; email: string };
+  }, idempotencyKey: string) => request<{ organization: PlatformOrganization; rev: number; invitation?: Invitation }>(
+    "/api/system/organizations",
+    { method: "POST", headers: idempotencyHeaders(idempotencyKey), body: JSON.stringify(data) },
+  ),
+  updateSystemOrganization: (
+    id: string,
+    data: Partial<Pick<PlatformOrganization, "name" | "rcNumber" | "email" | "phone" | "address" | "primaryPort" | "ports">> & { revision: number },
+    idempotencyKey: string,
+  ) => request<{ organization: PlatformOrganization; rev: number }>(
+    `/api/system/organizations/${encodeURIComponent(id)}`,
+    { method: "PATCH", headers: idempotencyHeaders(idempotencyKey), body: JSON.stringify(data) },
+  ),
+  suspendSystemOrganization: (id: string, reason: string, revision: number, idempotencyKey: string) =>
+    request<{ organization: PlatformOrganization; rev: number }>(
+      `/api/system/organizations/${encodeURIComponent(id)}/suspend`,
+      { method: "POST", headers: idempotencyHeaders(idempotencyKey), body: JSON.stringify({ reason, revision }) },
+    ),
+  reactivateSystemOrganization: (id: string, reason: string, revision: number, idempotencyKey: string) =>
+    request<{ organization: PlatformOrganization; rev: number }>(
+      `/api/system/organizations/${encodeURIComponent(id)}/reactivate`,
+      { method: "POST", headers: idempotencyHeaders(idempotencyKey), body: JSON.stringify({ reason, revision }) },
+    ),
+  systemOrganizationUsers: (id: string, params: UserListParams = {}) =>
+    request<Paginated<User>>(`/api/system/organizations/${encodeURIComponent(id)}/users${buildQuery({
+      page: params.page,
+      pageSize: params.pageSize,
+      search: params.search,
+      status: params.status === "all" ? undefined : params.status,
+      role: params.role === "all" ? undefined : params.role,
+    })}`),
+  systemOrganizationInvitations: (id: string, params: Pick<UserListParams, "page" | "pageSize"> = {}) =>
+    request<Paginated<Invitation>>(`/api/system/organizations/${encodeURIComponent(id)}/invitations${buildQuery({
+      page: params.page,
+      pageSize: params.pageSize,
+    })}`),
+  inviteSystemOrganizationAdmin: (id: string, data: { name: string; email: string }, idempotencyKey: string) =>
+    request<{ invitation: Invitation; rev: number }>(`/api/system/organizations/${encodeURIComponent(id)}/invitations`, {
+      method: "POST",
+      headers: idempotencyHeaders(idempotencyKey),
+      body: JSON.stringify(data),
+    }),
+  resendSystemOrganizationInvitation: (organizationId: string, invitationId: string, idempotencyKey: string) =>
+    request<{ invitation: Invitation; rev: number }>(
+      `/api/system/organizations/${encodeURIComponent(organizationId)}/invitations/${encodeURIComponent(invitationId)}/resend`,
+      { method: "POST", headers: idempotencyHeaders(idempotencyKey) },
+    ),
+  revokeSystemOrganizationInvitation: (organizationId: string, invitationId: string, idempotencyKey: string) =>
+    request<{ invitation: Invitation; rev: number }>(
+      `/api/system/organizations/${encodeURIComponent(organizationId)}/invitations/${encodeURIComponent(invitationId)}`,
+      { method: "DELETE", headers: idempotencyHeaders(idempotencyKey) },
+    ),
+  sendSystemAdminPasswordReset: (organizationId: string, userId: string, reason: string, idempotencyKey: string) =>
+    request<{ detail: string; rev: number }>(
+      `/api/system/organizations/${encodeURIComponent(organizationId)}/users/${encodeURIComponent(userId)}/send-password-reset`,
+      { method: "POST", headers: idempotencyHeaders(idempotencyKey), body: JSON.stringify({ reason }) },
+    ),
+  resetSystemAdminMfa: (organizationId: string, userId: string, reason: string, idempotencyKey: string) =>
+    request<{ user: User; rev: number }>(
+      `/api/system/organizations/${encodeURIComponent(organizationId)}/users/${encodeURIComponent(userId)}/reset-mfa`,
+      { method: "POST", headers: idempotencyHeaders(idempotencyKey), body: JSON.stringify({ reason }) },
+    ),
+  systemOrganizationAudit: (id: string, params: AuditListParams = {}) =>
+    request<Paginated<PlatformAuditEvent>>(`/api/system/organizations/${encodeURIComponent(id)}/audit${buildQuery({
+      page: params.page,
+      pageSize: params.pageSize,
+      action: params.action,
+      actor: params.actor,
+      search: params.search,
+    })}`),
+  systemAudit: (params: AuditListParams = {}) =>
+    request<Paginated<PlatformAuditEvent>>(`/api/system/audit${buildQuery({
+      page: params.page,
+      pageSize: params.pageSize,
+      action: params.action,
+      actor: params.actor,
+      search: params.search,
+    })}`),
+  systemAuditExportUrl: (params: SystemAuditParams = {}) => `${BASE}/api/system/audit/export${buildQuery({
+    organizationId: params.organizationId,
     action: params.action,
     actor: params.actor,
     search: params.search,

@@ -43,6 +43,51 @@ export interface Organization {
   members?: Member[];
 }
 
+export type PlatformOrganizationStatus = "active" | "suspended";
+
+/** Minimized cross-tenant directory record; contact fields remain detail-only. */
+export interface PlatformOrganizationSummary {
+  id: string;
+  name: string;
+  status: PlatformOrganizationStatus;
+  registered: boolean;
+  primaryPort: string;
+  userCount: number;
+  activeUserCount: number;
+  adminCount: number;
+  pendingInvitationCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Customer control-plane detail; tenant operational records are intentionally absent. */
+export interface PlatformOrganization extends PlatformOrganizationSummary {
+  rcNumber: string;
+  email: string;
+  phone: string;
+  address: string;
+  ports: string[];
+  revision: number;
+  lastActivityAt?: string | null;
+  suspendedAt?: string | null;
+  suspensionReason?: string | null;
+}
+
+export interface PlatformOverview {
+  organizationCount: number;
+  activeOrganizationCount: number;
+  suspendedOrganizationCount: number;
+  activeUserCount: number;
+  pendingInvitationCount: number;
+  recentOrganizations: PlatformOrganizationSummary[];
+  recentAuditEvents?: PlatformAuditEvent[];
+}
+
+export interface PlatformOrganizationDetail {
+  organization: PlatformOrganization;
+  counts?: Record<string, number>;
+}
+
 export interface Jetty {
   type: "International" | "Local" | string;
   category?: string | null;
@@ -193,10 +238,21 @@ export interface Analytics {
   totals: AnalyticsTotals;
 }
 
+export interface PlatformAccess {
+  role: "SystemAdmin";
+  permissions: string[];
+  mfaEnrollmentRequired?: boolean;
+  authorized?: boolean;
+  expiresAt?: string | null;
+  assuranceExpiresAt?: string | null;
+  stepUpRequired?: boolean;
+}
+
 export interface AuthSession {
   user: User;
-  org: Organization;
+  org: Organization | null;
   permissions: string[];
+  platformAccess?: PlatformAccess | null;
 }
 
 export interface Paginated<T> {
@@ -232,6 +288,12 @@ export interface AuditEvent {
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
   occurredAt: string;
+}
+
+export interface PlatformAuditEvent extends AuditEvent {
+  organizationId?: string | null;
+  organizationName?: string | null;
+  reason?: string | null;
 }
 
 export interface Profile {

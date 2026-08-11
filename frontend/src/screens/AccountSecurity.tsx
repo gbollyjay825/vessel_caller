@@ -51,7 +51,7 @@ export function AccountSecurity() {
 }
 
 function ProfilePanel() {
-  const { refreshSession } = useAuth();
+  const { refreshSession, platformAccess } = useAuth();
   const queryClient = useQueryClient();
   const profileQuery = useQuery({ queryKey: ["profile"], queryFn: api.profile });
   const [name, setName] = useState("");
@@ -132,8 +132,12 @@ function ProfilePanel() {
       )}
       <div className="user-account-summary">
         <span>Account role</span>
-        <strong>{profile.role}</strong>
-        <small>Role changes are managed by another organization Admin.</small>
+        <strong>{platformAccess ? "System Administrator" : profile.role}</strong>
+        <small>
+          {platformAccess
+            ? "Platform access is provisioned and revoked through the controlled operator process."
+            : "Role changes are managed by another organization Admin."}
+        </small>
       </div>
       <button
         className="btn btn-primary"
@@ -152,13 +156,14 @@ function ProfilePanel() {
 }
 
 function SecurityPanel() {
-  const { user, refreshSession } = useAuth();
+  const { user, platformAccess, refreshSession } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordNotice, setPasswordNotice] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ secret: string; provisioningUri: string } | null>(null);
   const [mfaCode, setMfaCode] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [disablePassword, setDisablePassword] = useState("");
   const [mfaSetupPassword, setMfaSetupPassword] = useState("");
@@ -191,8 +196,11 @@ function SecurityPanel() {
     },
   });
   const regenerateMutation = useMutation({
-    mutationFn: api.regenerateRecoveryCodes,
-    onSuccess: (result) => setRecoveryCodes(result.recoveryCodes),
+    mutationFn: () => api.regenerateRecoveryCodes(recoveryCode.trim()),
+    onSuccess: (result) => {
+      setRecoveryCode("");
+      setRecoveryCodes(result.recoveryCodes);
+    },
   });
   const disableMutation = useMutation({
     mutationFn: () => api.disableMfa(disablePassword),
@@ -326,13 +334,28 @@ function SecurityPanel() {
         )}
 
         {user?.mfaEnabled && (
-          <div className="flex gap-3 account-actions">
-            <button className="btn btn-secondary" type="button" onClick={() => regenerateMutation.mutate()} disabled={regenerateMutation.isPending}>
-              New recovery codes
-            </button>
-            <button className="btn btn-ghost" type="button" onClick={() => setShowDisable(true)} style={{ color: "var(--danger)" }}>
-              Disable MFA
-            </button>
+          <div className="account-actions">
+            <Field label="Current authenticator code" required hint="Required before replacing your recovery codes.">
+              <input
+                value={recoveryCode}
+                onChange={(event) => setRecoveryCode(event.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+              />
+            </Field>
+            <div className="flex gap-3">
+              <button className="btn btn-secondary" type="button" onClick={() => regenerateMutation.mutate()} disabled={regenerateMutation.isPending || !recoveryCode.trim()}>
+                New recovery codes
+              </button>
+              {!platformAccess && (
+                <button className="btn btn-ghost" type="button" onClick={() => setShowDisable(true)} style={{ color: "var(--danger)" }}>
+                  Disable MFA
+                </button>
+              )}
+            </div>
+            {platformAccess && (
+              <p className="muted account-copy">System Administrator MFA cannot be disabled in the product. Use the audited operator recovery process if access is lost.</p>
+            )}
           </div>
         )}
         {recoveryCodes.length > 0 && (
@@ -351,7 +374,7 @@ function SecurityPanel() {
         )}
       </section>
 
-      {showDisable && (
+      {showDisable && !platformAccess && (
         <ConfirmModal
           title="Disable two-factor authentication?"
           body={(

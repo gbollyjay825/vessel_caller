@@ -67,4 +67,15 @@ describe("ProtectedRoute", () => {
     render(<ProtectedRoute permission="users.manage">Private content</ProtectedRoute>);
     expect(screen.getByText("Private content")).toBeInTheDocument();
   });
+
+  it("uses the caller's safe denial destination", () => {
+    authMock.can.mockReturnValue(false);
+    render(
+      <ProtectedRoute permission="platform.audit.view" deniedTo="/system">
+        Private content
+      </ProtectedRoute>,
+    );
+
+    expect(screen.getByTestId("navigate")).toHaveAttribute("data-to", "/system");
+  });
 });

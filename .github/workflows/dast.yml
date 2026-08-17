@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 20
     environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release || github.sha }}
       - name: Verify deployed release identity
@@ -49,7 +49,7 @@ jobs:
             [[ "${release}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]
           fi
       - name: OWASP ZAP baseline
-        uses: zaproxy/action-baseline@v0.14.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           target: https://staging.vesselcalls.com
           rules_file_name: .zap/rules.tsv
@@ -58,7 +58,7 @@ jobs:
           allow_issue_writing: false
       - name: Upload DAST report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: staging-zap-baseline
           path: |

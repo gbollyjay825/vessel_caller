@@ -61,15 +61,15 @@ jobs:
       VITE_API_PROXY_TARGET: http://127.0.0.1:8002
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.sha }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: pip
           cache-dependency-path: backend/requirements/*.txt
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -107,7 +107,7 @@ jobs:
           npm run e2e:mocked
       - name: Upload browser evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-evidence
           path: |

@@ -13,7 +13,12 @@ async function signIn(page: Page, email: string) {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  const submit = page.getByRole("button", { name: "Sign in" });
+  await expect(submit).toBeEnabled();
+  // A successful session swaps PublicAuthRoute for the workspace immediately.
+  // Invoke the native activation atomically so Playwright does not retry a
+  // click against the intentionally unmounted login button on mobile.
+  await submit.evaluate((button) => (button as { click: () => void }).click());
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByText("Loading your workspace…")).toBeHidden();
 }

@@ -43,7 +43,7 @@ export interface Organization {
   members?: Member[];
 }
 
-export type PlatformOrganizationStatus = "active" | "suspended";
+export type PlatformOrganizationStatus = "pending_approval" | "active" | "suspended";
 
 /** Minimized cross-tenant directory record; contact fields remain detail-only. */
 export interface PlatformOrganizationSummary {
@@ -56,6 +56,7 @@ export interface PlatformOrganizationSummary {
   activeUserCount: number;
   adminCount: number;
   pendingInvitationCount: number;
+  approvedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,12 +70,15 @@ export interface PlatformOrganization extends PlatformOrganizationSummary {
   ports: string[];
   revision: number;
   lastActivityAt?: string | null;
+  approvedBy?: Pick<User, "id" | "name" | "email"> | null;
+  approvalReason?: string | null;
   suspendedAt?: string | null;
   suspensionReason?: string | null;
 }
 
 export interface PlatformOverview {
   organizationCount: number;
+  pendingApprovalOrganizationCount: number;
   activeOrganizationCount: number;
   suspendedOrganizationCount: number;
   activeUserCount: number;
@@ -246,6 +250,10 @@ export interface PlatformAccess {
   expiresAt?: string | null;
   assuranceExpiresAt?: string | null;
   stepUpRequired?: boolean;
+  /** Optional during rolling deploys; missing capability fields fail closed in the UI. */
+  environment?: string | null;
+  emailDeliveryReady?: boolean;
+  mutationsEnabled?: boolean;
 }
 
 export interface AuthSession {

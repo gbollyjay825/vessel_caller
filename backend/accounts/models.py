@@ -346,6 +346,7 @@ class EmailOutbox(models.Model):
         related_name="email_outbox",
     )
     allow_suspended_organization = models.BooleanField(default=False, db_default=False)
+    allow_pending_approval_organization = models.BooleanField(default=False, db_default=False)
     to_email = models.EmailField()
     template = models.CharField(max_length=80)
     subject = models.CharField(max_length=255)

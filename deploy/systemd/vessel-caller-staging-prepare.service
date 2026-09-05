@@ -2,10 +2,10 @@
 Description=Prepare Vessel Caller release (staging)
 After=network-online.target redis-vessel-caller-staging.service
 Wants=network-online.target
-ConditionPathExists=/opt/vessel-caller/slots/staging/current/backend/manage.py
-ConditionPathExists=/etc/vessel-caller/staging.env
-ConditionPathExists=/etc/vessel-caller/staging-e2e.env
-ConditionPathExists=/opt/vessel-caller/slots/staging/current/RELEASE.env
+AssertPathExists=/opt/vessel-caller/slots/staging/current/backend/manage.py
+AssertPathExists=/etc/vessel-caller/staging.env
+AssertPathExists=/etc/vessel-caller/staging-e2e.env
+AssertPathExists=/opt/vessel-caller/slots/staging/current/RELEASE.env
 
 [Service]
 Type=oneshot
@@ -17,6 +17,7 @@ EnvironmentFile=/etc/vessel-caller/staging-e2e.env
 EnvironmentFile=/opt/vessel-caller/slots/staging/current/RELEASE.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/usr/local/lib/vessel-caller/staging-compatibility-guard.sh
 ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/python manage.py check --deploy --fail-level WARNING
 ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/python manage.py migrate --noinput
 ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/python manage.py collectstatic --noinput --clear
@@ -25,6 +26,7 @@ TimeoutStartSec=300
 UMask=0027
 
 StateDirectory=vessel-caller/staging
+StateDirectoryMode=0750
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

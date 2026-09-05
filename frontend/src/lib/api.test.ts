@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, request, resetApiSecurityStateForTests } from "./api";
+import { advanceAuthSessionEpoch } from "./authSessionEpoch";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -10,6 +11,8 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("session API client", () => {
+  afterEach(() => vi.useRealTimers());
+
   beforeEach(() => {
     resetApiSecurityStateForTests();
     document.cookie = "csrftoken=; Max-Age=0; path=/";
@@ -69,6 +72,28 @@ describe("session API client", () => {
     });
   });
 
+  it("preserves registration approval lifecycle flags", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({
+        detail: "Verification instructions queued",
+        verificationRequired: true,
+        approvalRequired: true,
+      }, 202))
+      .mockResolvedValueOnce(jsonResponse({
+        detail: "Email verified; organization approval is pending",
+        approvalPending: true,
+      }));
+
+    await expect(api.register({
+      name: "Ada",
+      email: "ada@example.com",
+      password: "long-password",
+      orgName: "Harbour",
+    })).resolves.toMatchObject({ verificationRequired: true, approvalRequired: true });
+    await expect(api.verifyEmail("verify-token")).resolves.toMatchObject({ approvalPending: true });
+  });
+
   it("coalesces concurrent CSRF bootstraps", async () => {
     let csrfCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -100,6 +125,267 @@ describe("session API client", () => {
     await expect(request("/api/state")).rejects.toMatchObject({ status: 401 });
     expect(expired).toHaveBeenCalledOnce();
 
+    window.removeEventListener("auth:expired", expired);
+  });
+
+  it("suppresses a late 401 from a request started before an auth boundary", async () => {
+    let resolveResponse!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => {
+      resolveResponse = resolve;
+    });
+    const expired = vi.fn();
+    window.addEventListener("auth:expired", expired);
+    vi.spyOn(globalThis, "fetch").mockReturnValueOnce(response);
+
+    const oldSessionRequest = request("/api/state");
+    advanceAuthSessionEpoch(); // local logout
+    advanceAuthSessionEpoch(); // a different identity commits
+    resolveResponse(jsonResponse({ detail: "Session expired" }, 401));
+
+    await expect(oldSessionRequest).rejects.toMatchObject({ status: 401 });
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener("auth:expired", expired);
+  });
+
+  it("advances the auth boundary when password change rotates the session cookie", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    let resolveOldRequest!: (response: Response) => void;
+    const oldResponse = new Promise<Response>((resolve) => {
+      resolveOldRequest = resolve;
+    });
+    const expired = vi.fn();
+    window.addEventListener("auth:expired", expired);
+    vi.spyOn(globalThis, "fetch")
+      .mockReturnValueOnce(oldResponse)
+      .mockResolvedValueOnce(jsonResponse({ detail: "Password changed" }));
+
+    const oldSessionRequest = request("/api/state");
+    await expect(api.changePassword("old password", "new secure password")).resolves.toEqual({
+      detail: "Password changed",
+    });
+    resolveOldRequest(jsonResponse({
+      detail: "Authentication credentials were not provided.",
+    }, 403));
+
+    await expect(oldSessionRequest).rejects.toMatchObject({ status: 403 });
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener("auth:expired", expired);
+  });
+
+  it("serializes cookie-mutating password and logout responses", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    let resolvePassword!: (response: Response) => void;
+    const passwordResponse = new Promise<Response>((resolve) => {
+      resolvePassword = resolve;
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockReturnValueOnce(passwordResponse)
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const passwordChange = api.changePassword("old password", "new secure password");
+    const logout = api.logout();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    resolvePassword(jsonResponse({ detail: "Password changed" }));
+    await passwordChange;
+    await logout;
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      "/api/auth/change-password",
+      "/api/auth/logout",
+    ]);
+  });
+
+  it("coordinates cookie-writing responses with an origin-wide Web Lock", async () => {
+    const originalLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
+    const lockRequest = vi.fn(async (
+      _name: string,
+      _options: LockOptions,
+      callback: () => Promise<unknown>,
+    ) => callback());
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: lockRequest },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
+      user: { id: "user-1" },
+      org: null,
+      permissions: [],
+    }));
+
+    try {
+      await api.me();
+      expect(lockRequest).toHaveBeenCalledWith(
+        "vessel-caller:auth-cookie-response",
+        { mode: "exclusive", signal: expect.any(AbortSignal) },
+        expect.any(Function),
+      );
+    } finally {
+      if (originalLocks) Object.defineProperty(navigator, "locks", originalLocks);
+      else Reflect.deleteProperty(navigator, "locks");
+    }
+  });
+
+  it("times out a stalled cookie request and releases the queue", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce((_input, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const rejectAbort = () => reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+        if (signal?.aborted) rejectAbort();
+        else signal?.addEventListener("abort", rejectAbort, { once: true });
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        user: { id: "user-2" },
+        org: null,
+        permissions: [],
+      }));
+
+    const stalled = api.me();
+    const stalledRejection = expect(stalled).rejects.toMatchObject({ name: "TimeoutError" });
+    await vi.advanceTimersByTimeAsync(15_001);
+    await stalledRejection;
+    await expect(api.me()).resolves.toMatchObject({ user: { id: "user-2" } });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("captures the session epoch when a queued session check actually starts", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    let resolvePassword!: (response: Response) => void;
+    const passwordResponse = new Promise<Response>((resolve) => {
+      resolvePassword = resolve;
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockReturnValueOnce(passwordResponse)
+      .mockResolvedValueOnce(jsonResponse({ user: { id: "user-1" }, org: null, permissions: [] }));
+    let sessionCheckEpoch = -1;
+
+    const passwordChange = api.changePassword("old password", "new secure password");
+    const sessionCheck = api.me((epoch) => { sessionCheckEpoch = epoch; });
+    resolvePassword(jsonResponse({ detail: "Password changed" }));
+
+    await passwordChange;
+    await sessionCheck;
+    expect(sessionCheckEpoch).toBe(2);
+  });
+
+  it("bounds Web Lock acquisition when another tab never releases the auth lock", async () => {
+    vi.useFakeTimers();
+    const originalLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
+    const lockRequest = vi.fn((
+      _name: string,
+      options: LockOptions,
+      _callback: () => Promise<unknown>,
+    ) => new Promise<unknown>((_resolve, reject) => {
+      const rejectAbort = () => reject(options.signal?.reason);
+      if (options.signal?.aborted) rejectAbort();
+      else options.signal?.addEventListener("abort", rejectAbort, { once: true });
+    }));
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: { request: lockRequest },
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    try {
+      const blocked = api.me();
+      const blockedRejection = expect(blocked).rejects.toMatchObject({ name: "TimeoutError" });
+      await vi.advanceTimersByTimeAsync(15_001);
+      await blockedRejection;
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      if (originalLocks) Object.defineProperty(navigator, "locks", originalLocks);
+      else Reflect.deleteProperty(navigator, "locks");
+    }
+  });
+
+  it("announces an identity transition before fetch and settles it after the response", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    const originalBroadcastChannel = Object.getOwnPropertyDescriptor(globalThis, "BroadcastChannel");
+    const messages: Array<Record<string, unknown>> = [];
+    class FakeBroadcastChannel {
+      constructor(_name: string) {}
+      addEventListener() {}
+      close() {}
+      postMessage(message: Record<string, unknown>) {
+        messages.push(message);
+      }
+    }
+    Object.defineProperty(globalThis, "BroadcastChannel", {
+      configurable: true,
+      value: FakeBroadcastChannel,
+    });
+    resetApiSecurityStateForTests();
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => {
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({ phase: "start" });
+      return jsonResponse({ mfaRequired: true, challengeId: "challenge-1" }, 202);
+    });
+
+    try {
+      await api.login("ada@example.com", "correct horse battery staple");
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(messages.map((message) => message.phase)).toEqual(["start", "settled"]);
+      expect(messages[1].transitionId).toBe(messages[0].transitionId);
+    } finally {
+      resetApiSecurityStateForTests();
+      if (originalBroadcastChannel) {
+        Object.defineProperty(globalThis, "BroadcastChannel", originalBroadcastChannel);
+      } else {
+        Reflect.deleteProperty(globalThis, "BroadcastChannel");
+      }
+    }
+  });
+
+  it("abandons a stalled shared CSRF bootstrap so a later login can retry", async () => {
+    vi.useFakeTimers();
+    document.cookie = "csrftoken=; Max-Age=0; path=/";
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce((_input, init) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const rejectAbort = () => reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+        if (signal?.aborted) rejectAbort();
+        else signal?.addEventListener("abort", rejectAbort, { once: true });
+      }))
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: "fresh-csrf" }))
+      .mockResolvedValueOnce(jsonResponse({ mfaRequired: true, challengeId: "challenge-2" }, 202));
+
+    const stalled = api.forgotPassword("ada@example.com");
+    const stalledRejection = expect(stalled).rejects.toMatchObject({ name: "TimeoutError" });
+    await vi.advanceTimersByTimeAsync(15_001);
+    await stalledRejection;
+
+    await expect(api.login("ada@example.com", "correct horse battery staple")).resolves.toMatchObject({
+      mfaRequired: true,
+    });
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      "/api/auth/csrf",
+      "/api/auth/csrf",
+      "/api/auth/login",
+    ]);
+  });
+
+  it("suppresses a stale protected 403 while a password cookie rotation is settling", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    let resolvePassword!: (response: Response) => void;
+    const passwordResponse = new Promise<Response>((resolve) => {
+      resolvePassword = resolve;
+    });
+    const expired = vi.fn();
+    window.addEventListener("auth:expired", expired);
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockReturnValueOnce(passwordResponse)
+      .mockResolvedValueOnce(jsonResponse({
+        detail: "Authentication credentials were not provided.",
+      }, 403));
+
+    const passwordChange = api.changePassword("old password", "new secure password");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await expect(request("/api/state")).rejects.toMatchObject({ status: 403 });
+    expect(expired).not.toHaveBeenCalled();
+    resolvePassword(jsonResponse({ detail: "Password changed" }));
+    await passwordChange;
+    expect(expired).not.toHaveBeenCalled();
     window.removeEventListener("auth:expired", expired);
   });
 
@@ -460,6 +746,7 @@ describe("session API client", () => {
       initialAdmin: { name: "Ada", email: "ada@example.com" },
     }, "idem-create");
     await api.updateSystemOrganization("org/1", { name: "Harbour Updated", revision: 2 }, "idem-update");
+    await api.approveSystemOrganization("org/1", "Registration details reviewed", 2, "idem-approve");
     await api.suspendSystemOrganization("org/1", "Support investigation", 2, "idem-suspend");
     await api.reactivateSystemOrganization("org/1", "Investigation complete", 3, "idem-reactivate");
     await api.systemOrganizationUsers("org/1", { page: 1, role: "Admin" });
@@ -488,12 +775,18 @@ describe("session API client", () => {
       "/api/system/audit?action=organization.suspended&actor=operator-1",
     ]));
     expect(calls.filter((call) => call.method !== "GET" && call.url !== "/api/system/step-up").map((call) => call.key)).toEqual([
-      "idem-create", "idem-update", "idem-suspend", "idem-reactivate", "idem-invite",
+      "idem-create", "idem-update", "idem-approve", "idem-suspend", "idem-reactivate", "idem-invite",
       "idem-resend", "idem-revoke", "idem-password", "idem-mfa",
     ]);
     const invitation = calls.find((call) => call.key === "idem-invite");
     expect(invitation?.body).toEqual({ name: "Grace", email: "grace@example.com" });
     expect(invitation?.body).not.toHaveProperty("role");
+    const approval = calls.find((call) => call.key === "idem-approve");
+    expect(approval).toMatchObject({
+      url: "/api/system/organizations/org%2F1/approve",
+      method: "POST",
+      body: { reason: "Registration details reviewed", revision: 2 },
+    });
     const stepUp = calls.find((call) => call.url === "/api/system/step-up");
     expect(stepUp).toMatchObject({ method: "POST", key: null, body: { code: "123456" } });
     expect(api.systemAuditExportUrl({ organizationId: "org/1", search: "role change" })).toBe(

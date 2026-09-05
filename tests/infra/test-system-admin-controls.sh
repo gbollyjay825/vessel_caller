@@ -94,9 +94,12 @@ installed_scripts = by_name["Install release and operational scripts"][
 ]
 assert installed_scripts["owner"] == "root"
 assert installed_scripts["mode"] == "0755"
-assert "enable-system-admin-mutations.sh" in by_name[
-    "Install release and operational scripts"
-]["loop"]
+installed_script_names = by_name["Install release and operational scripts"]["loop"]
+assert "enable-system-admin-mutations.sh" in installed_script_names
+assert "staging-writer-guard.sh" in installed_script_names
+assert "staging-compatibility-guard.sh" in installed_script_names
+assert "staging-lifecycle-state.sh" in installed_script_names
+assert "release-target-policy.sh" in installed_script_names
 
 enable_script = (
     root / "deploy/scripts/enable-system-admin-mutations.sh"
@@ -147,9 +150,38 @@ install_script = (root / "deploy/scripts/install-release.sh").read_text(encoding
 assert 'install -d -o root -g "${app_group}" -m 0750 "${slot_root}"' in install_script
 assert 'if [[ "${instance}" == staging ]]' in install_script
 assert 'chmod o+x "${slot_root}"' in install_script
+assert "Staging web and worker must be stopped before release preparation." in install_script
+assert "Staging preparation failed after cutover began; writers remain stopped." in install_script
+assert "Missing or untrusted protected staging seed environment." in install_script
+assert "Staging preparation was skipped or did not complete; writers remain stopped." in install_script
+assert "--property=AssertResult" in install_script
+assert "--property=ExecMainStatus" in install_script
+assert "Staging candidate failed readiness; writers remain stopped." in install_script
+staging_prepare_failure = install_script.split(
+    'if ! flock /run/lock/vessel-caller-migrate.lock', 1
+)[1].split('systemctl restart "${web_unit}"', 1)[0]
+assert 'if [[ "${instance}" == staging ]]' in staging_prepare_failure
+assert 'ln -sfn "${previous_target}" "${slot_root}/current"' in staging_prepare_failure
 
 deploy_script = (root / "deploy/scripts/deploy-release.sh").read_text(encoding="utf-8")
+writer_guard = (
+    root / "deploy/scripts/staging-writer-guard.sh"
+).read_text(encoding="utf-8")
+compatibility_guard = (
+    root / "deploy/scripts/staging-compatibility-guard.sh"
+).read_text(encoding="utf-8")
+lifecycle_state = (
+    root / "deploy/scripts/staging-lifecycle-state.sh"
+).read_text(encoding="utf-8")
+target_policy = (
+    root / "deploy/scripts/release-target-policy.sh"
+).read_text(encoding="utf-8")
 assert "exec 9>/run/lock/vessel-caller-release.lock" in deploy_script
+assert 'script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"' in deploy_script
+assert 'script_dir="$(dirname -- "${script_path}")"' in deploy_script
+assert "Installed deployment helper is not trusted" in deploy_script
+assert 'source "${script_dir}/staging-writer-guard.sh"' in deploy_script
+assert 'source "${script_dir}/release-target-policy.sh"' in deploy_script
 assert "fail_close_system_admin_mutations()" in deploy_script
 assert deploy_script.count("fail_close_system_admin_mutations") == 3
 assert 'config_root=/etc/vessel-caller' in deploy_script
@@ -163,14 +195,117 @@ assert 'mv -f "${temporary_flag}" "${flag_file}"' in deploy_script
 assert deploy_script.index("exec 9>/run/lock/vessel-caller-release.lock") < deploy_script.index(
     "fail_close_system_admin_mutations staging vessel-caller-staging"
 )
+assert deploy_script.index('snapshot-release.py" "${archive}"') < deploy_script.index(
+    '"${script_dir}/verify-release.sh" "${archive}"'
+)
+assert "release_snapshot_base=/var/lib/vessel-caller" in deploy_script
+assert "root:root:755" in deploy_script
+assert '.release-input.XXXXXX' in deploy_script
+assert "trap handle_deploy_release_exit EXIT" in deploy_script
+assert 'rm -rf -- "${release_snapshot_root}"' in deploy_script
 staging_case = deploy_script.split('  staging)\n', 1)[1].split('  production)\n', 1)[0]
 assert staging_case.index(
     "fail_close_system_admin_mutations staging vessel-caller-staging"
-) < staging_case.index('"${script_dir}/install-release.sh" staging')
+)
+assert staging_case.index(
+    "fail_close_system_admin_mutations staging vessel-caller-staging"
+) < staging_case.index("pause_staging_writers")
+assert staging_case.index("pause_staging_writers") < staging_case.index(
+    "staging_cutover_started=true"
+) < staging_case.index(
+    'enforce_staging_compatibility_floor "${archive}"'
+) < staging_case.index(
+    '"${script_dir}/install-release.sh" staging'
+)
+assert staging_case.index('"${script_dir}/install-release.sh" staging') < staging_case.index(
+    "resume_staging_writers"
+)
+assert 'systemctl stop "${staging_web_unit}"' in writer_guard
+assert 'systemctl stop "${staging_worker_unit}"' in writer_guard
+assert writer_guard.index(
+    'systemctl stop "${staging_web_unit}"'
+) < writer_guard.index('systemctl stop "${staging_worker_unit}"')
+assert 'systemctl start "${staging_worker_unit}"' in writer_guard
+assert 'systemctl start "${staging_web_unit}"' in writer_guard
+assert "staging_current_is_compatible" in writer_guard
+assert "staging_unit_activity()" in writer_guard
+assert "--property=LoadState --value" in writer_guard
+assert "--property=ActiveState --value" in writer_guard
+assert '[[ "${load_state}" != loaded ]]' in writer_guard
+assert "inactive|failed" in writer_guard
+assert "unsafe transitional state" in writer_guard
+assert "staging_unit_activity" in install_script
+assert "staging_cutover_started=true" in staging_case
+assert "staging_cutover_verified=true" in staging_case
+assert "seed_e2e --force" not in deploy_script
+assert "cleanup_paused_staging_writers()" in writer_guard
+assert "handle_staging_writer_exit()" in writer_guard
+for unit_name in (
+    "vessel-caller-staging-web.service",
+    "vessel-caller-staging-worker.service",
+    "vessel-caller-staging-prepare.service",
+):
+    unit = (root / "deploy/systemd" / unit_name).read_text(encoding="utf-8")
+    assert "ExecStartPre=/usr/local/lib/vessel-caller/staging-compatibility-guard.sh" in unit
+prepare_unit = (
+    root / "deploy/systemd/vessel-caller-staging-prepare.service"
+).read_text(encoding="utf-8")
+assert "AssertPathExists=/etc/vessel-caller/staging-e2e.env" in prepare_unit
+assert "ConditionPathExists=/etc/vessel-caller/staging-e2e.env" not in prepare_unit
+assert 'organizationApprovalLifecycle == true' in compatibility_guard
+assert 'staging-organization-approval-lifecycle.cutover' in compatibility_guard
+assert "staging-lifecycle-state.sh" in compatibility_guard
+assert "django_migrations" in lifecycle_state
+assert "to_regclass('django_migrations')" in lifecycle_state
+assert "0004_organization_approval_lifecycle" in lifecycle_state
+assert "PGCONNECT_TIMEOUT=5" in lifecycle_state
+assert "state_root_base=/var/lib/vessel-caller/staging" in lifecycle_state
+assert "vessel-caller-staging:vessel-caller-staging:750" in lifecycle_state
+assert "read_staging_lifecycle_state" in target_policy
+assert install_script.index('if [[ "${instance}" == staging ]]') < install_script.index(
+    'systemctl restart "${web_unit}"'
+)
 production_case = deploy_script.split('  production)\n', 1)[1].split('  *)\n', 1)[0]
+assert production_case.index('"${script_dir}/verify-release.sh" "${archive}"') < production_case.index(
+    'enforce_release_target_policy production "${archive}"'
+)
+assert production_case.index(
+    'enforce_release_target_policy production "${archive}"'
+) < production_case.index(
+    "fail_close_system_admin_mutations production vessel-caller-production"
+)
 assert production_case.index(
     "fail_close_system_admin_mutations production vessel-caller-production"
 ) < production_case.index('"${script_dir}/install-release.sh" "${candidate}"')
+assert '.stagingOnlySchemaCutover == true' in target_policy
+assert ".organizationApprovalLifecycle == true" in target_policy
+assert "staging-organization-approval-lifecycle.cutover" in target_policy
+assert "organizationApprovalLifecycle=true" in target_policy
+assert target_policy.index('sync -f "${temporary_marker}"') < target_policy.index(
+    'mv -f -- "${temporary_marker}" "${marker}"'
+) < target_policy.index('sync -f "${marker_dir}"')
+assert "production deployment is blocked" in target_policy
+
+build_script = (root / "deploy/scripts/build-release.sh").read_text(encoding="utf-8")
+assert "stagingOnlySchemaCutover: true" in build_script
+assert "organizationApprovalLifecycle: true" in build_script
+deploy_workflow = (root / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+assert "Enforce signed release target policy" in deploy_workflow
+assert '.stagingOnlySchemaCutover == true' in deploy_workflow
+assert '.organizationApprovalLifecycle == true' in deploy_workflow
+assert "legacy tag checkouts need not contain the policy helper" in deploy_workflow
+assert deploy_workflow.index("Download immutable release") < deploy_workflow.index(
+    "Enforce signed release target policy"
+) < deploy_workflow.index("Upload and install inactive release")
+
+qualification_workflow = (
+    root / ".github/workflows/qualification.yml"
+).read_text(encoding="utf-8")
+assert qualification_workflow.count(".stagingOnlySchemaCutover != true") >= 2
+assert qualification_workflow.count(".organizationApprovalLifecycle == true") >= 2
+assert qualification_workflow.index(".stagingOnlySchemaCutover != true") < qualification_workflow.index(
+    "Publish production qualification evidence"
+)
 
 email_backend = production_environment["vars"]["runtime_email_delivery_backend"]
 assert "vessel_production_resend_api_key" in email_backend

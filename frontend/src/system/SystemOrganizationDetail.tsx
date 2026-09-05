@@ -8,6 +8,7 @@ import { ApiError, api } from "../lib/api";
 import { fmtDate, fmtDateTime } from "../lib/format";
 import { Link, useParams } from "../lib/navigation";
 import type { Invitation, PlatformOrganization, User } from "../types";
+import { getPlatformEnvironment } from "./environment";
 import {
   DefinitionList,
   OrganizationLifecycleBadge,
@@ -19,15 +20,24 @@ import {
 import { useIdempotencyKey } from "./useIdempotencyKey";
 
 type DetailTab = "overview" | "access" | "audit";
-type LifecycleAction = "suspend" | "reactivate";
+type LifecycleAction = "approve" | "suspend" | "reactivate";
 const PAGE_SIZE = 20;
+
+const LIFECYCLE_ACTION_LABEL: Record<LifecycleAction, string> = {
+  approve: "Approve organization",
+  suspend: "Suspend organization",
+  reactivate: "Reactivate organization",
+};
 
 export function SystemOrganizationDetail() {
   const { id = "" } = useParams<{ id: string }>();
-  const { can } = useAuth();
+  const { can, platformAccess } = useAuth();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<DetailTab>("overview");
   const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction | null>(null);
+  const environment = getPlatformEnvironment(platformAccess?.environment);
+  const mutationsEnabled = platformAccess?.mutationsEnabled === true && environment.kind !== "unknown";
+  const emailDeliveryReady = platformAccess?.emailDeliveryReady === true;
   const lifecycleIdempotency = useIdempotencyKey();
   const detail = useQuery({
     queryKey: ["system-organization", id],
@@ -40,9 +50,13 @@ export function SystemOrganizationDetail() {
       if (!organization) throw new Error("Organization details are not available.");
       const payload = { action, reason, revision: organization.revision };
       const key = lifecycleIdempotency.keyFor(payload);
-      return action === "suspend"
-        ? api.suspendSystemOrganization(id, reason, organization.revision, key)
-        : api.reactivateSystemOrganization(id, reason, organization.revision, key);
+      if (action === "approve") {
+        return api.approveSystemOrganization(id, reason, organization.revision, key);
+      }
+      if (action === "suspend") {
+        return api.suspendSystemOrganization(id, reason, organization.revision, key);
+      }
+      return api.reactivateSystemOrganization(id, reason, organization.revision, key);
     },
     onSuccess: (result) => {
       queryClient.setQueryData(["system-organization", id], { organization: result.organization });
@@ -62,6 +76,21 @@ export function SystemOrganizationDetail() {
   }
 
   const organization = detail.data.organization;
+  const availableLifecycleAction: LifecycleAction = organization.status === "pending_approval"
+    ? "approve"
+    : organization.status === "active"
+      ? "suspend"
+      : "reactivate";
+  const approvalPrerequisitesMet = organization.registered && organization.adminCount > 0;
+  const lifecycleDisabled = !mutationsEnabled
+    || (availableLifecycleAction === "approve" && !approvalPrerequisitesMet);
+  const lifecycleDisabledReason = !mutationsEnabled
+    ? "Platform changes are locked in this environment"
+    : availableLifecycleAction === "approve" && !organization.registered
+      ? "Registration and email verification must be complete before approval"
+      : availableLifecycleAction === "approve" && organization.adminCount === 0
+        ? "At least one verified active tenant Admin is required before approval"
+        : undefined;
   const tabs: Array<[DetailTab, string]> = [
     ["overview", "Overview"],
     ...(can("platform.organization_users.view") ? [["access", "Access"] as [DetailTab, string]] : []),
@@ -80,13 +109,34 @@ export function SystemOrganizationDetail() {
           <p className="desc mono-ref">{organization.id}</p>
         </div>
         {can("platform.organizations.manage") && (
-          organization.status === "active" ? (
-            <button className="btn btn-danger" type="button" onClick={() => setLifecycleAction("suspend")}>Suspend organization</button>
-          ) : (
-            <button className="btn btn-primary" type="button" onClick={() => setLifecycleAction("reactivate")}>Reactivate organization</button>
-          )
+          <button
+            className={availableLifecycleAction === "suspend" ? "btn btn-danger" : "btn btn-primary"}
+            type="button"
+            disabled={lifecycleDisabled}
+            title={lifecycleDisabledReason}
+            onClick={() => setLifecycleAction(availableLifecycleAction)}
+          >
+            {LIFECYCLE_ACTION_LABEL[availableLifecycleAction]}
+          </button>
         )}
       </div>
+
+      {organization.status === "pending_approval" && (
+        <div className="system-lifecycle-banner warning" role="status">
+          <Icon name="alert" size={18} />
+          <div>
+            <strong>Workspace approval is pending.</strong>
+            <span>
+              {!organization.registered
+                ? "Registration and email verification must be completed before approval."
+                : organization.adminCount === 0
+                  ? "At least one verified active tenant Admin is required before approval."
+                  : "Review the organization profile and tenant Admin access before approving."}
+              {" "}Workspace access remains blocked until approval.
+            </span>
+          </div>
+        </div>
+      )}
 
       {organization.status === "suspended" && (
         <div className="system-lifecycle-banner" role="status">
@@ -103,13 +153,27 @@ export function SystemOrganizationDetail() {
           <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "on" : ""} onClick={() => setTab(key)}>{label}</button>
         ))}
       </div>
-      {tab === "overview" && <OrganizationOverview organization={organization} canEdit={can("platform.organizations.manage")} />}
-      {tab === "access" && <OrganizationAccess organization={organization} canManage={can("platform.organization_users.manage")} />}
+      {tab === "overview" && (
+        <OrganizationOverview
+          organization={organization}
+          canEdit={can("platform.organizations.manage")}
+          mutationsEnabled={mutationsEnabled}
+        />
+      )}
+      {tab === "access" && (
+        <OrganizationAccess
+          organization={organization}
+          canManage={can("platform.organization_users.manage")}
+          mutationsEnabled={mutationsEnabled}
+          emailDeliveryReady={emailDeliveryReady}
+        />
+      )}
       {tab === "audit" && <OrganizationAudit organizationId={id} />}
       {lifecycleAction && (
         <LifecycleDialog
           organization={organization}
           action={lifecycleAction}
+          enabled={mutationsEnabled}
           pending={lifecycleMutation.isPending}
           error={lifecycleMutation.error}
           onClose={() => { if (!lifecycleMutation.isPending) { lifecycleMutation.reset(); lifecycleIdempotency.reset(); setLifecycleAction(null); } }}
@@ -120,7 +184,15 @@ export function SystemOrganizationDetail() {
   );
 }
 
-function OrganizationOverview({ organization, canEdit }: { organization: PlatformOrganization; canEdit: boolean }) {
+function OrganizationOverview({
+  organization,
+  canEdit,
+  mutationsEnabled,
+}: {
+  organization: PlatformOrganization;
+  canEdit: boolean;
+  mutationsEnabled: boolean;
+}) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const idempotency = useIdempotencyKey();
@@ -191,7 +263,7 @@ function OrganizationOverview({ organization, canEdit }: { organization: Platfor
         <div className="flex gap-3 system-form-actions">
           <button className="btn btn-secondary" type="button" disabled={mutation.isPending} onClick={() => { mutation.reset(); idempotency.reset(); setEditing(false); }}>Cancel</button>
           {conflict && <button className="btn btn-secondary" type="button" onClick={() => void queryClient.invalidateQueries({ queryKey: ["system-organization", organization.id] })}>Reload server version</button>}
-          <button className="btn btn-primary" type="button" disabled={mutation.isPending || !form.name.trim() || !form.primaryPort.trim()} onClick={() => mutation.mutate()}>
+          <button className="btn btn-primary" type="button" disabled={!mutationsEnabled || mutation.isPending || !form.name.trim() || !form.primaryPort.trim()} onClick={() => mutation.mutate()}>
             {mutation.isPending ? "Saving…" : "Save profile"}
           </button>
         </div>
@@ -204,7 +276,17 @@ function OrganizationOverview({ organization, canEdit }: { organization: Platfor
       <section className="card card-pad" aria-labelledby="organization-profile-title">
         <div className="card-head system-card-head-inline">
           <div className="card-title" id="organization-profile-title">Organization profile</div>
-          {canEdit && <button className="btn btn-secondary btn-sm" type="button" onClick={() => setEditing(true)}><Icon name="edit" size={15} /> Edit</button>}
+          {canEdit && (
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              disabled={!mutationsEnabled}
+              title={!mutationsEnabled ? "Platform changes are locked in this environment" : undefined}
+              onClick={() => setEditing(true)}
+            >
+              <Icon name="edit" size={15} /> Edit
+            </button>
+          )}
         </div>
         <DefinitionList items={[
           { label: "RC number", value: organization.rcNumber },
@@ -214,13 +296,25 @@ function OrganizationOverview({ organization, canEdit }: { organization: Platfor
           { label: "Primary port", value: organization.primaryPort },
           { label: "Operating ports", value: organization.ports.join(", ") },
           { label: "Registered", value: organization.registered ? "Yes" : "Setup pending" },
+          {
+            label: "Approval",
+            value: organization.status === "pending_approval"
+              ? "Pending platform approval"
+              : organization.approvedAt
+                ? `Approved ${fmtDateTime(organization.approvedAt)}`
+                : organization.status === "active"
+                  ? "Active · approval predates tracking"
+                  : "Approval predates tracking",
+          },
+          { label: "Approved by", value: organization.approvedBy?.name || "Not recorded" },
+          { label: "Approval reason", value: organization.approvalReason || "Not recorded" },
         ]} />
       </section>
       <section className="card card-pad" aria-labelledby="organization-access-summary-title">
         <div className="card-title" id="organization-access-summary-title">Access summary</div>
         <DefinitionList items={[
           { label: "Active users", value: organization.activeUserCount },
-          { label: "Active Admins", value: organization.adminCount },
+          { label: "Verified active Admins", value: organization.adminCount },
           { label: "Pending invitations", value: organization.pendingInvitationCount },
           { label: "Created", value: fmtDate(organization.createdAt) },
           { label: "Last updated", value: fmtDateTime(organization.updatedAt) },
@@ -230,7 +324,17 @@ function OrganizationOverview({ organization, canEdit }: { organization: Platfor
   );
 }
 
-function OrganizationAccess({ organization, canManage }: { organization: PlatformOrganization; canManage: boolean }) {
+function OrganizationAccess({
+  organization,
+  canManage,
+  mutationsEnabled,
+  emailDeliveryReady,
+}: {
+  organization: PlatformOrganization;
+  canManage: boolean;
+  mutationsEnabled: boolean;
+  emailDeliveryReady: boolean;
+}) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -239,6 +343,13 @@ function OrganizationAccess({ organization, canManage }: { organization: Platfor
   const [recovery, setRecovery] = useState<{ action: "password" | "mfa"; user: User } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const recoveryIdempotency = useIdempotencyKey();
+  const organizationActive = organization.status === "active";
+  const accessMutationsEnabled = mutationsEnabled && organizationActive;
+  const accessDisabledReason = !mutationsEnabled
+    ? "Platform changes are locked in this environment"
+    : organization.status === "pending_approval"
+      ? "Approve the organization before managing tenant access"
+      : "Reactivate the organization before managing tenant access";
   const users = useQuery({
     queryKey: ["system-organization-users", organization.id, { page, search: deferredSearch }],
     queryFn: () => api.systemOrganizationUsers(organization.id, { page, pageSize: PAGE_SIZE, search: deferredSearch }),
@@ -288,10 +399,26 @@ function OrganizationAccess({ organization, canManage }: { organization: Platfor
       num: true,
       render: (user) => user.role === "Admin" && user.status === "active" && canManage ? (
         <div className="cell-actions" onClick={(event) => event.stopPropagation()}>
-          <button className="btn btn-secondary btn-sm" type="button" onClick={() => { recoveryMutation.reset(); setRecovery({ action: "password", user }); }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            disabled={!accessMutationsEnabled || !emailDeliveryReady}
+            title={!emailDeliveryReady
+              ? "Email delivery is unavailable"
+              : !accessMutationsEnabled
+                ? accessDisabledReason
+                : undefined}
+            onClick={() => { recoveryMutation.reset(); setRecovery({ action: "password", user }); }}
+          >
             Send password reset
           </button>
-          <button className="btn btn-secondary btn-sm" type="button" onClick={() => { recoveryMutation.reset(); setRecovery({ action: "mfa", user }); }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            disabled={!accessMutationsEnabled}
+            title={!accessMutationsEnabled ? accessDisabledReason : undefined}
+            onClick={() => { recoveryMutation.reset(); setRecovery({ action: "mfa", user }); }}
+          >
             Reset MFA
           </button>
         </div>
@@ -302,7 +429,17 @@ function OrganizationAccess({ organization, canManage }: { organization: Platfor
   return (
     <div>
       {organization.adminCount === 0 && (
-        <div className="system-lifecycle-banner warning" role="alert"><Icon name="alert" size={18} /><div><strong>No active tenant Admin</strong><span>Invite an Admin so this organization can manage its own users and settings.</span></div></div>
+        <div className="system-lifecycle-banner warning" role="alert">
+          <Icon name="alert" size={18} />
+          <div>
+            <strong>No verified active tenant Admin</strong>
+            <span>
+              {organization.status === "pending_approval"
+                ? "The tenant Admin must complete email verification and account activation before this organization can be approved."
+                : "Invite an Admin or have an existing Admin complete email verification so the organization can manage its own users and settings."}
+            </span>
+          </div>
+        </div>
       )}
       {notice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{notice}</div>}
       <div className="filter-bar">
@@ -311,7 +448,21 @@ function OrganizationAccess({ organization, canManage }: { organization: Platfor
           <Icon name="search" size={17} />
           <input type="search" value={search} placeholder="Search users…" onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
         </label>
-        {canManage && <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}><Icon name="mail" size={16} /> Invite tenant Admin</button>}
+        {canManage && (
+          <button
+            className="btn btn-primary filter-action"
+            type="button"
+            disabled={!accessMutationsEnabled || !emailDeliveryReady}
+            title={!emailDeliveryReady
+              ? "Email delivery is unavailable"
+              : !accessMutationsEnabled
+                ? accessDisabledReason
+                : undefined}
+            onClick={() => setInviteOpen(true)}
+          >
+            <Icon name="mail" size={16} /> Invite tenant Admin
+          </button>
+        )}
       </div>
       {users.isError && <SystemError error={users.error} fallback="Could not load organization users." onRetry={() => void users.refetch()} />}
       <div className="card management-table">
@@ -324,19 +475,24 @@ function OrganizationAccess({ organization, canManage }: { organization: Platfor
         loading={invitations.isPending}
         error={invitations.error}
         canManage={canManage}
+        mutationsEnabled={mutationsEnabled}
+        organizationActive={organizationActive}
+        accessDisabledReason={accessDisabledReason}
+        emailDeliveryReady={emailDeliveryReady}
         onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: ["system-organization-invitations", organization.id] });
           void queryClient.invalidateQueries({ queryKey: ["system-organization", organization.id] });
           void queryClient.invalidateQueries({ queryKey: ["system-organization-audit", organization.id] });
         }}
       />
-      {inviteOpen && <AdminInvitationDrawer organization={organization} onClose={() => setInviteOpen(false)} onInvited={() => {
+      {inviteOpen && <AdminInvitationDrawer enabled={accessMutationsEnabled && emailDeliveryReady} organization={organization} onClose={() => setInviteOpen(false)} onInvited={() => {
         void queryClient.invalidateQueries({ queryKey: ["system-organization-invitations", organization.id] });
         void queryClient.invalidateQueries({ queryKey: ["system-organization", organization.id] });
       }} />}
       {recovery && (
         <AdminRecoveryDialog
           recovery={recovery}
+          enabled={accessMutationsEnabled && (recovery.action === "mfa" || emailDeliveryReady)}
           pending={recoveryMutation.isPending}
           error={recoveryMutation.error}
           onClose={() => { if (!recoveryMutation.isPending) { recoveryMutation.reset(); recoveryIdempotency.reset(); setRecovery(null); } }}
@@ -353,6 +509,10 @@ function InvitationSummary({
   loading,
   error,
   canManage,
+  mutationsEnabled,
+  organizationActive,
+  accessDisabledReason,
+  emailDeliveryReady,
   onChanged,
 }: {
   organizationId: string;
@@ -360,6 +520,10 @@ function InvitationSummary({
   loading: boolean;
   error: unknown;
   canManage: boolean;
+  mutationsEnabled: boolean;
+  organizationActive: boolean;
+  accessDisabledReason: string;
+  emailDeliveryReady: boolean;
   onChanged: () => void;
 }) {
   const [revoke, setRevoke] = useState<Invitation | null>(null);
@@ -406,10 +570,28 @@ function InvitationSummary({
                   <StatusBadge status={invitation.status} /><small>Expires {fmtDate(invitation.expiresAt)}</small>
                   {canManage && invitation.status === "pending" && (
                     <>
-                      <button className="btn btn-secondary btn-sm" type="button" disabled={resendMutation.isPending || revokeMutation.isPending} onClick={() => resendMutation.mutate(invitation)}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        type="button"
+                        disabled={!mutationsEnabled || !organizationActive || !emailDeliveryReady || resendMutation.isPending || revokeMutation.isPending}
+                        title={!emailDeliveryReady
+                          ? "Email delivery is unavailable"
+                          : !mutationsEnabled || !organizationActive
+                            ? accessDisabledReason
+                            : undefined}
+                        onClick={() => resendMutation.mutate(invitation)}
+                      >
                         {resendMutation.isPending && resendMutation.variables?.id === invitation.id ? "Sending…" : "Resend"}
                       </button>
-                      <button className="btn btn-ghost btn-sm" type="button" disabled={resendMutation.isPending || revokeMutation.isPending} onClick={() => { revokeMutation.reset(); setRevoke(invitation); }}>Revoke</button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        disabled={!mutationsEnabled || resendMutation.isPending || revokeMutation.isPending}
+                        title={!mutationsEnabled ? "Platform changes are locked in this environment" : undefined}
+                        onClick={() => { revokeMutation.reset(); setRevoke(invitation); }}
+                      >
+                        Revoke
+                      </button>
                     </>
                   )}
                 </div>
@@ -421,6 +603,7 @@ function InvitationSummary({
       {revoke && (
         <InvitationRevokeDialog
           invitation={revoke}
+          enabled={mutationsEnabled}
           pending={revokeMutation.isPending}
           error={revokeMutation.error}
           onClose={() => { if (!revokeMutation.isPending) { revokeMutation.reset(); revokeIdempotency.reset(); setRevoke(null); } }}
@@ -431,7 +614,7 @@ function InvitationSummary({
   );
 }
 
-function AdminInvitationDrawer({ organization, onClose, onInvited }: { organization: PlatformOrganization; onClose: () => void; onInvited: () => void }) {
+function AdminInvitationDrawer({ enabled, organization, onClose, onInvited }: { enabled: boolean; organization: PlatformOrganization; onClose: () => void; onInvited: () => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const idempotency = useIdempotencyKey();
@@ -448,7 +631,7 @@ function AdminInvitationDrawer({ organization, onClose, onInvited }: { organizat
       sub={`Send a time-limited, single-use setup link for ${organization.name}.`}
       onClose={onClose}
       guard={() => mutation.isPending}
-      footer={<><button className="btn btn-secondary" type="button" disabled={mutation.isPending} onClick={onClose}>Cancel</button><button className="btn btn-primary" type="button" disabled={mutation.isPending || !name.trim() || !email.trim()} onClick={() => mutation.mutate()}>{mutation.isPending ? "Sending…" : "Send Admin invitation"}</button></>}
+      footer={<><button className="btn btn-secondary" type="button" disabled={mutation.isPending} onClick={onClose}>Cancel</button><button className="btn btn-primary" type="button" disabled={!enabled || mutation.isPending || !name.trim() || !email.trim()} title={!enabled ? "Platform changes are locked in this environment" : undefined} onClick={() => mutation.mutate()}>{mutation.isPending ? "Sending…" : "Send Admin invitation"}</button></>}
     >
       {mutation.isError && <SystemMutationError error={mutation.error} fallback="Could not send the Admin invitation." />}
       <p className="muted system-form-copy">The invitation role is fixed to Admin. The recipient chooses their own password; you cannot view or replace it.</p>
@@ -481,12 +664,14 @@ function OrganizationAudit({ organizationId }: { organizationId: string }) {
 
 function AdminRecoveryDialog({
   recovery,
+  enabled,
   pending,
   error,
   onClose,
   onConfirm,
 }: {
   recovery: { action: "password" | "mfa"; user: User };
+  enabled: boolean;
   pending: boolean;
   error: unknown;
   onClose: () => void;
@@ -507,7 +692,7 @@ function AdminRecoveryDialog({
           </Field>
           <div className="modal-foot">
             <button className="btn btn-secondary" type="button" disabled={pending} onClick={onClose}>Cancel</button>
-            <button className={password ? "btn btn-primary" : "btn btn-danger"} type="button" disabled={pending || reason.trim().length < 3} onClick={() => onConfirm(reason.trim())}>
+            <button className={password ? "btn btn-primary" : "btn btn-danger"} type="button" disabled={!enabled || pending || reason.trim().length < 3} title={!enabled ? "Platform changes are locked in this environment" : undefined} onClick={() => onConfirm(reason.trim())}>
               {pending ? "Working…" : password ? "Send password reset" : "Reset MFA and sessions"}
             </button>
           </div>
@@ -519,12 +704,14 @@ function AdminRecoveryDialog({
 
 function InvitationRevokeDialog({
   invitation,
+  enabled,
   pending,
   error,
   onClose,
   onConfirm,
 }: {
   invitation: Invitation;
+  enabled: boolean;
   pending: boolean;
   error: unknown;
   onClose: () => void;
@@ -540,7 +727,7 @@ function InvitationRevokeDialog({
           {Boolean(error) && <SystemMutationError error={error} fallback="Could not revoke the invitation." />}
           <div className="modal-foot">
             <button className="btn btn-secondary" type="button" disabled={pending} onClick={onClose}>Cancel</button>
-            <button className="btn btn-danger" type="button" disabled={pending} onClick={onConfirm}>{pending ? "Revoking…" : "Revoke invitation"}</button>
+            <button className="btn btn-danger" type="button" disabled={!enabled || pending} title={!enabled ? "Platform changes are locked in this environment" : undefined} onClick={onConfirm}>{pending ? "Revoking…" : "Revoke invitation"}</button>
           </div>
         </div>
       </div>
@@ -551,6 +738,7 @@ function InvitationRevokeDialog({
 function LifecycleDialog({
   organization,
   action,
+  enabled,
   pending,
   error,
   onClose,
@@ -558,28 +746,58 @@ function LifecycleDialog({
 }: {
   organization: PlatformOrganization;
   action: LifecycleAction;
+  enabled: boolean;
   pending: boolean;
   error: unknown;
   onClose: () => void;
   onConfirm: (reason: string) => void;
 }) {
   const [reason, setReason] = useState("");
-  const suspend = action === "suspend";
+  const copy: Record<LifecycleAction, {
+    verb: string;
+    pending: string;
+    description: string;
+    reasonLabel: string;
+    danger: boolean;
+  }> = {
+    approve: {
+      verb: "Approve",
+      pending: "Approving",
+      description: "Workspace access will be enabled. Confirm the organization profile and tenant Admin access before approval.",
+      reasonLabel: "Approval reason",
+      danger: false,
+    },
+    suspend: {
+      verb: "Suspend",
+      pending: "Suspending",
+      description: "All tenant sessions will be revoked and workspace access will stop. Records and audit history remain intact.",
+      reasonLabel: "Suspension reason",
+      danger: true,
+    },
+    reactivate: {
+      verb: "Reactivate",
+      pending: "Reactivating",
+      description: "Workspace access will resume. Individual user statuses are not changed.",
+      reasonLabel: "Reactivation reason",
+      danger: false,
+    },
+  };
+  const actionCopy = copy[action];
   return (
     <>
       <div className="scrim" />
       <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="lifecycle-dialog-title" aria-describedby="lifecycle-dialog-description">
         <div className="modal-pad">
-          <h3 id="lifecycle-dialog-title">{suspend ? "Suspend" : "Reactivate"} {organization.name}?</h3>
-          <p id="lifecycle-dialog-description">{suspend ? "All tenant sessions will be revoked and workspace access will stop. Records and audit history remain intact." : "Workspace access will resume. Individual user statuses are not changed."}</p>
+          <h3 id="lifecycle-dialog-title">{actionCopy.verb} {organization.name}?</h3>
+          <p id="lifecycle-dialog-description">{actionCopy.description}</p>
           {Boolean(error) && <SystemMutationError error={error} fallback={`Could not ${action} the organization.`} />}
-          <Field label={`${suspend ? "Suspension" : "Reactivation"} reason`} required hint="This reason is recorded in the immutable platform audit.">
+          <Field label={actionCopy.reasonLabel} required hint="This reason is recorded in the immutable platform audit.">
             <textarea value={reason} onChange={(event) => setReason(event.target.value)} autoFocus />
           </Field>
           <div className="modal-foot">
             <button className="btn btn-secondary" type="button" disabled={pending} onClick={onClose}>Cancel</button>
-            <button className={suspend ? "btn btn-danger" : "btn btn-primary"} type="button" disabled={pending || reason.trim().length < 3} onClick={() => onConfirm(reason.trim())}>
-              {pending ? `${suspend ? "Suspending" : "Reactivating"}…` : `${suspend ? "Suspend" : "Reactivate"} organization`}
+            <button className={actionCopy.danger ? "btn btn-danger" : "btn btn-primary"} type="button" disabled={!enabled || pending || reason.trim().length < 3} title={!enabled ? "Platform changes are locked in this environment" : undefined} onClick={() => onConfirm(reason.trim())}>
+              {pending ? `${actionCopy.pending}…` : `${actionCopy.verb} organization`}
             </button>
           </div>
         </div>

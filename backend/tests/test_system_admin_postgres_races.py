@@ -17,11 +17,21 @@ from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from accounts.models import PlatformAccessGrant, PlatformMutationRequest, User, UserSession
+from accounts.models import (
+    EmailOutbox,
+    PlatformAccessGrant,
+    PlatformMutationRequest,
+    User,
+    UserSession,
+)
 from accounts.security import encrypt_secret
-from audit.models import PlatformAuditEvent
+from audit.models import AuditEvent, PlatformAuditEvent
 from organizations.models import Organization, OrganizationSettings
-from organizations.services import reactivate_customer_organization, suspend_customer_organization
+from organizations.services import (
+    approve_customer_organization,
+    reactivate_customer_organization,
+    suspend_customer_organization,
+)
 
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -151,6 +161,112 @@ def _reactivate(organization_id: str, actor_id: str) -> None:
             actor=actor,
             reason="Continue deterministic PostgreSQL race test",
         )
+
+
+def test_concurrent_approval_is_one_locked_transition(platform_operators):
+    _require_postgresql()
+    first_operator, second_operator = platform_operators
+    organization = Organization.objects.create(
+        name="Concurrent Approval Customer",
+        email="concurrent-approval@example.test",
+        registered=True,
+        access_status=Organization.AccessStatus.PENDING_APPROVAL,
+    )
+    OrganizationSettings.objects.create(organization=organization)
+    User.objects.create_user(
+        email="admin@concurrent-approval.test",
+        password="A-strong-customer-password-2026!",
+        organization=organization,
+        name="Concurrent Approval Admin",
+        role=User.Role.ADMIN,
+        status=User.Status.ACTIVE,
+        email_verified_at=timezone.now(),
+    )
+
+    approval_ready = threading.Event()
+    release_approval = threading.Event()
+    second_started = threading.Event()
+    outcomes: dict[str, Any] = {}
+
+    def approve_and_hold():
+        with transaction.atomic():
+            locked = Organization.objects.select_for_update().get(pk=organization.pk)
+            actor = User.objects.get(pk=first_operator.pk)
+            approve_customer_organization(
+                organization=locked,
+                actor=actor,
+                reason="First concurrent review completed",
+            )
+            approval_ready.set()
+            assert release_approval.wait(timeout=8)
+        return "approved"
+
+    def approve_after_lock():
+        with transaction.atomic():
+            locked = Organization.objects.select_for_update().get(pk=organization.pk)
+            actor = User.objects.get(pk=second_operator.pk)
+            try:
+                approve_customer_organization(
+                    organization=locked,
+                    actor=actor,
+                    reason="Second concurrent review completed",
+                )
+            except ValueError as exc:
+                return str(exc)
+        return "approved"
+
+    first = threading.Thread(
+        target=lambda: _thread_call(
+            key="first_approval",
+            outcomes=outcomes,
+            started=threading.Event(),
+            callback=approve_and_hold,
+        )
+    )
+    first.start()
+    assert approval_ready.wait(timeout=8)
+
+    second = threading.Thread(
+        target=lambda: _thread_call(
+            key="second_approval",
+            outcomes=outcomes,
+            started=second_started,
+            callback=approve_after_lock,
+        )
+    )
+    second.start()
+    assert second_started.wait(timeout=8)
+    _wait_for_database_lock(int(outcomes["second_approval_pid"]))
+    release_approval.set()
+    _join(first, outcomes)
+    _join(second, outcomes)
+
+    organization.refresh_from_db()
+    assert outcomes["first_approval"] == "approved"
+    assert outcomes["second_approval"] == "Only organizations pending approval can be approved"
+    assert organization.access_status == Organization.AccessStatus.ACTIVE
+    assert organization.approved_by == first_operator
+    assert (
+        PlatformAuditEvent.objects.filter(
+            organization=organization,
+            action="platform.organization.approved",
+        ).count()
+        == 1
+    )
+    assert (
+        AuditEvent.objects.filter(
+            organization=organization,
+            action="platform.organization.approved",
+        ).count()
+        == 1
+    )
+    assert (
+        EmailOutbox.objects.filter(
+            organization=organization,
+            idempotency_key__startswith=f"notice:organization-approved:{organization.id}:",
+        ).count()
+        == 1
+    )
 
 
 def test_suspend_and_customer_mutation_are_linearized_in_both_orders(admin, platform_operators):

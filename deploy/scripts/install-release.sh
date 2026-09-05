@@ -35,10 +35,21 @@ readonly app_root="/opt/vessel-caller"
 readonly release_root="${app_root}/releases"
 readonly slot_root="${app_root}/slots/${instance}"
 readonly env_file="/etc/vessel-caller/${instance}.env"
+readonly staging_e2e_env="/etc/vessel-caller/staging-e2e.env"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${instance}" == staging ]]; then
+  # shellcheck source=deploy/scripts/staging-writer-guard.sh
+  source "${script_dir}/staging-writer-guard.sh"
+fi
 
 if [[ ! -r "${env_file}" ]]; then
   echo "Missing protected environment file: ${env_file}" >&2
+  exit 1
+fi
+if [[ "${instance}" == staging ]] \
+  && { [[ ! -f "${staging_e2e_env}" || -L "${staging_e2e_env}" ]] \
+    || [[ "$(stat -c '%U:%G:%a' "${staging_e2e_env}")" != root:vessel-caller-staging:640 ]]; }; then
+  echo "Missing or untrusted protected staging seed environment." >&2
   exit 1
 fi
 
@@ -134,18 +145,54 @@ elif [[ -e "${slot_root}/current" ]]; then
   exit 1
 fi
 
+if [[ "${instance}" == staging ]]; then
+  if ! staging_web_state="$(staging_unit_activity "${staging_web_unit}")" \
+    || ! staging_worker_state="$(staging_unit_activity "${staging_worker_unit}")" \
+    || [[ "${staging_web_state}" != inactive ]] \
+    || [[ "${staging_worker_state}" != inactive ]]; then
+    echo "Staging web and worker must be stopped before release preparation." >&2
+    exit 1
+  fi
+fi
+
 ln -sfn "${release_dir}" "${slot_root}/current.next"
 mv -Tf "${slot_root}/current.next" "${slot_root}/current"
 
 systemctl daemon-reload
 if ! flock /run/lock/vessel-caller-migrate.lock \
   systemctl start "${prepare_unit}"; then
-  if [[ -n "${previous_target}" ]]; then
-    ln -sfn "${previous_target}" "${slot_root}/current"
+  if [[ "${instance}" == staging ]]; then
+    echo "Staging preparation failed after cutover began; writers remain stopped." >&2
   else
-    rm -f "${slot_root}/current"
+    if [[ -n "${previous_target}" ]]; then
+      ln -sfn "${previous_target}" "${slot_root}/current"
+    else
+      rm -f "${slot_root}/current"
+    fi
   fi
   exit 1
+fi
+if [[ "$(systemctl show --property=Result --value "${prepare_unit}")" != success ]] \
+  || [[ "$(systemctl show --property=ExecMainStatus --value "${prepare_unit}")" != 0 ]] \
+  || [[ "$(systemctl show --property=AssertResult --value "${prepare_unit}")" != yes ]]; then
+  if [[ "${instance}" == staging ]]; then
+    echo "Staging preparation was skipped or did not complete; writers remain stopped." >&2
+  else
+    echo "Release preparation was skipped or did not complete." >&2
+    if [[ -n "${previous_target}" ]]; then
+      ln -sfn "${previous_target}" "${slot_root}/current"
+    else
+      rm -f "${slot_root}/current"
+    fi
+  fi
+  exit 1
+fi
+
+if [[ "${instance}" == staging ]]; then
+  # The outer writer guard starts the worker before the public web process and
+  # owns readiness/failure cleanup for the pair.
+  echo "${release_tag} is prepared in inactive slot ${instance}."
+  exit 0
 fi
 
 systemctl restart "${web_unit}"
@@ -186,11 +233,15 @@ done
 
 if [[ "${healthy}" != "true" ]]; then
   systemctl stop "${web_unit}"
-  if [[ -n "${previous_target}" ]]; then
-    ln -sfn "${previous_target}" "${slot_root}/current"
-    systemctl restart "${web_unit}"
+  if [[ "${instance}" == staging ]]; then
+    echo "Staging candidate failed readiness; writers remain stopped." >&2
   else
-    rm -f "${slot_root}/current"
+    if [[ -n "${previous_target}" ]]; then
+      ln -sfn "${previous_target}" "${slot_root}/current"
+      systemctl restart "${web_unit}"
+    else
+      rm -f "${slot_root}/current"
+    fi
   fi
   journalctl -u "${web_unit}" -n 100 --no-pager >&2
   exit 1

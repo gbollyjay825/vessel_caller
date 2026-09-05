@@ -16,6 +16,7 @@ class Organization(models.Model):
         PLATFORM = "platform", "Platform"
 
     class AccessStatus(models.TextChoices):
+        PENDING_APPROVAL = "pending_approval", "Pending approval"
         ACTIVE = "active", "Active"
         SUSPENDED = "suspended", "Suspended"
 
@@ -42,6 +43,15 @@ class Organization(models.Model):
     ports = models.JSONField(default=list, blank=True)
     logo_object_key = models.CharField(max_length=1024, blank=True)
     revision = models.PositiveBigIntegerField(default=0)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="customer_organizations_approved",
+    )
+    approval_reason = models.TextField(blank=True, db_default="")
     suspended_at = models.DateTimeField(null=True, blank=True)
     suspension_reason = models.TextField(blank=True, db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -55,7 +65,7 @@ class Organization(models.Model):
                 name="organizations_valid_kind",
             ),
             models.CheckConstraint(
-                condition=models.Q(access_status__in=["active", "suspended"]),
+                condition=models.Q(access_status__in=["pending_approval", "active", "suspended"]),
                 name="organizations_valid_access_status",
             ),
             models.UniqueConstraint(
@@ -66,7 +76,7 @@ class Organization(models.Model):
             models.CheckConstraint(
                 condition=(
                     models.Q(
-                        access_status="active",
+                        access_status__in=["pending_approval", "active"],
                         suspended_at__isnull=True,
                         suspension_reason="",
                     )

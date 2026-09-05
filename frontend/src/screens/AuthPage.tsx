@@ -36,6 +36,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [approvalRequired, setApprovalRequired] = useState(false);
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [redirectAfterAuth, setRedirectAfterAuth] = useState<string | null>(null);
@@ -113,6 +114,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
         designatedPort: port,
       });
       setNotice(result.detail || "Check your email to verify your account before signing in.");
+      setApprovalRequired(result.approvalRequired === true);
       setPassword("");
     } catch (caught) {
       setError(errorMessage(caught));
@@ -128,11 +130,20 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           <div className="auth-brand"><span className="auth-mark">{anchor}</span> Vessel Caller</div>
           <h1 className="auth-title">Verify your email</h1>
           <p className="auth-sub">{notice}</p>
+          {approvalRequired && (
+            <div className="auth-notice" role="status">
+              After email verification, a System Administrator must approve your organization before anyone can sign in.
+            </div>
+          )}
           <p className="auth-alt">
             Didn’t receive it?{" "}
             <Link to={`/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`}>Resend verification email</Link>
           </p>
-          <Link className="auth-submit auth-submit-link" to="/login">Continue to sign in</Link>
+          {approvalRequired ? (
+            <Link className="auth-submit auth-submit-link" to="/">Return to home</Link>
+          ) : (
+            <Link className="auth-submit auth-submit-link" to="/login">Continue to sign in</Link>
+          )}
         </div>
       </div>
     );

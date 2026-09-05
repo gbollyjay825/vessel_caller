@@ -63,6 +63,21 @@ describe("public account lifecycle flows", () => {
     expect(mocks.verifyEmail).toHaveBeenCalledWith("secure-token");
   });
 
+  it("explains pending organization approval without pushing immediate sign-in", async () => {
+    window.history.replaceState(null, "", "/verify-email?token=pending-approval-token");
+    mocks.verifyEmail.mockResolvedValue({
+      detail: "Email verified; organization approval is pending",
+      approvalPending: true,
+    });
+    render(<EmailVerification />);
+
+    expect(await screen.findByRole("heading", { name: "Email verified — approval pending" })).toBeInTheDocument();
+    expect(screen.getByText(/must approve your organization before you can sign in/i)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/remains securely locked/i);
+    expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Return to home" })).toHaveAttribute("href", "/");
+  });
+
   it("recovers from an expired verification token and resends a normalized address", async () => {
     window.history.replaceState(null, "", "/verify-email?token=expired&email=ADA%40EXAMPLE.COM");
     mocks.verifyEmail.mockRejectedValue(new ApiError("This link has expired.", 400));

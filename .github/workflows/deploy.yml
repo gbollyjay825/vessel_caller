@@ -102,6 +102,32 @@ jobs:
             -verify "${public_key}" \
             -signature "vessel-caller-${RELEASE_TAG}.tar.gz.sig" \
             "vessel-caller-${RELEASE_TAG}.tar.gz"
+      - name: Enforce signed release target policy
+        env:
+          DEPLOY_TARGET: ${{ inputs.target }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          # The archive was checksum-, attestation-, and signature-verified in
+          # the immediately preceding step. Keep this control in the workflow
+          # so legacy tag checkouts need not contain the policy helper. The
+          # root-owned host entrypoint independently repeats the same check.
+          archive="artifacts/vessel-caller-${RELEASE_TAG}.tar.gz"
+          manifest="$(tar -xOf "${archive}" "vessel-caller-${RELEASE_TAG}/RELEASE.json")"
+          jq --exit-status \
+            '.schemaVersion == 1 and .application == "vessel-caller"' \
+            <<<"${manifest}" >/dev/null
+          if [[ "${DEPLOY_TARGET}" == "production" ]] \
+            && jq --exit-status '.stagingOnlySchemaCutover == true' \
+              <<<"${manifest}" >/dev/null; then
+            echo "This signed release is restricted to staging; production deployment is blocked." >&2
+            exit 1
+          fi
+          if [[ "${DEPLOY_TARGET}" == "staging" ]] \
+            && ! jq --exit-status '.organizationApprovalLifecycle == true' \
+              <<<"${manifest}" >/dev/null; then
+            echo "This release predates the irreversible staging approval-lifecycle floor." >&2
+            exit 1
+          fi
       - name: Require full recorded qualification before production
         if: inputs.target == 'production'
         env:

@@ -184,7 +184,9 @@ jobs:
                 '.schemaVersion == 1
                  and .immutable == true
                  and .release == $release
-                 and .commit == $commit' >/dev/null
+                 and .commit == $commit
+                 and .organizationApprovalLifecycle == true
+                 and .stagingOnlySchemaCutover != true' >/dev/null
           done
 
   load:
@@ -288,7 +290,9 @@ jobs:
                 '.schemaVersion == 1
                  and .immutable == true
                  and .release == $release
-                 and .commit == $commit' >/dev/null
+                 and .commit == $commit
+                 and .organizationApprovalLifecycle == true
+                 and .stagingOnlySchemaCutover != true' >/dev/null
             # Deployments are GitHub's append-only release evidence.  Releases
             # are immutable once published, so a later staging deployment must
             # not be represented by trying to upload another release asset.

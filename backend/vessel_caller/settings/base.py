@@ -74,7 +74,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "vessel_caller.middleware.RequestIdMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
+    "accounts.middleware.IdentitySafeSessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",

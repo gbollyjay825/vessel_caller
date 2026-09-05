@@ -30,6 +30,7 @@ address/domain, or a Django group.
 | View minimized tenant user/invitation status | Yes | Yes, own organization | No role mutation or authentication material |
 | View sanitized organization identity/lifecycle audit | Yes | Yes, own organization | No operational event payloads or internal reason |
 | View own organization profile/workflows | No | Yes | System Admin has no tenant workspace |
+| Approve a verified self-registered organization | Yes | No | Recent MFA, reason, idempotency, revision, audit |
 | Suspend organization access | Yes | No | Recent MFA, reason, idempotency, audit |
 | Reactivate organization access | Yes | No | Does not restore sessions/tokens |
 | Create/resend/revoke tenant-Admin setup invitation | Yes | No | 24-hour, rotating, single-use; no password |
@@ -86,9 +87,20 @@ outbox ciphertext/provider IDs, API credentials, or internal audit reasons.
 `registered` continues to mean onboarding completed. `access_status` is
 separate:
 
+- `pending_approval`: a self-registered organization's email-verification flow
+  may complete, but tenant authentication, workspace APIs, invitations,
+  recovery, business email, and signed-object access remain denied. Approval
+  requires completed registration and a verified tenant Admin.
 - `active`: tenant authentication and authorized tenant work are permitted.
 - `suspended`: tenant access is denied; sessions and usable security/onboarding
   tokens are revoked; no new private-object URL may be issued.
+
+Only email-verification tokens and their verification messages have a narrow,
+typed exception while approval is pending. Suspension has no such exception.
+Approval activates access but restores no prior session, token, invitation,
+challenge, recovery code, or signed URL. Existing active organizations may
+have no approval timestamp or actor because their access predates approval
+metadata; their active status remains authoritative.
 
 No deleted state or destructive cascade is part of this release. Archive or
 erasure requires a separate retention, legal, restore, and approval design.

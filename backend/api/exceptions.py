@@ -29,6 +29,15 @@ def api_exception_handler(exc, context):
             "requestId": request_id,
         }
         return response
+    if getattr(exc, "default_code", "") == "system_mutations_disabled":
+        response.data = {
+            "detail": str(
+                getattr(exc, "detail", "System administration changes are temporarily disabled")
+            ),
+            "errors": {"code": "system_mutations_disabled"},
+            "requestId": request_id,
+        }
+        return response
     if isinstance(raw, dict) and set(raw) == {"detail"}:
         detail = raw["detail"]
         errors = None

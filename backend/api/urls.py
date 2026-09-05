@@ -67,6 +67,7 @@ from .system_admin_views import (
     SystemAuditView,
     SystemOrganizationDetailView,
     SystemOrganizationAuditView,
+    SystemOrganizationApproveView,
     SystemOrganizationInvitationDetailView,
     SystemOrganizationInvitationResendView,
     SystemOrganizationInvitationsView,
@@ -115,6 +116,11 @@ urlpatterns = [
         "system/organizations/<str:organization_id>",
         SystemOrganizationDetailView.as_view(),
         name="system-organization-detail",
+    ),
+    path(
+        "system/organizations/<str:organization_id>/approve",
+        SystemOrganizationApproveView.as_view(),
+        name="system-organization-approve",
     ),
     path(
         "system/organizations/<str:organization_id>/suspend",

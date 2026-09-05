@@ -50,9 +50,20 @@ def deliver_outbox_email(outbox_id: str):
             outbox.last_error = "Delivery suppressed because organization scope is missing"
             outbox.save(update_fields=("status", "last_error", "updated_at"))
             return ""
-        if not organization.is_access_active and not outbox.allow_suspended_organization:
+        pending_approval_allowed = bool(
+            organization.access_status == Organization.AccessStatus.PENDING_APPROVAL
+            and outbox.allow_pending_approval_organization
+            and outbox.template == "verify_email"
+        )
+        suspended_allowed = bool(
+            organization.access_status == Organization.AccessStatus.SUSPENDED
+            and outbox.allow_suspended_organization
+        )
+        if not organization.is_access_active and not (
+            pending_approval_allowed or suspended_allowed
+        ):
             outbox.status = EmailOutbox.Status.FAILED
-            outbox.last_error = "Delivery suppressed because organization access is suspended"
+            outbox.last_error = "Delivery suppressed because organization access is not active"
             outbox.save(update_fields=("status", "last_error", "updated_at"))
             return ""
         outbox.status = EmailOutbox.Status.SENDING

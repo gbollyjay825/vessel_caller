@@ -195,6 +195,7 @@ class RegisterView(APIView):
         response_data = {
             "detail": "If this address can be registered, verification instructions will be sent",
             "verificationRequired": True,
+            "approvalRequired": True,
         }
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -208,6 +209,7 @@ class RegisterView(APIView):
             # rather than turning registration into an email-spam oracle.
             return Response(response_data, status=status.HTTP_202_ACCEPTED)
         organization = Organization.objects.create(
+            access_status=Organization.AccessStatus.PENDING_APPROVAL,
             registered=False,
             name=data["orgName"].strip(),
             rc_number=data.get("rcNumber", "").strip(),
@@ -234,7 +236,12 @@ class RegisterView(APIView):
             status=User.Status.INVITED,
             mfa_grace_ends_at=timezone.now() + timedelta(days=settings.MFA_GRACE_DAYS),
         )
-        token_obj, raw = issue_action_token(user, ActionToken.Kind.VERIFY_EMAIL, hours=24)
+        token_obj, raw = issue_action_token(
+            user,
+            ActionToken.Kind.VERIFY_EMAIL,
+            hours=24,
+            allow_pending_approval=True,
+        )
         queue_email(
             to_email=email,
             subject="Verify your Vessel Caller account",
@@ -242,6 +249,7 @@ class RegisterView(APIView):
             context={"actionUrl": _url("/verify-email", raw)},
             idempotency_key=f"verify:{token_obj.id}",
             organization=organization,
+            allow_pending_approval_organization=True,
         )
         record_event(
             organization=organization,
@@ -266,15 +274,15 @@ class VerifyEmailView(APIView):
         serializer = TokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token_obj = consume_action_token(
-            serializer.validated_data["token"], ActionToken.Kind.VERIFY_EMAIL
+            serializer.validated_data["token"],
+            ActionToken.Kind.VERIFY_EMAIL,
+            allow_pending_approval=True,
         )
         if not token_obj:
             raise ValidationError({"token": ["This verification link is invalid or expired"]})
-        user = (
-            User.objects.select_for_update()
-            .select_related("organization")
-            .get(pk=token_obj.user_id)
-        )
+        user = User.objects.select_for_update().get(pk=token_obj.user_id)
+        organization = Organization.objects.select_for_update().get(pk=user.organization_id)
+        user.organization = organization
         now = timezone.now()
         if token_obj.metadata.get("pendingEmail"):
             pending = token_obj.metadata["pendingEmail"].lower()
@@ -298,16 +306,24 @@ class VerifyEmailView(APIView):
             before = {"status": user.status}
             user.status = User.Status.ACTIVE
             user.email_verified_at = now
+            # Registration readiness is part of the System Admin approval
+            # review. Advance the same optimistic-lock revision used by the
+            # approval endpoint so a review prepared before verification must
+            # be refreshed after these prerequisites change.
             user.organization.registered = True
-            user.organization.save(update_fields=("registered", "updated_at"))
+            user.organization.revision += 1
+            user.organization.save(update_fields=("registered", "revision", "updated_at"))
             user.save(update_fields=("status", "email_verified_at", "updated_at"))
             action = "account.email_verified"
-            queue_security_notice(
-                user,
-                event_key=f"account-verified:{token_obj.id}",
-                subject="Your Vessel Caller account is ready",
-                message="Your email has been verified and your Vessel Caller account is now active.",
-            )
+            if user.organization.is_access_active:
+                queue_security_notice(
+                    user,
+                    event_key=f"account-verified:{token_obj.id}",
+                    subject="Your Vessel Caller account is ready",
+                    message=(
+                        "Your email has been verified and your Vessel Caller account is now active."
+                    ),
+                )
         record_identity_event(
             organization=user.organization,
             actor=user,
@@ -318,7 +334,19 @@ class VerifyEmailView(APIView):
             before=before,
             after={"email": user.email, "status": user.status},
         )
-        return Response({"detail": "Email verified"})
+        approval_pending = (
+            user.organization.access_status == Organization.AccessStatus.PENDING_APPROVAL
+        )
+        return Response(
+            {
+                "detail": (
+                    "Email verified; organization approval is pending"
+                    if approval_pending
+                    else "Email verified"
+                ),
+                "approvalPending": approval_pending,
+            }
+        )
 
 
 @method_decorator(csrf_protect, name="dispatch")
@@ -340,13 +368,21 @@ class ResendVerificationView(APIView):
         user = User.objects.filter(
             email=email,
             email_verified_at__isnull=True,
-            organization__access_status=Organization.AccessStatus.ACTIVE,
+            organization__access_status__in=(
+                Organization.AccessStatus.PENDING_APPROVAL,
+                Organization.AccessStatus.ACTIVE,
+            ),
             is_staff=False,
             is_superuser=False,
         ).first()
         if user:
             try:
-                token_obj, raw = issue_action_token(user, ActionToken.Kind.VERIFY_EMAIL, hours=24)
+                token_obj, raw = issue_action_token(
+                    user,
+                    ActionToken.Kind.VERIFY_EMAIL,
+                    hours=24,
+                    allow_pending_approval=True,
+                )
             except InactiveActionTarget:
                 pass
             else:
@@ -357,6 +393,7 @@ class ResendVerificationView(APIView):
                     context={"actionUrl": _url("/verify-email", raw)},
                     idempotency_key=f"verify:{token_obj.id}",
                     organization=user.organization,
+                    allow_pending_approval_organization=True,
                 )
         return Response(
             {"detail": "If the account is pending, a new link has been sent"},

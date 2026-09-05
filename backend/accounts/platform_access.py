@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.sessions.models import Session
@@ -21,6 +22,44 @@ SYSTEM_ADMIN_PERMISSIONS = (
     "platform.audit.view",
     "platform.audit.export",
 )
+
+
+def system_admin_mutation_state() -> dict[str, bool | str]:
+    """Return non-secret runtime facts used by both API gating and the platform shell."""
+
+    resend_ready = bool(
+        settings.EMAIL_DELIVERY_BACKEND == "resend"
+        and (settings.RESEND_API_KEY or "").strip()
+        and settings.EMAIL_FROM.strip()
+    )
+    local_memory_ready = bool(
+        settings.ENVIRONMENT in {"development", "test"}
+        and settings.EMAIL_DELIVERY_BACKEND == "memory"
+    )
+    email_delivery_ready = resend_ready or local_memory_ready
+
+    flag_file = str(settings.SYSTEM_ADMIN_MUTATION_FLAG_FILE).strip()
+    if flag_file:
+        try:
+            gate_enabled = Path(flag_file).read_text(encoding="utf-8") == "enabled\n"
+        except (OSError, UnicodeError):
+            gate_enabled = False
+    else:
+        gate_enabled = bool(settings.SYSTEM_ADMIN_MUTATIONS_ENABLED)
+
+    recognized_environment = settings.ENVIRONMENT in {
+        "development",
+        "local",
+        "production",
+        "staging",
+        "test",
+    }
+
+    return {
+        "environment": settings.ENVIRONMENT,
+        "emailDeliveryReady": email_delivery_ready,
+        "mutationsEnabled": bool(recognized_environment and email_delivery_ready and gate_enabled),
+    }
 
 
 def active_platform_grant(user: User) -> PlatformAccessGrant | None:
@@ -112,6 +151,7 @@ def platform_access_data(user: User, request=None) -> dict | None:
         "expiresAt": grant.expires_at.isoformat() if grant.expires_at else None,
         "assuranceExpiresAt": (assurance_expires_at.isoformat() if assurance_expires_at else None),
         "stepUpRequired": bool(enabled and user.mfa_enabled and not assurance_valid),
+        **system_admin_mutation_state(),
     }
 
 

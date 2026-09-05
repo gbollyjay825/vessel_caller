@@ -12,6 +12,7 @@ const STATUS_LABEL: Record<string, string> = {
   pending: "Pending", "in-progress": "In progress", completed: "Completed",
   paid: "Paid", unpaid: "Unpaid", overdue: "Overdue", draft: "Draft",
   active: "Active", inactive: "Inactive", invited: "Invited", suspended: "Suspended",
+  pending_approval: "Pending approval",
   removed: "Removed", accepted: "Accepted", expired: "Expired", revoked: "Revoked",
   cancelled: "Cancelled", void: "Void",
 };

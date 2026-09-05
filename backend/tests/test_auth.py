@@ -4,18 +4,51 @@ from importlib import import_module
 
 import pyotp
 import pytest
+from django.conf import settings
+from django.contrib.sessions.models import Session
+from django.http import HttpResponse
+from django.test import RequestFactory
 from django.apps import apps
 from django.utils import timezone
 from passlib.hash import pbkdf2_sha256
 from rest_framework.test import APIClient
 
+from accounts.middleware import IdentitySafeSessionMiddleware
 from accounts.models import ActionToken, EmailOutbox, User, UserSession
-from accounts.security import issue_action_token
+from accounts.security import InactiveActionTarget, issue_action_token
 from organizations.defaults import CALABAR_BERTH_TERMINALS
-from organizations.models import OrganizationSettings
+from organizations.models import Organization, OrganizationSettings
 
 
 pytestmark = pytest.mark.django_db
+
+
+def test_stale_ordinary_response_cannot_delete_a_new_login_cookie(admin):
+    client = APIClient()
+    credentials = {
+        "email": admin.email,
+        "password": "A-strong-admin-password-2026!",
+    }
+    assert client.post("/api/auth/login", credentials, format="json").status_code == 200
+    session_a = client.cookies[settings.SESSION_COOKIE_NAME].value
+
+    middleware = IdentitySafeSessionMiddleware(lambda request: HttpResponse("ok"))
+    stale_request = RequestFactory().get(
+        "/api/state",
+        HTTP_COOKIE=f"{settings.SESSION_COOKIE_NAME}={session_a}",
+    )
+    middleware.process_request(stale_request)
+
+    assert client.post("/api/auth/logout", format="json").status_code == 204
+    assert not Session.objects.filter(session_key=session_a).exists()
+    assert client.post("/api/auth/login", credentials, format="json").status_code == 200
+    session_b = client.cookies[settings.SESSION_COOKIE_NAME].value
+    assert session_b != session_a
+
+    stale_response = middleware.process_response(stale_request, HttpResponse("ok"))
+    assert settings.SESSION_COOKIE_NAME not in stale_response.cookies
+    assert client.cookies[settings.SESSION_COOKIE_NAME].value == session_b
+    assert client.get("/api/auth/me").status_code == 200
 
 
 def test_health_and_readiness_are_public(api_client):
@@ -40,6 +73,7 @@ def test_health_and_readiness_are_public(api_client):
     ("backend", "key", "sender", "expected"),
     [
         ("resend", "provider-key", "Vessel Caller <noreply@vesselcalls.com>", True),
+        ("resend", "   ", "Vessel Caller <noreply@vesselcalls.com>", False),
         ("resend", "", "Vessel Caller <noreply@vesselcalls.com>", False),
         ("disabled", "provider-key", "Vessel Caller <noreply@vesselcalls.com>", False),
         ("resend", "provider-key", "", False),
@@ -69,6 +103,7 @@ def test_openapi_schema_is_public_and_covers_identity(api_client):
     assert "/api/users" in schema["paths"]
     assert "/api/system/audit" in schema["paths"]
     assert "/api/system/organizations/{organization_id}/audit" in schema["paths"]
+    assert "/api/system/organizations/{organization_id}/approve" in schema["paths"]
     operation_ids = [
         operation["operationId"]
         for path in schema["paths"].values()
@@ -94,6 +129,7 @@ def test_registration_verification_and_session_login(api_client):
     assert response.status_code == 202
     user = User.objects.get(email="new@example.test")
     assert user.status == User.Status.INVITED
+    assert user.organization.access_status == Organization.AccessStatus.PENDING_APPROVAL
     assert OrganizationSettings.objects.get(organization=user.organization).terminals == list(
         CALABAR_BERTH_TERMINALS
     )
@@ -102,7 +138,23 @@ def test_registration_verification_and_session_login(api_client):
         template="verify_email",
     )
     assert verification_messages.count() == 1
-    assert verification_messages.get().status == EmailOutbox.Status.SENT
+    verification_message = verification_messages.get()
+    assert verification_message.status == EmailOutbox.Status.SENT
+    assert verification_message.allow_pending_approval_organization is True
+    resent = api_client.post(
+        "/api/auth/resend-verification",
+        {"email": user.email},
+        format="json",
+    )
+    assert resent.status_code == 202
+    verification_messages = EmailOutbox.objects.filter(
+        to_email="new@example.test",
+        template="verify_email",
+    )
+    assert verification_messages.count() == 2
+    resent_message = verification_messages.order_by("-created_at").first()
+    assert resent_message is not None
+    assert resent_message.allow_pending_approval_organization
     assert (
         api_client.post(
             "/api/auth/login",
@@ -111,12 +163,42 @@ def test_registration_verification_and_session_login(api_client):
         ).status_code
         == 401
     )
-    _, raw = issue_action_token(user, ActionToken.Kind.VERIFY_EMAIL, hours=24)
+    _, raw = issue_action_token(
+        user,
+        ActionToken.Kind.VERIFY_EMAIL,
+        hours=24,
+        allow_pending_approval=True,
+    )
     verified = api_client.post("/api/auth/verify-email", {"token": raw}, format="json")
     assert verified.status_code == 200
+    assert verified.json()["approvalPending"] is True
     assert (
         api_client.post("/api/auth/verify-email", {"token": raw}, format="json").status_code == 400
     )
+    user.refresh_from_db()
+    assert user.status == User.Status.ACTIVE
+    assert user.email_verified_at is not None
+    pending_client = APIClient()
+    pending_client.force_authenticate(user=user)
+    assert pending_client.get("/api/state").status_code == 403
+    pending_login = api_client.post(
+        "/api/auth/login",
+        {"email": user.email, "password": "A-unique-production-password-2026!"},
+        format="json",
+    )
+    assert pending_login.status_code == 401
+    reset = api_client.post(
+        "/api/auth/forgot-password",
+        {"email": user.email},
+        format="json",
+    )
+    assert reset.status_code == 202
+    assert not EmailOutbox.objects.filter(
+        to_email=user.email,
+        template="reset_password",
+    ).exists()
+    user.organization.access_status = Organization.AccessStatus.ACTIVE
+    user.organization.save(update_fields=("access_status", "updated_at"))
     logged_in = api_client.post(
         "/api/auth/login",
         {"email": user.email, "password": "A-unique-production-password-2026!"},
@@ -129,6 +211,51 @@ def test_registration_verification_and_session_login(api_client):
     assert UserSession.objects.filter(user=user, revoked_at__isnull=True).count() == 1
     assert api_client.post("/api/auth/logout").status_code == 204
     assert api_client.get("/api/auth/me").status_code in (401, 403)
+
+
+def test_pending_verification_exception_never_applies_after_suspension(api_client):
+    api_client.post(
+        "/api/auth/register",
+        {
+            "name": "Suspended Before Verification",
+            "email": "suspended-before-verify@example.test",
+            "password": "A-unique-production-password-2026!",
+            "orgName": "Suspended Pending Shipping",
+            "designatedPort": "Port of Calabar",
+        },
+        format="json",
+    )
+    user = User.objects.get(email="suspended-before-verify@example.test")
+    token, raw = issue_action_token(
+        user,
+        ActionToken.Kind.VERIFY_EMAIL,
+        hours=24,
+        allow_pending_approval=True,
+    )
+    with pytest.raises(ValueError, match="Only email verification tokens"):
+        issue_action_token(
+            user,
+            ActionToken.Kind.RESET_PASSWORD,
+            hours=1,
+            allow_pending_approval=True,
+        )
+    with pytest.raises(InactiveActionTarget):
+        issue_action_token(user, ActionToken.Kind.RESET_PASSWORD, hours=1)
+
+    organization = user.organization
+    organization.access_status = Organization.AccessStatus.SUSPENDED
+    organization.suspended_at = timezone.now()
+    organization.suspension_reason = "Verification stopped by support"
+    organization.save(
+        update_fields=("access_status", "suspended_at", "suspension_reason", "updated_at")
+    )
+    denied = api_client.post("/api/auth/verify-email", {"token": raw}, format="json")
+    assert denied.status_code == 400
+    token.refresh_from_db()
+    user.refresh_from_db()
+    assert token.used_at is None
+    assert user.email_verified_at is None
+    assert user.status == User.Status.INVITED
 
 
 def test_duplicate_registration_does_not_leak_or_enqueue_another_email(api_client):

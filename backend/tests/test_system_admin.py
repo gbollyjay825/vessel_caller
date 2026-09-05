@@ -44,6 +44,7 @@ from accounts.tasks import deliver_outbox_email
 from audit.models import AuditEvent, PlatformAuditEvent
 from audit.services import record_platform_event
 from billing.models import InvoiceStatusStep
+from organizations.admin import OrganizationAdmin
 from organizations.models import Organization, OrganizationSettings
 
 pytestmark = pytest.mark.django_db
@@ -154,6 +155,23 @@ def test_platform_grant_is_explicit_and_never_implied_by_tenant_or_django_flags(
     assert user_admin.has_delete_permission(request, staff) is False
 
 
+def test_django_admin_cannot_create_or_rewrite_organization_lifecycle_attribution():
+    organization_admin = OrganizationAdmin(Organization, django_admin.site)
+    request = RequestFactory().get("/staff/organizations/organization")
+    assert organization_admin.has_add_permission(request) is False
+    assert {
+        "kind",
+        "access_status",
+        "registered",
+        "approved_at",
+        "approved_by",
+        "approval_reason",
+        "suspended_at",
+        "suspension_reason",
+        "revision",
+    }.issubset(set(organization_admin.readonly_fields))
+
+
 def test_disallowed_and_missing_product_identities_burn_dummy_password_cost(
     platform_organization,
 ):
@@ -206,6 +224,9 @@ def test_new_organization_columns_keep_old_binary_inserts_compatible():
     organization = Organization.objects.get(pk=organization_id)
     assert organization.kind == Organization.Kind.CUSTOMER
     assert organization.access_status == Organization.AccessStatus.ACTIVE
+    assert organization.approved_at is None
+    assert organization.approved_by is None
+    assert organization.approval_reason == ""
     assert organization.suspension_reason == ""
 
 
@@ -239,6 +260,7 @@ def test_new_outbox_columns_keep_old_binary_inserts_compatible():
     outbox = EmailOutbox.objects.get(pk=outbox_id)
     assert outbox.organization is None
     assert outbox.allow_suspended_organization is False
+    assert outbox.allow_pending_approval_organization is False
 
 
 def test_outbox_suppresses_suspended_org_but_allows_explicit_lifecycle_notice():
@@ -273,6 +295,72 @@ def test_outbox_suppresses_suspended_org_but_allows_explicit_lifecycle_notice():
     assert deliver_outbox_email(str(allowed.id)).startswith("memory:")
     allowed.refresh_from_db()
     assert allowed.status == EmailOutbox.Status.SENT
+
+
+def test_pending_approval_outbox_bypass_is_limited_to_email_verification():
+    from accounts.services import queue_email
+
+    organization = create_customer("Pending Approval Outbox Customer")
+    organization.access_status = Organization.AccessStatus.PENDING_APPROVAL
+    organization.save(update_fields=("access_status", "updated_at"))
+    suppressed = EmailOutbox.objects.create(
+        organization=organization,
+        to_email="admin@pending-outbox.test",
+        subject="Verification without authorization",
+        template="verify_email",
+        context={"message": "must not send"},
+        idempotency_key="pending-verify-not-authorized",
+    )
+    allowed = EmailOutbox.objects.create(
+        organization=organization,
+        allow_pending_approval_organization=True,
+        to_email="admin@pending-outbox.test",
+        subject="Verify email",
+        template="verify_email",
+        context={"message": "verify"},
+        idempotency_key="pending-verify-authorized",
+    )
+    wrong_template = EmailOutbox.objects.create(
+        organization=organization,
+        allow_pending_approval_organization=True,
+        to_email="admin@pending-outbox.test",
+        subject="Business message",
+        template="invoice",
+        context={"message": "must not send"},
+        idempotency_key="pending-wrong-template",
+    )
+
+    assert deliver_outbox_email(str(suppressed.id)) == ""
+    assert deliver_outbox_email(str(allowed.id)).startswith("memory:")
+    assert deliver_outbox_email(str(wrong_template.id)) == ""
+    with pytest.raises(ValueError, match="Only email-verification delivery"):
+        queue_email(
+            organization=organization,
+            allow_pending_approval_organization=True,
+            to_email="admin@pending-outbox.test",
+            subject="Unsafe bypass",
+            template="security_notice",
+            context={"message": "must not queue"},
+            idempotency_key="pending-unsafe-helper-bypass",
+        )
+    assert not EmailOutbox.objects.filter(idempotency_key="pending-unsafe-helper-bypass").exists()
+
+    organization.access_status = Organization.AccessStatus.SUSPENDED
+    organization.suspended_at = timezone.now()
+    organization.suspension_reason = "Suspended after pending verification test"
+    organization.save(
+        update_fields=("access_status", "suspended_at", "suspension_reason", "updated_at")
+    )
+    suspended_verify = EmailOutbox.objects.create(
+        organization=organization,
+        allow_pending_approval_organization=True,
+        to_email="admin@pending-outbox.test",
+        subject="Must remain blocked",
+        template="verify_email",
+        context={"message": "must not send"},
+        idempotency_key="suspended-pending-bypass-denied",
+    )
+    assert deliver_outbox_email(str(suspended_verify.id)) == ""
 
 
 def test_application_outbox_requires_scope_and_worker_never_replays_unscoped_failed_rows():
@@ -609,10 +697,356 @@ def test_platform_enrollment_account_has_no_tenant_permissions(platform_organiza
     assert account.status_code == 200
     assert account.json()["platformAccess"]["mfaEnrollmentRequired"] is True
     assert account.json()["platformAccess"]["permissions"] == []
+    assert account.json()["platformAccess"]["environment"] in {"development", "test"}
+    assert account.json()["platformAccess"]["emailDeliveryReady"] is True
+    assert account.json()["platformAccess"]["mutationsEnabled"] is True
     assert client.get("/api/system/overview").status_code == 403
     assert client.get("/api/vessel-calls").status_code == 403
     assert client.get("/api/state").status_code == 403
     assert not InvoiceStatusStep.objects.filter(organization=platform_organization).exists()
+
+
+@override_settings(SYSTEM_ADMIN_MUTATIONS_ENABLED=True)
+def test_pending_customer_requires_audited_system_approval_before_tenant_login(system_admin):
+    organization = create_customer("Approval Customer")
+    organization.registered = True
+    organization.access_status = Organization.AccessStatus.PENDING_APPROVAL
+    organization.save(update_fields=("registered", "access_status", "updated_at"))
+    tenant_admin = create_customer_user(organization, email="admin@approval.test")
+    client = system_client(system_admin)
+
+    overview = client.get("/api/system/overview")
+    assert overview.status_code == 200
+    assert overview.json()["pendingApprovalOrganizationCount"] == 1
+    listing = client.get(
+        "/api/system/organizations",
+        {"status": Organization.AccessStatus.PENDING_APPROVAL},
+    )
+    assert listing.status_code == 200
+    assert listing.json()["results"][0]["status"] == "pending_approval"
+    assert listing.json()["results"][0]["approvedAt"] is None
+    detail = client.get(f"/api/system/organizations/{organization.id}")
+    assert detail.json()["organization"]["approvedBy"] is None
+    assert detail.json()["organization"]["approvalReason"] is None
+
+    tenant_client = APIClient()
+    assert (
+        tenant_client.post(
+            "/api/auth/login",
+            {"email": tenant_admin.email, "password": "A-strong-customer-password-2026!"},
+            format="json",
+        ).status_code
+        == 401
+    )
+
+    approval_url = f"/api/system/organizations/{organization.id}/approve"
+    stale = client.post(
+        approval_url,
+        {"reason": "Verified customer onboarding", "revision": organization.revision + 1},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-customer-stale-001",
+    )
+    assert stale.status_code == 409
+    approved = client.post(
+        approval_url,
+        {"reason": "Verified customer onboarding", "revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-customer-001",
+    )
+    assert approved.status_code == 200
+    organization.refresh_from_db()
+    assert organization.access_status == Organization.AccessStatus.ACTIVE
+    assert organization.approved_at is not None
+    assert organization.approved_by == system_admin
+    assert organization.approval_reason == "Verified customer onboarding"
+    assert approved.json()["organization"]["approvedBy"]["id"] == system_admin.id
+    assert approved.json()["organization"]["approvalReason"] == "Verified customer onboarding"
+    assert (
+        PlatformAuditEvent.objects.filter(
+            organization=organization,
+            action="platform.organization.approved",
+            actor=system_admin,
+        ).count()
+        == 1
+    )
+    platform_event = PlatformAuditEvent.objects.get(
+        organization=organization,
+        action="platform.organization.approved",
+    )
+    assert platform_event.reason == "Verified customer onboarding"
+    assert platform_event.before == {"status": Organization.AccessStatus.PENDING_APPROVAL}
+    assert platform_event.after == {"status": Organization.AccessStatus.ACTIVE}
+    tenant_event = AuditEvent.objects.get(
+        organization=organization,
+        action="platform.organization.approved",
+    )
+    assert tenant_event.actor is None
+    assert tenant_event.before == {"status": Organization.AccessStatus.PENDING_APPROVAL}
+    assert tenant_event.after == {"status": Organization.AccessStatus.ACTIVE}
+    assert "reason" not in json.dumps(tenant_event.before | tenant_event.after).lower()
+    assert (
+        EmailOutbox.objects.filter(
+            organization=organization,
+            idempotency_key__startswith=f"notice:organization-approved:{organization.id}:",
+        ).count()
+        == 1
+    )
+
+    replay = client.post(
+        approval_url,
+        {"reason": "Verified customer onboarding", "revision": approved.json()["rev"] - 1},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-customer-001",
+    )
+    assert replay.status_code == 200
+    assert replay.json() == approved.json()
+    assert (
+        PlatformAuditEvent.objects.filter(
+            organization=organization,
+            action="platform.organization.approved",
+        ).count()
+        == 1
+    )
+    assert (
+        tenant_client.post(
+            "/api/auth/login",
+            {"email": tenant_admin.email, "password": "A-strong-customer-password-2026!"},
+            format="json",
+        ).status_code
+        == 200
+    )
+
+    invalid_state = client.post(
+        approval_url,
+        {"reason": "Cannot approve twice", "revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-customer-invalid-state",
+    )
+    assert invalid_state.status_code == 400
+
+
+@override_settings(SYSTEM_ADMIN_MUTATIONS_ENABLED=True)
+def test_approval_preconditions_and_other_lifecycle_routes_fail_closed(
+    system_admin, platform_organization
+):
+    organization = create_customer("Approval Preconditions Customer")
+    organization.registered = False
+    organization.access_status = Organization.AccessStatus.PENDING_APPROVAL
+    organization.save(update_fields=("registered", "access_status", "updated_at"))
+    tenant_admin = create_customer_user(
+        organization,
+        email="admin@approval-preconditions.test",
+        status=User.Status.INVITED,
+    )
+    tenant_admin.email_verified_at = None
+    tenant_admin.save(update_fields=("email_verified_at", "updated_at"))
+    client = system_client(system_admin)
+    approval_url = f"/api/system/organizations/{organization.id}/approve"
+
+    missing_idempotency = client.post(
+        approval_url,
+        {"reason": "Verified onboarding", "revision": organization.revision},
+        format="json",
+    )
+    assert missing_idempotency.status_code == 400
+    missing_reason = client.post(
+        approval_url,
+        {"revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-missing-reason-001",
+    )
+    assert missing_reason.status_code == 400
+    unverified = client.post(
+        approval_url,
+        {"reason": "Email is not verified", "revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-unverified-001",
+    )
+    assert unverified.status_code == 400
+    assert "Email verification" in str(unverified.json())
+
+    tenant_admin.status = User.Status.ACTIVE
+    tenant_admin.save(update_fields=("status", "updated_at"))
+    organization.registered = True
+    organization.save(update_fields=("registered", "updated_at"))
+    detail = client.get(f"/api/system/organizations/{organization.id}")
+    assert detail.status_code == 200
+    assert detail.json()["organization"]["adminCount"] == 0
+    still_unverified = client.post(
+        approval_url,
+        {
+            "reason": "Active but unverified Admin must not unlock approval",
+            "revision": organization.revision,
+        },
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-active-unverified-001",
+    )
+    assert still_unverified.status_code == 400
+    assert "Email verification" in str(still_unverified.json())
+
+    stale_mfa_client = system_client(
+        system_admin,
+        verified_at=timezone.now().timestamp() - 901,
+    )
+    stale_mfa = stale_mfa_client.post(
+        approval_url,
+        {"reason": "Recent MFA is required", "revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-stale-mfa-001",
+    )
+    assert stale_mfa.status_code == 403
+    assert stale_mfa.json()["errors"]["code"] == "system_mfa_step_up_required"
+
+    with override_settings(SYSTEM_ADMIN_MUTATIONS_ENABLED=False):
+        disabled = client.post(
+            approval_url,
+            {"reason": "Runtime gate is disabled", "revision": organization.revision},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="approve-disabled-gate-001",
+        )
+    assert disabled.status_code == 503
+    assert disabled.json()["errors"]["code"] == "system_mutations_disabled"
+
+    pending_suspend = client.post(
+        f"/api/system/organizations/{organization.id}/suspend",
+        {"reason": "Cannot skip approval", "revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="suspend-pending-approval-001",
+    )
+    pending_reactivate = client.post(
+        f"/api/system/organizations/{organization.id}/reactivate",
+        {"reason": "Cannot skip approval", "revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="reactivate-pending-approval-001",
+    )
+    assert pending_suspend.status_code == 400
+    assert pending_reactivate.status_code == 400
+
+    platform_target = client.post(
+        f"/api/system/organizations/{platform_organization.id}/approve",
+        {"reason": "Platform container is immutable", "revision": platform_organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-platform-container-001",
+    )
+    assert platform_target.status_code == 404
+
+    organization.refresh_from_db()
+    assert organization.access_status == Organization.AccessStatus.PENDING_APPROVAL
+    assert organization.approved_at is None
+    assert organization.approved_by is None
+    assert organization.approval_reason == ""
+    assert not PlatformAuditEvent.objects.filter(
+        organization=organization,
+        action="platform.organization.approved",
+    ).exists()
+    assert not EmailOutbox.objects.filter(
+        organization=organization,
+        idempotency_key__startswith=f"notice:organization-approved:{organization.id}:",
+    ).exists()
+
+    organization.registered = True
+    organization.access_status = Organization.AccessStatus.SUSPENDED
+    organization.suspended_at = timezone.now()
+    organization.suspension_reason = "Already suspended"
+    organization.save(
+        update_fields=(
+            "registered",
+            "access_status",
+            "suspended_at",
+            "suspension_reason",
+            "updated_at",
+        )
+    )
+    suspended = client.post(
+        approval_url,
+        {"reason": "Suspension is not approval", "revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approve-suspended-001",
+    )
+    assert suspended.status_code == 400
+    organization.refresh_from_db()
+    assert organization.access_status == Organization.AccessStatus.SUSPENDED
+
+
+@pytest.mark.parametrize("privileged_field", ["is_staff", "is_superuser"])
+@override_settings(SYSTEM_ADMIN_MUTATIONS_ENABLED=True)
+def test_privileged_customer_admin_cannot_satisfy_approval_readiness(
+    system_admin, privileged_field
+):
+    organization = create_customer(f"Privileged {privileged_field} Customer")
+    organization.registered = True
+    organization.access_status = Organization.AccessStatus.PENDING_APPROVAL
+    organization.save(update_fields=("registered", "access_status", "updated_at"))
+    tenant_admin = create_customer_user(
+        organization,
+        email=f"{privileged_field}@approval.test",
+    )
+    setattr(tenant_admin, privileged_field, True)
+    tenant_admin.save(update_fields=(privileged_field, "updated_at"))
+    client = system_client(system_admin)
+
+    detail = client.get(f"/api/system/organizations/{organization.id}")
+    assert detail.status_code == 200
+    assert detail.json()["organization"]["adminCount"] == 0
+    approval = client.post(
+        f"/api/system/organizations/{organization.id}/approve",
+        {
+            "reason": "Privileged Django accounts are not tenant identities",
+            "revision": organization.revision,
+        },
+        format="json",
+        HTTP_IDEMPOTENCY_KEY=f"approve-{privileged_field}-admin-001",
+    )
+    assert approval.status_code == 400
+    organization.refresh_from_db()
+    assert organization.access_status == Organization.AccessStatus.PENDING_APPROVAL
+
+
+@override_settings(SYSTEM_ADMIN_MUTATIONS_ENABLED=True)
+def test_email_verification_invalidates_a_prepared_approval_revision(system_admin):
+    organization = create_customer("Approval Revision Customer")
+    organization.registered = False
+    organization.access_status = Organization.AccessStatus.PENDING_APPROVAL
+    organization.save(update_fields=("registered", "access_status", "updated_at"))
+    tenant_admin = create_customer_user(
+        organization,
+        email="admin@approval-revision.test",
+        status=User.Status.INVITED,
+    )
+    tenant_admin.email_verified_at = None
+    tenant_admin.save(update_fields=("email_verified_at", "updated_at"))
+    _, raw = issue_action_token(
+        tenant_admin,
+        ActionToken.Kind.VERIFY_EMAIL,
+        hours=24,
+        allow_pending_approval=True,
+    )
+    prepared_revision = organization.revision
+
+    verified = APIClient().post("/api/auth/verify-email", {"token": raw}, format="json")
+    assert verified.status_code == 200
+    organization.refresh_from_db()
+    assert organization.registered is True
+    assert organization.revision == prepared_revision + 1
+
+    client = system_client(system_admin)
+    approval_url = f"/api/system/organizations/{organization.id}/approve"
+    stale = client.post(
+        approval_url,
+        {"reason": "Review prepared before verification", "revision": prepared_revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approval-pre-verification-revision-001",
+    )
+    assert stale.status_code == 409
+
+    approved = client.post(
+        approval_url,
+        {"reason": "Review refreshed after verification", "revision": organization.revision},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="approval-post-verification-revision-001",
+    )
+    assert approved.status_code == 200
+    assert approved.json()["organization"]["status"] == Organization.AccessStatus.ACTIVE
 
 
 def test_recent_mfa_step_up_is_distinct_and_invalid_code_preserves_session(system_admin):
@@ -672,6 +1106,12 @@ def test_create_customer_is_idempotent_private_and_onboarding(system_admin):
     invitation = Invitation.objects.get(organization=organization)
     assert organization.registered is False
     assert organization.kind == Organization.Kind.CUSTOMER
+    assert organization.access_status == Organization.AccessStatus.ACTIVE
+    assert organization.approved_at is not None
+    assert organization.approved_by == system_admin
+    assert organization.approval_reason == "Provisioned by a System Administrator"
+    assert response.json()["organization"]["approvedAt"] is not None
+    assert response.json()["organization"]["approvedBy"]["id"] == system_admin.id
     assert invitation.role == User.Role.ADMIN
     assert timedelta(hours=23, minutes=59) < invitation.expires_at - timezone.now()
     assert InvoiceStatusStep.objects.filter(organization=organization).exists()
@@ -750,17 +1190,22 @@ def test_list_minimizes_bulk_data_and_profile_update_is_safe(system_admin):
         "primaryPort",
         "createdAt",
         "updatedAt",
+        "approvedAt",
         "userCount",
         "activeUserCount",
         "adminCount",
         "pendingInvitationCount",
     }
+    assert summary["status"] == Organization.AccessStatus.ACTIVE
+    assert summary["approvedAt"] is None
     assert summary["pendingInvitationCount"] == 0
     assert "address" not in summary and "suspensionReason" not in summary
 
     detail = client.get(f"/api/system/organizations/{organization.id}")
     assert detail.status_code == 200
     assert detail.json()["organization"]["rcNumber"] == "SECRET-RC"
+    assert detail.json()["organization"]["approvedBy"] is None
+    assert detail.json()["organization"]["approvalReason"] is None
     revision = detail.json()["organization"]["revision"]
     audit_before = PlatformAuditEvent.objects.count()
     no_op = client.patch(
@@ -1345,24 +1790,56 @@ def test_mutation_feature_flag_fails_closed_without_state_change(system_admin):
     assert not PlatformMutationRequest.objects.filter(actor=system_admin).exists()
 
 
-def test_mutation_flag_file_toggles_immediately_and_fails_closed(tmp_path):
+def test_mutation_flag_file_toggles_immediately_and_fails_closed(tmp_path, system_admin):
     from api.system_admin_views import SystemMutationsDisabled, require_system_mutations
 
     flag = tmp_path / "system-admin-mutations-test.flag"
+    client = system_client(system_admin)
     with override_settings(
         SYSTEM_ADMIN_MUTATION_FLAG_FILE=str(flag),
         SYSTEM_ADMIN_MUTATIONS_ENABLED=True,
     ):
         with pytest.raises(SystemMutationsDisabled):
             require_system_mutations()
+        access = client.get("/api/system/account")
+        assert access.status_code == 200
+        assert access.json()["platformAccess"]["mutationsEnabled"] is False
         flag.write_text("malformed\n", encoding="utf-8")
+        with pytest.raises(SystemMutationsDisabled):
+            require_system_mutations()
+        flag.write_bytes(b"\xff\xfe")
         with pytest.raises(SystemMutationsDisabled):
             require_system_mutations()
         flag.write_text("enabled\n", encoding="utf-8")
         require_system_mutations()
+        access = client.get("/api/system/account")
+        assert access.json()["platformAccess"]["mutationsEnabled"] is True
         flag.write_text("disabled\n", encoding="utf-8")
         with pytest.raises(SystemMutationsDisabled):
             require_system_mutations()
+        access = client.get("/api/system/account")
+        assert access.json()["platformAccess"]["mutationsEnabled"] is False
+
+
+def test_unknown_runtime_environment_fails_system_mutations_closed(system_admin):
+    from api.system_admin_views import SystemMutationsDisabled, require_system_mutations
+
+    client = system_client(system_admin)
+    with override_settings(
+        ENVIRONMENT="qa-typo",
+        EMAIL_DELIVERY_BACKEND="resend",
+        RESEND_API_KEY="re_test_ready",
+        EMAIL_FROM="Vessel Caller <staging@example.test>",
+        SYSTEM_ADMIN_MUTATION_FLAG_FILE="",
+        SYSTEM_ADMIN_MUTATIONS_ENABLED=True,
+    ):
+        with pytest.raises(SystemMutationsDisabled):
+            require_system_mutations()
+        access = client.get("/api/system/account")
+        assert access.status_code == 200
+        assert access.json()["platformAccess"]["environment"] == "qa-typo"
+        assert access.json()["platformAccess"]["emailDeliveryReady"] is True
+        assert access.json()["platformAccess"]["mutationsEnabled"] is False
 
 
 @override_settings(SYSTEM_ADMIN_MUTATIONS_ENABLED=True)

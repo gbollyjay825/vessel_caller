@@ -34,10 +34,15 @@ System administration is a separate application trust boundary.
 - Organization onboarding and access are separate concepts. The existing
   registration state continues to describe onboarding; `access_status`
   controls whether tenant authentication and requests are allowed.
-- The first lifecycle actions are suspension and reactivation. Suspension is
-  fail-closed: the organization state changes first, then tenant sessions and
-  usable onboarding/security tokens are revoked. Reactivation never restores
-  a previous session or token.
+- Self-registration creates a `pending_approval` customer organization. Email
+  verification is the only pre-approval capability; tenant authentication and
+  all workspace access stay fail-closed until a System Admin approves a fully
+  registered organization with a verified tenant Admin.
+- Lifecycle actions are approval, suspension, and reactivation. Approval is
+  the only transition from `pending_approval` to `active`. Suspension changes
+  state first, then revokes tenant sessions and usable onboarding/security
+  tokens. Neither approval nor reactivation restores a previous session or
+  token.
 - Cross-organization support is exposed only as explicit, narrowly scoped
   actions. No tenant-switch header, implicit tenant context, impersonation, or
   generic cross-tenant object access is permitted.
@@ -60,11 +65,12 @@ System administration is a separate application trust boundary.
 System Admin may list and search customer organizations, inspect a minimized
 account/health summary, create an organization with its first Admin setup
 invitation, edit allow-listed core profile fields, inspect minimized
-user/invitation and lifecycle-audit projections, suspend or reactivate access,
-and perform safe tenant-Admin recovery through one-time invitations or
-password-reset dispatch. Every mutation requires a reason where material,
-optimistic concurrency, idempotency protection, and immutable audit evidence;
-high-impact mutations also require recent MFA.
+user/invitation and lifecycle-audit projections, approve verified
+self-registration, suspend or reactivate access, and perform safe tenant-Admin
+recovery through one-time invitations or password-reset dispatch. Every
+mutation requires a reason where material, optimistic concurrency, idempotency
+protection, and immutable audit evidence; high-impact mutations also require
+recent MFA.
 
 ## Excluded product scope
 
@@ -81,9 +87,11 @@ email domain, Django group, staff flag, or superuser flag.
 - Tenant middleware, authentication, permissions, background services, token
   flows, and private-object issuance must all enforce organization access
   state; frontend hiding alone is never sufficient.
-- Existing organizations migrate to `kind=customer` and active access without
-  changing registration state. The platform organization must be marked or
-  created explicitly; a data migration must not infer it from a display name.
+- Existing organizations retain active access without changing registration
+  state. Approval metadata is nullable so existing active organizations are
+  not relabelled or falsely attributed. The platform organization must be
+  marked or created explicitly; a data migration must not infer it from a
+  display name.
 - Organization suspension and concurrent login must use a consistent locking
   and status-check strategy. Status is committed before bulk revocation so
   new requests fail closed even if cleanup continues.

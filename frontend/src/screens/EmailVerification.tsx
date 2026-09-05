@@ -12,6 +12,7 @@ export function EmailVerification() {
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
   const [state, setState] = useState<VerificationState>(token ? "verifying" : "idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [approvalPending, setApprovalPending] = useState(false);
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -21,6 +22,7 @@ export function EmailVerification() {
       .then((result) => {
         if (!active) return;
         setState("verified");
+        setApprovalPending(result.approvalPending === true);
         setMessage(result.detail || "Your email is verified. You can now sign in.");
       })
       .catch((error: unknown) => {
@@ -56,6 +58,19 @@ export function EmailVerification() {
   }
 
   if (state === "verified") {
+    if (approvalPending) {
+      return (
+        <AuthCard
+          title="Email verified — approval pending"
+          subtitle="Your email is verified. A System Administrator must approve your organization before you can sign in."
+        >
+          <div className="auth-notice" role="status">
+            Your organization remains securely locked while the approval review is pending.
+          </div>
+          <Link className="auth-submit auth-submit-link" to="/">Return to home</Link>
+        </AuthCard>
+      );
+    }
     return (
       <AuthCard title="Email verified" subtitle={message ?? "Your account is ready."}>
         <Link className="auth-submit auth-submit-link" to="/login">Sign in</Link>

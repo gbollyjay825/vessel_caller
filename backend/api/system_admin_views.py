@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import io
 from datetime import timedelta
-from pathlib import Path
 
 from django.conf import settings
 from django.db import transaction
@@ -28,6 +27,7 @@ from accounts.platform_access import (
     active_platform_grant,
     lock_operational_platform_access,
     platform_access_data,
+    system_admin_mutation_state,
 )
 from accounts.security import (
     EMPTY_MFA_SECRET,
@@ -51,6 +51,7 @@ from organizations.models import Organization
 from organizations.services import (
     ADMIN_INVITATION_UNAVAILABLE_MESSAGE,
     AdminInvitationUnavailable,
+    approve_customer_organization,
     create_admin_invitation,
     create_customer_organization,
     reactivate_customer_organization,
@@ -89,22 +90,7 @@ class SystemMutationsDisabled(APIException):
 
 
 def require_system_mutations() -> None:
-    email_ready = settings.EMAIL_DELIVERY_BACKEND == "resend" and bool(settings.RESEND_API_KEY)
-    local_memory = (
-        settings.ENVIRONMENT in {"development", "test"}
-        and settings.EMAIL_DELIVERY_BACKEND == "memory"
-    )
-    if not email_ready and not local_memory:
-        raise SystemMutationsDisabled()
-    flag_file = str(settings.SYSTEM_ADMIN_MUTATION_FLAG_FILE).strip()
-    if flag_file:
-        try:
-            if Path(flag_file).read_text(encoding="utf-8") == "enabled\n":
-                return
-        except OSError:
-            pass
-        raise SystemMutationsDisabled()
-    if not settings.SYSTEM_ADMIN_MUTATIONS_ENABLED:
+    if not system_admin_mutation_state()["mutationsEnabled"]:
         raise SystemMutationsDisabled()
 
 
@@ -113,26 +99,36 @@ def customer_organizations():
 
 
 def annotated_customer_organizations():
-    return customer_organizations().annotate(
-        user_count=Count("users", distinct=True),
-        active_user_count=Count(
-            "users",
-            filter=Q(users__status=User.Status.ACTIVE),
-            distinct=True,
-        ),
-        admin_count=Count(
-            "users",
-            filter=Q(users__status=User.Status.ACTIVE, users__role=User.Role.ADMIN),
-            distinct=True,
-        ),
-        pending_invitation_count=Count(
-            "invitations",
-            filter=Q(
-                invitations__status=Invitation.Status.PENDING,
-                invitations__role=User.Role.ADMIN,
+    return (
+        customer_organizations()
+        .select_related("approved_by")
+        .annotate(
+            user_count=Count("users", distinct=True),
+            active_user_count=Count(
+                "users",
+                filter=Q(users__status=User.Status.ACTIVE),
+                distinct=True,
             ),
-            distinct=True,
-        ),
+            admin_count=Count(
+                "users",
+                filter=Q(
+                    users__status=User.Status.ACTIVE,
+                    users__role=User.Role.ADMIN,
+                    users__email_verified_at__isnull=False,
+                    users__is_staff=False,
+                    users__is_superuser=False,
+                ),
+                distinct=True,
+            ),
+            pending_invitation_count=Count(
+                "invitations",
+                filter=Q(
+                    invitations__status=Invitation.Status.PENDING,
+                    invitations__role=User.Role.ADMIN,
+                ),
+                distinct=True,
+            ),
+        )
     )
 
 
@@ -280,6 +276,9 @@ class SystemOverviewView(APIView):
                 "organizationCount": organizations.count(),
                 "activeOrganizationCount": organizations.filter(
                     access_status=Organization.AccessStatus.ACTIVE
+                ).count(),
+                "pendingApprovalOrganizationCount": organizations.filter(
+                    access_status=Organization.AccessStatus.PENDING_APPROVAL
                 ).count(),
                 "suspendedOrganizationCount": organizations.filter(
                     access_status=Organization.AccessStatus.SUSPENDED
@@ -464,12 +463,41 @@ class SystemOrganizationSuspendView(APIView):
         if organization.access_status != Organization.AccessStatus.SUSPENDED:
             if organization.revision != serializer.validated_data["revision"]:
                 raise Conflict()
-            suspend_customer_organization(
+            try:
+                suspend_customer_organization(
+                    organization=organization,
+                    actor=request.user,
+                    reason=serializer.validated_data["reason"],
+                    request=request,
+                )
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
+        return Response(
+            {"organization": system_organization_data(organization), "rev": organization.revision}
+        )
+
+
+class SystemOrganizationApproveView(APIView):
+    permission_classes = [IsAuthenticated, IsRecentSystemAdminMFA]
+
+    @idempotent_system_mutation("system.organization.approve")
+    @transaction.atomic
+    def post(self, request, organization_id):
+        require_system_mutations()
+        serializer = SystemOrganizationLifecycleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        organization = lock_customer_organization(organization_id)
+        if organization.revision != serializer.validated_data["revision"]:
+            raise Conflict()
+        try:
+            approve_customer_organization(
                 organization=organization,
                 actor=request.user,
                 reason=serializer.validated_data["reason"],
                 request=request,
             )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         return Response(
             {"organization": system_organization_data(organization), "rev": organization.revision}
         )
@@ -488,12 +516,15 @@ class SystemOrganizationReactivateView(APIView):
         if organization.access_status != Organization.AccessStatus.ACTIVE:
             if organization.revision != serializer.validated_data["revision"]:
                 raise Conflict()
-            reactivate_customer_organization(
-                organization=organization,
-                actor=request.user,
-                reason=serializer.validated_data["reason"],
-                request=request,
-            )
+            try:
+                reactivate_customer_organization(
+                    organization=organization,
+                    actor=request.user,
+                    reason=serializer.validated_data["reason"],
+                    request=request,
+                )
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
         return Response(
             {"organization": system_organization_data(organization), "rev": organization.revision}
         )
@@ -537,7 +568,7 @@ class SystemOrganizationInvitationsView(RecentMutationPermissionsMixin):
         serializer.is_valid(raise_exception=True)
         organization = lock_customer_organization(organization_id)
         if organization.access_status != Organization.AccessStatus.ACTIVE:
-            raise ValidationError("Suspended organizations cannot receive invitations")
+            raise ValidationError("Only active organizations can receive invitations")
         try:
             invitation = create_admin_invitation(
                 organization=organization,
@@ -563,7 +594,7 @@ class SystemOrganizationInvitationResendView(APIView):
         require_system_mutations()
         organization = lock_customer_organization(organization_id)
         if organization.access_status != Organization.AccessStatus.ACTIVE:
-            raise ValidationError("Suspended organizations cannot receive invitations")
+            raise ValidationError("Only active organizations can receive invitations")
         invitation = (
             organization.invitations.select_for_update()
             .filter(
@@ -648,7 +679,7 @@ class SystemOrganizationUserPasswordResetView(APIView):
         serializer.is_valid(raise_exception=True)
         organization = lock_customer_organization(organization_id)
         if organization.access_status != Organization.AccessStatus.ACTIVE:
-            raise ValidationError("Suspended organizations cannot receive recovery actions")
+            raise ValidationError("Only active organizations can receive recovery actions")
         member = (
             organization.users.select_for_update()
             .filter(
@@ -697,7 +728,7 @@ class SystemOrganizationUserMFAResetView(APIView):
         serializer.is_valid(raise_exception=True)
         organization = lock_customer_organization(organization_id)
         if organization.access_status != Organization.AccessStatus.ACTIVE:
-            raise ValidationError("Suspended organizations cannot receive recovery actions")
+            raise ValidationError("Only active organizations can receive recovery actions")
         member = (
             organization.users.select_for_update()
             .filter(

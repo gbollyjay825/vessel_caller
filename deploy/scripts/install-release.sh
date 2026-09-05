@@ -160,7 +160,7 @@ mv -Tf "${slot_root}/current.next" "${slot_root}/current"
 
 systemctl daemon-reload
 if ! flock /run/lock/vessel-caller-migrate.lock \
-  systemctl start "${prepare_unit}"; then
+  systemctl restart "${prepare_unit}"; then
   if [[ "${instance}" == staging ]]; then
     echo "Staging preparation failed after cutover began; writers remain stopped." >&2
   else
@@ -172,7 +172,8 @@ if ! flock /run/lock/vessel-caller-migrate.lock \
   fi
   exit 1
 fi
-if [[ "$(systemctl show --property=Result --value "${prepare_unit}")" != success ]] \
+if ! systemctl is-active --quiet "${prepare_unit}" \
+  || [[ "$(systemctl show --property=Result --value "${prepare_unit}")" != success ]] \
   || [[ "$(systemctl show --property=ExecMainStatus --value "${prepare_unit}")" != 0 ]] \
   || [[ "$(systemctl show --property=AssertResult --value "${prepare_unit}")" != yes ]]; then
   if [[ "${instance}" == staging ]]; then

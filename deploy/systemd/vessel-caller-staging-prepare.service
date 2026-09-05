@@ -9,6 +9,7 @@ AssertPathExists=/opt/vessel-caller/slots/staging/current/RELEASE.env
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 User=vessel-caller-staging
 Group=vessel-caller-staging
 WorkingDirectory=/opt/vessel-caller/slots/staging/current/backend

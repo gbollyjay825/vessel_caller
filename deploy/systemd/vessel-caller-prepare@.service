@@ -8,6 +8,7 @@ ConditionPathExists=/opt/vessel-caller/slots/%i/current/RELEASE.env
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 User=vessel-caller-production
 Group=vessel-caller-production
 WorkingDirectory=/opt/vessel-caller/slots/%i/current/backend

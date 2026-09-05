@@ -156,6 +156,9 @@ assert "Missing or untrusted protected staging seed environment." in install_scr
 assert "Staging preparation was skipped or did not complete; writers remain stopped." in install_script
 assert "--property=AssertResult" in install_script
 assert "--property=ExecMainStatus" in install_script
+assert 'systemctl restart "${prepare_unit}"' in install_script
+assert 'systemctl start "${prepare_unit}"' not in install_script
+assert 'systemctl is-active --quiet "${prepare_unit}"' in install_script
 assert "Staging candidate failed readiness; writers remain stopped." in install_script
 staging_prepare_failure = install_script.split(
     'if ! flock /run/lock/vessel-caller-migrate.lock', 1
@@ -252,6 +255,11 @@ prepare_unit = (
 ).read_text(encoding="utf-8")
 assert "AssertPathExists=/etc/vessel-caller/staging-e2e.env" in prepare_unit
 assert "ConditionPathExists=/etc/vessel-caller/staging-e2e.env" not in prepare_unit
+assert "Type=oneshot\nRemainAfterExit=yes" in prepare_unit
+production_prepare_unit = (
+    root / "deploy/systemd/vessel-caller-prepare@.service"
+).read_text(encoding="utf-8")
+assert "Type=oneshot\nRemainAfterExit=yes" in production_prepare_unit
 assert 'organizationApprovalLifecycle == true' in compatibility_guard
 assert 'staging-organization-approval-lifecycle.cutover' in compatibility_guard
 assert "staging-lifecycle-state.sh" in compatibility_guard

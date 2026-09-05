@@ -34,7 +34,21 @@ vi.mock("../lib/api", () => ({
 }));
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => authMock }));
 vi.mock("../screens/AccountSecurity", () => ({
-  AccountSecurity: () => <div>Shared account security settings</div>,
+  AccountSecurity: ({
+    initialTab,
+    prioritizeMfa,
+  }: {
+    initialTab?: string;
+    prioritizeMfa?: boolean;
+  }) => (
+    <div
+      data-testid="shared-account-security"
+      data-initial-tab={initialTab}
+      data-prioritize-mfa={String(Boolean(prioritizeMfa))}
+    >
+      Shared account security settings
+    </div>
+  ),
 }));
 
 function renderAccount() {
@@ -83,9 +97,12 @@ describe("SystemAccount", () => {
     authMock.platformAccess.mfaEnrollmentRequired = true;
     renderAccount();
 
-    expect(screen.getByText("Set up MFA first.")).toBeInTheDocument();
+    expect(screen.getByText("Secure your System Administrator account")).toBeInTheDocument();
+    expect(screen.getByText(/unlock the platform overview, organization directory, and audit trail/i)).toBeInTheDocument();
+    expect(screen.getByText("Open the control plane")).toBeInTheDocument();
     expect(screen.queryByLabelText("Authenticator or recovery code")).not.toBeInTheDocument();
-    expect(screen.getByText("Shared account security settings")).toBeInTheDocument();
+    expect(screen.getByTestId("shared-account-security")).toHaveAttribute("data-initial-tab", "security");
+    expect(screen.getByTestId("shared-account-security")).toHaveAttribute("data-prioritize-mfa", "true");
   });
 
   it("shows the assurance expiry while still allowing deliberate reverification", () => {

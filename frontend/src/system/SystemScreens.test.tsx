@@ -24,6 +24,7 @@ const apiMock = vi.hoisted(() => ({
   systemOrganization: vi.fn(),
   createSystemOrganization: vi.fn(),
   updateSystemOrganization: vi.fn(),
+  approveSystemOrganization: vi.fn(),
   suspendSystemOrganization: vi.fn(),
   reactivateSystemOrganization: vi.fn(),
   systemOrganizationUsers: vi.fn(),
@@ -44,6 +45,9 @@ const authMock = vi.hoisted(() => ({
     permissions: ["platform.audit.export"],
     stepUpRequired: false,
     assuranceExpiresAt: "2099-01-01T00:00:00Z" as string | null,
+    environment: "staging",
+    emailDeliveryReady: true,
+    mutationsEnabled: true,
   },
 }));
 
@@ -145,6 +149,9 @@ describe("System console screens", () => {
     authMock.can.mockReturnValue(true);
     authMock.platformAccess.stepUpRequired = false;
     authMock.platformAccess.assuranceExpiresAt = "2099-01-01T00:00:00Z";
+    authMock.platformAccess.environment = "staging";
+    authMock.platformAccess.emailDeliveryReady = true;
+    authMock.platformAccess.mutationsEnabled = true;
     apiMock.systemOrganization.mockResolvedValue({ organization });
     apiMock.systemOrganizations.mockResolvedValue(page([organization]));
     apiMock.systemOrganizationUsers.mockResolvedValue(page([admin, finance]));
@@ -156,6 +163,7 @@ describe("System console screens", () => {
   it("renders access-only overview metrics without tenant operational data", async () => {
     const overview: PlatformOverview = {
       organizationCount: 3,
+      pendingApprovalOrganizationCount: 1,
       activeOrganizationCount: 2,
       suspendedOrganizationCount: 1,
       activeUserCount: 8,
@@ -167,6 +175,7 @@ describe("System console screens", () => {
 
     expect(await screen.findAllByText("Harbour Logistics")).not.toHaveLength(0);
     expect(screen.getByText("Customer organizations")).toBeInTheDocument();
+    expect(screen.getByText("Awaiting platform review")).toBeInTheDocument();
     expect(screen.getByText("2 pending invitations")).toBeInTheDocument();
     expect(screen.queryByText(/vessel calls/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/invoices/i)).not.toBeInTheDocument();
@@ -181,6 +190,7 @@ describe("System console screens", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("request-failed");
     apiMock.systemOverview.mockResolvedValue({
       organizationCount: 0,
+      pendingApprovalOrganizationCount: 0,
       activeOrganizationCount: 0,
       suspendedOrganizationCount: 0,
       activeUserCount: 0,
@@ -215,7 +225,163 @@ describe("System console screens", () => {
     }));
     await userEvent.type(screen.getByRole("searchbox", { name: "Search organizations" }), "Harbour");
     await vi.waitFor(() => expect(apiMock.systemOrganizations).toHaveBeenLastCalledWith(expect.objectContaining({ search: "Harbour" })));
+    expect(screen.getByRole("option", { name: "Pending approval" })).toHaveValue("pending_approval");
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Lifecycle status" }), "active");
+  });
+
+  it("keeps organization creation visible but locked when environment mutations are disabled", async () => {
+    authMock.platformAccess.mutationsEnabled = false;
+    renderScreen(<SystemOrganizations />, "/system/organizations");
+
+    const create = await screen.findByRole("button", { name: "Create organization" });
+    expect(create).toBeDisabled();
+    expect(create).toHaveAttribute("title", "Platform changes are locked in this environment");
+    expect(screen.getByText(/Review customer onboarding/)).toHaveTextContent("Changes are locked in this environment");
+    expect(screen.queryByRole("dialog", { name: "Create organization" })).not.toBeInTheDocument();
+  });
+
+  it("disables an already-open create confirmation when the runtime gate locks", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const ui = () => (
+      <QueryClientProvider client={client}>
+        <SystemOrganizations />
+      </QueryClientProvider>
+    );
+    const view = render(ui());
+    await screen.findAllByText("Harbour Logistics");
+    await userEvent.click(screen.getByRole("button", { name: "Create organization" }));
+    await userEvent.type(screen.getByLabelText(/^Organization name/), "Gate Transition");
+    await userEvent.type(screen.getByLabelText(/^Admin name/), "Gate Admin");
+    await userEvent.type(screen.getByLabelText(/^Admin email/), "gate@example.com");
+    expect(screen.getByRole("button", { name: "Create and invite Admin" })).toBeEnabled();
+
+    authMock.platformAccess.mutationsEnabled = false;
+    view.rerender(ui());
+
+    expect(screen.getByRole("button", { name: "Create and invite Admin" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create and invite Admin" })).toHaveAttribute(
+      "title",
+      "Platform changes are locked in this environment",
+    );
+  });
+
+  it("fails closed on an unrecognized environment even if mutations are reported enabled", async () => {
+    authMock.platformAccess.environment = "unexpected-preview";
+    authMock.platformAccess.mutationsEnabled = true;
+    renderScreen(<SystemOrganizations />, "/system/organizations");
+
+    expect(await screen.findByRole("button", { name: "Create organization" })).toBeDisabled();
+  });
+
+  it("labels the overview destination as view-only when mutations are disabled", async () => {
+    authMock.platformAccess.mutationsEnabled = false;
+    apiMock.systemOverview.mockResolvedValue({
+      organizationCount: 1,
+      pendingApprovalOrganizationCount: 0,
+      activeOrganizationCount: 1,
+      suspendedOrganizationCount: 0,
+      activeUserCount: 2,
+      pendingInvitationCount: 0,
+      recentOrganizations: [organization],
+    });
+    renderScreen(<SystemOverview />);
+
+    expect(await screen.findByRole("link", { name: "View organizations" })).toHaveAttribute("href", "/system/organizations");
+    expect(screen.queryByRole("link", { name: "Manage organizations" })).not.toBeInTheDocument();
+  });
+
+  it("reviews and approves a pending organization with explicit approval copy", async () => {
+    const pendingOrganization: PlatformOrganization = {
+      ...organization,
+      status: "pending_approval",
+      approvedAt: null,
+      approvedBy: null,
+      approvalReason: null,
+    };
+    const approvedOrganization: PlatformOrganization = {
+      ...pendingOrganization,
+      status: "active",
+      revision: 5,
+      approvedAt: "2026-08-10T14:00:00Z",
+      approvedBy: { id: "operator-1", name: "System Operator", email: "operator@example.com" },
+      approvalReason: "Registration details reviewed",
+    };
+    apiMock.systemOrganization.mockResolvedValue({ organization: pendingOrganization });
+    apiMock.approveSystemOrganization.mockResolvedValue({ organization: approvedOrganization, rev: 5 });
+
+    renderScreen(
+      <Route path="/system/organizations/:id"><SystemOrganizationDetail /></Route>,
+      "/system/organizations/org-1",
+    );
+
+    expect(await screen.findByText("Workspace approval is pending.")).toBeInTheDocument();
+    expect(screen.getByText("Pending approval", { selector: ".badge" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Access" }));
+    expect(await screen.findByRole("button", { name: "Invite tenant Admin" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Invite tenant Admin" })).toHaveAttribute(
+      "title",
+      "Approve the organization before managing tenant access",
+    );
+    expect(screen.getAllByRole("button", { name: "Send password reset" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Reset MFA" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Approve organization" }));
+    const dialog = screen.getByRole("alertdialog", { name: /Approve Harbour Logistics/ });
+    expect(within(dialog).getByText(/Workspace access will be enabled/)).toBeInTheDocument();
+    const approve = within(dialog).getByRole("button", { name: "Approve organization" });
+    expect(approve).toBeDisabled();
+    await userEvent.type(within(dialog).getByLabelText(/^Approval reason/), "Registration details reviewed");
+    await userEvent.click(approve);
+
+    expect(apiMock.approveSystemOrganization).toHaveBeenCalledWith(
+      "org-1", "Registration details reviewed", 4, "generated-idempotency-key",
+    );
+    expect(await screen.findAllByText("Active", { selector: ".badge" })).not.toHaveLength(0);
+  });
+
+  it.each([
+    [false, 1, /Registration and email verification must be completed before approval/i],
+    [true, 0, /At least one verified active tenant Admin is required before approval/i],
+  ])("keeps approval locked until registration and a verified active Admin are ready", async (registered, adminCount, reason) => {
+    apiMock.systemOrganization.mockResolvedValue({
+      organization: {
+        ...organization,
+        status: "pending_approval",
+        registered,
+        adminCount,
+      },
+    });
+
+    renderScreen(
+      <Route path="/system/organizations/:id"><SystemOrganizationDetail /></Route>,
+      "/system/organizations/org-1",
+    );
+
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve organization" })).toBeDisabled();
+  });
+
+  it("uses distinct reactivation semantics for a suspended organization", async () => {
+    apiMock.systemOrganization.mockResolvedValue({
+      organization: {
+        ...organization,
+        status: "suspended",
+        suspendedAt: "2026-08-10T13:00:00Z",
+        suspensionReason: "Customer ownership review",
+      },
+    });
+
+    renderScreen(
+      <Route path="/system/organizations/:id"><SystemOrganizationDetail /></Route>,
+      "/system/organizations/org-1",
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Reactivate organization" }));
+    const dialog = screen.getByRole("alertdialog", { name: /Reactivate Harbour Logistics/ });
+    expect(within(dialog).getByText(/Workspace access will resume/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/^Reactivation reason/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/approval/i)).not.toBeInTheDocument();
   });
 
   it("edits, suspends, and safely recovers tenant Admin access", async () => {
@@ -251,17 +417,7 @@ describe("System console screens", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("edits are preserved");
     await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
     expect(await screen.findByRole("heading", { name: "Harbour Agency" })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Suspend organization" }));
-    const suspendDialog = screen.getByRole("alertdialog", { name: /Suspend Harbour Agency/ });
-    const suspendButton = within(suspendDialog).getByRole("button", { name: "Suspend organization" });
-    expect(suspendButton).toBeDisabled();
-    await userEvent.type(within(suspendDialog).getByLabelText(/^Suspension reason/), "Customer ownership review");
-    await userEvent.click(suspendButton);
-    expect(await screen.findByText("Workspace access is suspended.")).toBeInTheDocument();
-    expect(apiMock.suspendSystemOrganization).toHaveBeenCalledWith(
-      "org-1", "Customer ownership review", 5, "generated-idempotency-key",
-    );
+    apiMock.systemOrganization.mockResolvedValue({ organization: updated });
 
     await userEvent.click(screen.getByRole("tab", { name: "Access" }));
     expect(await screen.findAllByText("Ada Admin")).not.toHaveLength(0);
@@ -295,6 +451,21 @@ describe("System console screens", () => {
       { name: "Grace Admin", email: "grace@harbour.example" },
       "generated-idempotency-key",
     ));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Invite tenant Admin" })).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Suspend organization" }));
+    const suspendDialog = screen.getByRole("alertdialog", { name: /Suspend Harbour Agency/ });
+    const suspendButton = within(suspendDialog).getByRole("button", { name: "Suspend organization" });
+    expect(suspendButton).toBeDisabled();
+    await userEvent.type(within(suspendDialog).getByLabelText(/^Suspension reason/), "Customer ownership review");
+    await userEvent.click(suspendButton);
+    expect(await screen.findByText("Workspace access is suspended.")).toBeInTheDocument();
+    expect(apiMock.suspendSystemOrganization).toHaveBeenCalledWith(
+      "org-1", "Customer ownership review", 5, "generated-idempotency-key",
+    );
+    expect(screen.getByRole("button", { name: "Invite tenant Admin" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Send password reset" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Reset MFA" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
   });
 
   it("renders reason-rich platform audit and gates filtered CSV export", async () => {
@@ -363,5 +534,23 @@ describe("System console screens", () => {
     renderScreen(<SystemAudit />, "/system/audit");
     expect(await screen.findAllByText(auditEvent.reason!)).not.toHaveLength(0);
     expect(screen.queryByRole("link", { name: "Download CSV" })).not.toBeInTheDocument();
+  });
+
+  it("shows privileged controls as locked when environment mutations are disabled", async () => {
+    authMock.platformAccess.mutationsEnabled = false;
+    renderScreen(
+      <Route path="/system/organizations/:id"><SystemOrganizationDetail /></Route>,
+      "/system/organizations/org-1",
+    );
+
+    expect(await screen.findByRole("button", { name: "Suspend organization" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Access" }));
+    expect(await screen.findByRole("button", { name: "Invite tenant Admin" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Send password reset" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Reset MFA" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Resend" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Revoke" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
   });
 });

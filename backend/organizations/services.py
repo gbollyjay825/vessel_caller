@@ -88,6 +88,9 @@ def create_customer_organization(*, data: dict, actor: User, request=None):
     organization = Organization.objects.create(
         kind=Organization.Kind.CUSTOMER,
         access_status=Organization.AccessStatus.ACTIVE,
+        approved_at=timezone.now(),
+        approved_by=actor,
+        approval_reason="Provisioned by a System Administrator",
         registered=False,
         name=data["name"].strip(),
         rc_number=data.get("rcNumber", "").strip(),
@@ -134,6 +137,77 @@ def create_customer_organization(*, data: dict, actor: User, request=None):
 
 
 @transaction.atomic
+def approve_customer_organization(
+    *, organization: Organization, actor: User, reason: str, request=None
+) -> None:
+    if organization.kind != Organization.Kind.CUSTOMER:
+        raise ValueError("Only customer organizations can be approved")
+    if organization.access_status != Organization.AccessStatus.PENDING_APPROVAL:
+        raise ValueError("Only organizations pending approval can be approved")
+    verified_admin_exists = organization.users.filter(
+        role=User.Role.ADMIN,
+        status=User.Status.ACTIVE,
+        email_verified_at__isnull=False,
+        is_staff=False,
+        is_superuser=False,
+    ).exists()
+    if not organization.registered or not verified_admin_exists:
+        raise ValueError("Email verification must be completed before organization approval")
+    now = timezone.now()
+    before = {"status": organization.access_status}
+    organization.access_status = Organization.AccessStatus.ACTIVE
+    organization.approved_at = now
+    organization.approved_by = actor
+    organization.approval_reason = reason.strip()
+    organization.revision += 1
+    organization.save(
+        update_fields=(
+            "access_status",
+            "approved_at",
+            "approved_by",
+            "approval_reason",
+            "revision",
+            "updated_at",
+        )
+    )
+    record_platform_event(
+        organization=organization,
+        actor=actor,
+        action="platform.organization.approved",
+        target=organization,
+        target_label=organization.name,
+        reason=organization.approval_reason,
+        request=request,
+        before=before,
+        after={"status": organization.access_status},
+    )
+    record_event(
+        organization=organization,
+        actor=None,
+        action="platform.organization.approved",
+        category="platform",
+        target=organization,
+        target_label="Vessel Caller System",
+        request=request,
+        before=before,
+        after={"status": organization.access_status},
+    )
+    for admin in organization.users.filter(
+        role=User.Role.ADMIN,
+        status__in=(User.Status.INVITED, User.Status.ACTIVE),
+    ):
+        queue_security_notice(
+            admin,
+            event_key=f"organization-approved:{organization.id}:{organization.revision}:{admin.id}",
+            subject="Your organization’s Vessel Caller access was approved",
+            message=(
+                "Your organization’s Vessel Caller access was approved. "
+                "Complete any remaining account setup, then sign in."
+            ),
+        )
+
+
+@transaction.atomic
 def suspend_customer_organization(
     *, organization: Organization, actor: User, reason: str, request=None
 ) -> bool:
@@ -141,6 +215,8 @@ def suspend_customer_organization(
         raise ValueError("Only customer organizations can be suspended")
     if organization.access_status == Organization.AccessStatus.SUSPENDED:
         return False
+    if organization.access_status != Organization.AccessStatus.ACTIVE:
+        raise ValueError("Only active customer organizations can be suspended")
     now = timezone.now()
     before = {"status": organization.access_status}
     organization.access_status = Organization.AccessStatus.SUSPENDED
@@ -214,6 +290,8 @@ def reactivate_customer_organization(
         raise ValueError("Only customer organizations can be reactivated")
     if organization.access_status == Organization.AccessStatus.ACTIVE:
         return False
+    if organization.access_status != Organization.AccessStatus.SUSPENDED:
+        raise ValueError("Only suspended customer organizations can be reactivated")
     before = {
         "status": organization.access_status,
         "reason": organization.suspension_reason,

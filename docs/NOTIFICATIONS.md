@@ -10,6 +10,7 @@ does not send marketing mail, credentials, or public storage links.
 | Event | Recipients |
 | --- | --- |
 | Registration, verification link, password reset, invitation | Affected email address |
+| Organization approved | Active or invited tenant Admins in the approved organization |
 | Account verified, password changed/reset, MFA changed, email change request/completion, access changed, account removed | Affected user; an email-change completion also notifies the previous address |
 | Invitation accepted | Inviter |
 | Vessel call created or status changed | Active Admin and Operations users other than the actor |
@@ -49,8 +50,9 @@ rows are not swept and remain visible for operator investigation.
 Before enabling the same release in production, a controlled staging recipient
 must prove each required path with `VC_EMAIL_DELIVERY_BACKEND=resend`:
 
-1. A new registration sends exactly one verification email and the link
-   activates the account.
+1. A new registration sends exactly one verification email; the link verifies
+   onboarding while workspace access remains pending until explicit System
+   Admin approval.
 2. Invitation, resend-verification, password reset, profile-email change,
    password change, MFA enable/disable/reset, role/status change, and removal
    create the expected outbox message.

@@ -91,7 +91,13 @@ def _system_organization_counts(organization) -> dict:
         ),
         "adminCount": annotated_or_count(
             "admin_count",
-            organization.users.filter(role=User.Role.ADMIN, status=User.Status.ACTIVE),
+            organization.users.filter(
+                role=User.Role.ADMIN,
+                status=User.Status.ACTIVE,
+                email_verified_at__isnull=False,
+                is_staff=False,
+                is_superuser=False,
+            ),
         ),
         "pendingInvitationCount": annotated_or_count(
             "pending_invitation_count",
@@ -114,6 +120,7 @@ def system_organization_summary_data(organization) -> dict:
         "primaryPort": organization.primary_port,
         "createdAt": iso(organization.created_at),
         "updatedAt": iso(organization.updated_at),
+        "approvedAt": iso(organization.approved_at),
         **_system_organization_counts(organization),
     }
 
@@ -127,6 +134,16 @@ def system_organization_data(organization) -> dict:
         "address": organization.address,
         "ports": organization.ports or [],
         "revision": organization.revision,
+        "approvedBy": (
+            {
+                "id": organization.approved_by.id,
+                "name": organization.approved_by.name,
+                "email": organization.approved_by.email,
+            }
+            if organization.approved_by
+            else None
+        ),
+        "approvalReason": organization.approval_reason or None,
         "suspendedAt": iso(organization.suspended_at),
         "suspensionReason": organization.suspension_reason or None,
     }

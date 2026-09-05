@@ -9,12 +9,17 @@ import { fmtDateTime } from "../lib/format";
 
 type AccountTab = "profile" | "security" | "sessions";
 
+interface AccountSecurityProps {
+  initialTab?: AccountTab;
+  prioritizeMfa?: boolean;
+}
+
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
 
-export function AccountSecurity() {
-  const [tab, setTab] = useState<AccountTab>("profile");
+export function AccountSecurity({ initialTab = "profile", prioritizeMfa = false }: AccountSecurityProps = {}) {
+  const [tab, setTab] = useState<AccountTab>(initialTab);
   const tabs: Array<[AccountTab, string]> = [
     ["profile", "Profile"],
     ["security", "Password & MFA"],
@@ -44,7 +49,7 @@ export function AccountSecurity() {
         ))}
       </div>
       {tab === "profile" && <ProfilePanel />}
-      {tab === "security" && <SecurityPanel />}
+      {tab === "security" && <SecurityPanel prioritizeMfa={prioritizeMfa} />}
       {tab === "sessions" && <SessionsPanel />}
     </div>
   );
@@ -155,7 +160,7 @@ function ProfilePanel() {
   );
 }
 
-function SecurityPanel() {
+function SecurityPanel({ prioritizeMfa }: { prioritizeMfa: boolean }) {
   const { user, platformAccess, refreshSession } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
@@ -220,159 +225,169 @@ function SecurityPanel() {
   };
 
   const mfaError = setupMutation.error || confirmMutation.error || regenerateMutation.error || disableMutation.error;
-  return (
-    <div className="account-grid">
-      <form className="card card-pad account-panel" onSubmit={changePassword}>
-        <div className="card-title">Password</div>
-        <p className="muted account-copy">Changing your password signs out other devices immediately.</p>
-        {passwordNotice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{passwordNotice}</div>}
-        {passwordMutation.isError && (
-          <div className="auth-error" role="alert">{errorMessage(passwordMutation.error, "Could not change your password.")}</div>
-        )}
-        <Field label="Current password" required>
-          <input
-            type="password"
-            value={currentPassword}
-            onChange={(event) => setCurrentPassword(event.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </Field>
-        <Field label="New password" required hint="Use at least 12 characters and avoid passwords used elsewhere.">
-          <input
-            type="password"
-            minLength={12}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="new-password"
-            required
-          />
-        </Field>
-        <Field
-          label="Confirm new password"
+  const passwordPanel = (
+    <form className="card card-pad account-panel" onSubmit={changePassword}>
+      <div className="card-title">Password</div>
+      <p className="muted account-copy">Changing your password signs out other devices immediately.</p>
+      {passwordNotice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{passwordNotice}</div>}
+      {passwordMutation.isError && (
+        <div className="auth-error" role="alert">{errorMessage(passwordMutation.error, "Could not change your password.")}</div>
+      )}
+      <Field label="Current password" required>
+        <input
+          type="password"
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          autoComplete="current-password"
           required
-          error={confirmPassword && password !== confirmPassword ? "Passwords do not match" : undefined}
-        >
-          <input
-            type="password"
-            minLength={12}
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            autoComplete="new-password"
-            required
-          />
-        </Field>
-        <button
-          className="btn btn-primary"
-          type="submit"
-          disabled={passwordMutation.isPending || password.length < 12 || password !== confirmPassword}
-        >
-          {passwordMutation.isPending ? "Changing…" : "Change password"}
-        </button>
-      </form>
+        />
+      </Field>
+      <Field label="New password" required hint="Use at least 12 characters and avoid passwords used elsewhere.">
+        <input
+          type="password"
+          minLength={12}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          autoComplete="new-password"
+          required
+        />
+      </Field>
+      <Field
+        label="Confirm new password"
+        required
+        error={confirmPassword && password !== confirmPassword ? "Passwords do not match" : undefined}
+      >
+        <input
+          type="password"
+          minLength={12}
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          autoComplete="new-password"
+          required
+        />
+      </Field>
+      <button
+        className="btn btn-primary"
+        type="submit"
+        disabled={passwordMutation.isPending || password.length < 12 || password !== confirmPassword}
+      >
+        {passwordMutation.isPending ? "Changing…" : "Change password"}
+      </button>
+    </form>
+  );
 
-      <section className="card card-pad account-panel" aria-labelledby="mfa-heading">
-        <div className="flex between items-center">
-          <div className="card-title" id="mfa-heading">Authenticator app</div>
-          <StatusBadge status={user?.mfaEnabled ? "active" : "inactive"} />
-        </div>
-        <p className="muted account-copy">
-          {user?.mfaEnabled
-            ? "Two-factor authentication protects this account at sign-in."
-            : user?.mfaEnrollmentRequired
-              ? `Enrollment is required for your role${user.mfaGraceEndsAt ? ` by ${fmtDateTime(user.mfaGraceEndsAt)}` : ""}.`
-              : "Add a second factor using any TOTP-compatible authenticator app."}
-        </p>
-        {mfaError && <div className="auth-error" role="alert">{errorMessage(mfaError, "Could not update MFA.")}</div>}
+  const authenticatorPanel = (
+    <section className="card card-pad account-panel" aria-labelledby="mfa-heading">
+      <div className="flex between items-center">
+        <div className="card-title" id="mfa-heading">Authenticator app</div>
+        <StatusBadge status={user?.mfaEnabled ? "active" : "inactive"} />
+      </div>
+      <p className="muted account-copy">
+        {user?.mfaEnabled
+          ? "Two-factor authentication protects this account at sign-in."
+          : user?.mfaEnrollmentRequired
+            ? `Enrollment is required for your role${user.mfaGraceEndsAt ? ` by ${fmtDateTime(user.mfaGraceEndsAt)}` : ""}.`
+            : "Add a second factor using any TOTP-compatible authenticator app."}
+      </p>
+      {mfaError && <div className="auth-error" role="alert">{errorMessage(mfaError, "Could not update MFA.")}</div>}
 
-        {!user?.mfaEnabled && !setup && (
-          <>
-            <Field label="Current password" required hint="Confirm your identity before creating a new MFA seed.">
-              <input
-                type="password"
-                value={mfaSetupPassword}
-                onChange={(event) => setMfaSetupPassword(event.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </Field>
-            <button
-              className="btn btn-primary"
-              type="button"
-              onClick={() => setupMutation.mutate()}
-              disabled={setupMutation.isPending || !mfaSetupPassword}
-            >
-              {setupMutation.isPending ? "Preparing…" : "Set up authenticator"}
+      {!user?.mfaEnabled && !setup && (
+        <>
+          <Field label="Current password" required hint="Confirm your identity before creating a new MFA seed.">
+            <input
+              type="password"
+              value={mfaSetupPassword}
+              onChange={(event) => setMfaSetupPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </Field>
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={() => setupMutation.mutate()}
+            disabled={setupMutation.isPending || !mfaSetupPassword}
+          >
+            {setupMutation.isPending ? "Preparing…" : "Set up authenticator"}
+          </button>
+        </>
+      )}
+      {setup && (
+        <div className="mfa-setup">
+          <ol>
+            <li>
+              Open this setup link on a device with your authenticator:{" "}
+              <a href={setup.provisioningUri}>Add to authenticator</a>.
+            </li>
+            <li>If needed, enter this key manually: <code>{setup.secret}</code>.</li>
+            <li>Enter the six-digit code below to finish.</li>
+          </ol>
+          <Field label="Authenticator code" required>
+            <input
+              value={mfaCode}
+              onChange={(event) => setMfaCode(event.target.value)}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+            />
+          </Field>
+          <div className="flex gap-3">
+            <button className="btn btn-primary" type="button" onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending || !mfaCode.trim()}>
+              {confirmMutation.isPending ? "Verifying…" : "Enable MFA"}
             </button>
-          </>
-        )}
-        {setup && (
-          <div className="mfa-setup">
-            <ol>
-              <li>
-                Open this setup link on a device with your authenticator:{" "}
-                <a href={setup.provisioningUri}>Add to authenticator</a>.
-              </li>
-              <li>If needed, enter this key manually: <code>{setup.secret}</code>.</li>
-              <li>Enter the six-digit code below to finish.</li>
-            </ol>
-            <Field label="Authenticator code" required>
-              <input
-                value={mfaCode}
-                onChange={(event) => setMfaCode(event.target.value)}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-              />
-            </Field>
-            <div className="flex gap-3">
-              <button className="btn btn-primary" type="button" onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending || !mfaCode.trim()}>
-                {confirmMutation.isPending ? "Verifying…" : "Enable MFA"}
-              </button>
-              <button className="btn btn-secondary" type="button" onClick={() => setSetup(null)}>Cancel</button>
-            </div>
+            <button className="btn btn-secondary" type="button" onClick={() => setSetup(null)}>Cancel</button>
           </div>
-        )}
+        </div>
+      )}
 
-        {user?.mfaEnabled && (
-          <div className="account-actions">
-            <Field label="Current authenticator code" required hint="Required before replacing your recovery codes.">
-              <input
-                value={recoveryCode}
-                onChange={(event) => setRecoveryCode(event.target.value)}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-              />
-            </Field>
-            <div className="flex gap-3">
-              <button className="btn btn-secondary" type="button" onClick={() => regenerateMutation.mutate()} disabled={regenerateMutation.isPending || !recoveryCode.trim()}>
-                New recovery codes
+      {user?.mfaEnabled && (
+        <div className="account-actions">
+          <Field label="Current authenticator code" required hint="Required before replacing your recovery codes.">
+            <input
+              value={recoveryCode}
+              onChange={(event) => setRecoveryCode(event.target.value)}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+            />
+          </Field>
+          <div className="flex gap-3">
+            <button className="btn btn-secondary" type="button" onClick={() => regenerateMutation.mutate()} disabled={regenerateMutation.isPending || !recoveryCode.trim()}>
+              New recovery codes
+            </button>
+            {!platformAccess && (
+              <button className="btn btn-ghost" type="button" onClick={() => setShowDisable(true)} style={{ color: "var(--danger)" }}>
+                Disable MFA
               </button>
-              {!platformAccess && (
-                <button className="btn btn-ghost" type="button" onClick={() => setShowDisable(true)} style={{ color: "var(--danger)" }}>
-                  Disable MFA
-                </button>
-              )}
-            </div>
-            {platformAccess && (
-              <p className="muted account-copy">System Administrator MFA cannot be disabled in the product. Use the audited operator recovery process if access is lost.</p>
             )}
           </div>
-        )}
-        {recoveryCodes.length > 0 && (
-          <div className="recovery-codes" role="status">
-            <strong>Save these recovery codes now</strong>
-            <p>Each code works once. They will not be shown again after you leave this page.</p>
-            <ul>{recoveryCodes.map((code) => <li key={code}><code>{code}</code></li>)}</ul>
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void navigator.clipboard.writeText(recoveryCodes.join("\n"))}
-            >
-              Copy codes
-            </button>
-          </div>
-        )}
-      </section>
+          {platformAccess && (
+            <p className="muted account-copy">System Administrator MFA cannot be disabled in the product. Use the audited operator recovery process if access is lost.</p>
+          )}
+        </div>
+      )}
+      {recoveryCodes.length > 0 && (
+        <div className="recovery-codes" role="status">
+          <strong>Save these recovery codes now</strong>
+          <p>Each code works once. They will not be shown again after you leave this page.</p>
+          <ul>{recoveryCodes.map((code) => <li key={code}><code>{code}</code></li>)}</ul>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(recoveryCodes.join("\n"))}
+          >
+            Copy codes
+          </button>
+        </div>
+      )}
+    </section>
+  );
+
+  return (
+    <div className="account-grid">
+      {prioritizeMfa ? (
+        <>{authenticatorPanel}{passwordPanel}</>
+      ) : (
+        <>{passwordPanel}{authenticatorPanel}</>
+      )}
 
       {showDisable && !platformAccess && (
         <ConfirmModal

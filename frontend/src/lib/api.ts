@@ -29,11 +29,24 @@ import type {
   UserStatus,
   VesselCall,
 } from "../types";
+import {
+  advanceAuthSessionEpoch,
+  currentAuthSessionEpoch,
+  publishAuthSessionBoundary,
+  publishAuthSessionTransitionSettled,
+  publishAuthSessionTransitionStart,
+  resetAuthSessionEpochForTests,
+} from "./authSessionEpoch";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
 let csrfToken: string | null = null;
 let csrfRequest: Promise<string> | null = null;
+let csrfRequestController: AbortController | null = null;
+let authCookieMutationQueue: Promise<void> = Promise.resolve();
+let activeAuthSessionTransitions = 0;
+const AUTH_COOKIE_LOCK_NAME = "vessel-caller:auth-cookie-response";
+const AUTH_COOKIE_REQUEST_TIMEOUT_MS = 15_000;
 
 interface ErrorEnvelope {
   detail?: string;
@@ -78,7 +91,17 @@ function readCookie(name: string): string | null {
   return match ? decodeURIComponent(match.slice(prefix.length)) : null;
 }
 
-async function ensureCsrfToken(): Promise<string> {
+function waitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+async function ensureCsrfToken(signal?: AbortSignal): Promise<string> {
   const cookieToken = readCookie("csrftoken");
   if (cookieToken) {
     csrfToken = cookieToken;
@@ -86,9 +109,15 @@ async function ensureCsrfToken(): Promise<string> {
   }
   if (csrfToken) return csrfToken;
   if (!csrfRequest) {
+    csrfRequestController = new AbortController();
+    const controller = csrfRequestController;
+    const timeout = globalThis.setTimeout(() => {
+      controller.abort(new DOMException("The CSRF bootstrap timed out", "TimeoutError"));
+    }, AUTH_COOKIE_REQUEST_TIMEOUT_MS);
     csrfRequest = fetch(`${BASE}/api/auth/csrf`, {
       credentials: "include",
       headers: { Accept: "application/json" },
+      signal: controller.signal,
     })
       .then(async (response) => {
         const body = await response.json().catch(() => ({})) as { csrfToken?: string };
@@ -99,10 +128,12 @@ async function ensureCsrfToken(): Promise<string> {
         return body.csrfToken;
       })
       .finally(() => {
+        globalThis.clearTimeout(timeout);
         csrfRequest = null;
+        csrfRequestController = null;
       });
   }
-  return csrfRequest;
+  return waitWithAbort(csrfRequest, signal);
 }
 
 function buildQuery(values: Record<string, string | number | undefined | null>): string {
@@ -115,22 +146,36 @@ function buildQuery(values: Record<string, string | number | undefined | null>):
 }
 
 interface RequestOptions extends RequestInit {
+  advancesAuthSessionEpoch?: boolean;
+  broadcastsIdentityTransition?: boolean;
+  onAuthSessionEpoch?: (epoch: number) => void;
+  serializesAuthCookie?: boolean;
   suppressAuthExpired?: boolean;
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const method = (options.method ?? "GET").toUpperCase();
-  const headers = new Headers(options.headers);
+async function performRequest<T>(path: string, options: RequestOptions): Promise<T> {
+  const requestAuthSessionEpoch = currentAuthSessionEpoch();
+  const {
+    advancesAuthSessionEpoch = false,
+    broadcastsIdentityTransition: _broadcastsIdentityTransition = false,
+    onAuthSessionEpoch,
+    serializesAuthCookie: _serializesAuthCookie = false,
+    suppressAuthExpired = false,
+    ...fetchOptions
+  } = options;
+  onAuthSessionEpoch?.(requestAuthSessionEpoch);
+  const method = (fetchOptions.method ?? "GET").toUpperCase();
+  const headers = new Headers(fetchOptions.headers);
   headers.set("Accept", "application/json");
-  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
+  if (fetchOptions.body && !(fetchOptions.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (!SAFE_METHODS.has(method)) {
-    headers.set("X-CSRFToken", await ensureCsrfToken());
+    headers.set("X-CSRFToken", await ensureCsrfToken(fetchOptions.signal ?? undefined));
   }
 
   const response = await fetch(BASE + path, {
-    ...options,
+    ...fetchOptions,
     method,
     headers,
     credentials: "include",
@@ -150,7 +195,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
         response.status === 403
         && envelope.detail === "Authentication credentials were not provided."
       );
-    if (authenticationMissing && !options.suppressAuthExpired && typeof window !== "undefined") {
+    if (
+      authenticationMissing
+      && !suppressAuthExpired
+      && activeAuthSessionTransitions === 0
+      && requestAuthSessionEpoch === currentAuthSessionEpoch()
+      && typeof window !== "undefined"
+    ) {
       window.dispatchEvent(new CustomEvent("auth:expired"));
     }
     throw new ApiError(
@@ -160,7 +211,98 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       envelope.requestId ?? response.headers.get("x-request-id"),
     );
   }
+  if (
+    advancesAuthSessionEpoch
+  ) {
+    // The response installed a rotated Django session cookie. Establish the
+    // new boundary before callers can start or settle work against the old one.
+    publishAuthSessionBoundary(true);
+  }
   return body as T;
+}
+
+export function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const tracksAuthTransition = options.advancesAuthSessionEpoch === true;
+  if (tracksAuthTransition) {
+    // Suppress responses tied to the pre-rotation cookie from the moment the
+    // logical transition begins. The browser may install Set-Cookie before the
+    // response body promise settles.
+    advanceAuthSessionEpoch();
+    activeAuthSessionTransitions += 1;
+  }
+  const settleTransition = (operation: Promise<T>) => operation.finally(() => {
+    if (tracksAuthTransition) activeAuthSessionTransitions -= 1;
+  });
+
+  if (!options.serializesAuthCookie) {
+    return settleTransition(performRequest<T>(path, options));
+  }
+
+  // Start one deadline before entering either the tab-local queue or the
+  // origin-wide Web Lock. A suspended lock owner can therefore never block a
+  // later sign-in or sign-out indefinitely.
+  const controller = new AbortController();
+  const callerSignal = options.signal;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = globalThis.setTimeout(() => {
+    controller.abort(new DOMException("The secure session request timed out", "TimeoutError"));
+  }, AUTH_COOKIE_REQUEST_TIMEOUT_MS);
+
+  const performBoundedRequest = () => performRequest<T>(path, {
+    ...options,
+    signal: controller.signal,
+  });
+
+  const performWithOriginLock = () => {
+    const lockManager = typeof navigator === "undefined"
+      ? undefined
+      : (navigator as unknown as {
+        locks?: {
+          request: <Result>(
+            name: string,
+            options: LockOptions,
+            callback: () => Promise<Result>,
+          ) => Promise<Result>;
+        };
+      }).locks;
+    const performIdentityTransition = async () => {
+      // Clear peer identity-bound UI before the request can install a different
+      // origin-wide cookie. Peers wait for the matching settled event before
+      // rehydrating, and their /me request then queues behind this Web Lock.
+      const transitionId = options.broadcastsIdentityTransition
+        ? publishAuthSessionTransitionStart()
+        : null;
+      try {
+        return await performBoundedRequest();
+      } finally {
+        if (transitionId) publishAuthSessionTransitionSettled(transitionId);
+      }
+    };
+    if (!lockManager?.request) return performIdentityTransition();
+    // Web Locks coordinate the origin-wide HttpOnly cookie across tabs. The
+    // Promise queue below preserves call order and is the fallback on browsers
+    // without Web Locks support.
+    return lockManager.request<T>(
+      AUTH_COOKIE_LOCK_NAME,
+      { mode: "exclusive", signal: controller.signal },
+      performIdentityTransition,
+    );
+  };
+
+  const operation = authCookieMutationQueue.then(
+    performWithOriginLock,
+    performWithOriginLock,
+  );
+  authCookieMutationQueue = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return settleTransition(operation.finally(() => {
+    globalThis.clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
+  }));
 }
 
 export interface RegisterPayload {
@@ -291,13 +433,13 @@ export const api = {
   csrf: () => ensureCsrfToken(),
 
   register: (data: RegisterPayload) =>
-    request<{ detail: string; verificationRequired: true }>("/api/auth/register", {
+    request<{ detail: string; verificationRequired: true; approvalRequired: boolean }>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify(data),
       suppressAuthExpired: true,
     }),
   verifyEmail: (token: string) =>
-    request<{ detail: string }>("/api/auth/verify-email", {
+    request<{ detail: string; approvalPending: boolean }>("/api/auth/verify-email", {
       method: "POST",
       body: JSON.stringify({ token }),
       suppressAuthExpired: true,
@@ -310,18 +452,31 @@ export const api = {
     }),
   login: (email: string, password: string) =>
     request<LoginResult>("/api/auth/login", {
+      broadcastsIdentityTransition: true,
       method: "POST",
+      serializesAuthCookie: true,
       body: JSON.stringify({ email, password }),
       suppressAuthExpired: true,
     }),
   verifyMfaChallenge: (challengeId: string, code: string) =>
     request<AuthSession>("/api/auth/mfa/verify", {
+      broadcastsIdentityTransition: true,
       method: "POST",
+      serializesAuthCookie: true,
       body: JSON.stringify({ challengeId, code }),
       suppressAuthExpired: true,
     }),
-  me: () => request<AuthSession>("/api/auth/me", { suppressAuthExpired: true }),
-  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  me: (onAuthSessionEpoch?: (epoch: number) => void) => request<AuthSession>("/api/auth/me", {
+    onAuthSessionEpoch,
+    serializesAuthCookie: true,
+    suppressAuthExpired: true,
+  }),
+  logout: () => request<void>("/api/auth/logout", {
+    broadcastsIdentityTransition: true,
+    method: "POST",
+    serializesAuthCookie: true,
+    suppressAuthExpired: true,
+  }),
   forgotPassword: (email: string) =>
     request<{ detail: string }>("/api/auth/forgot-password", {
       method: "POST",
@@ -330,13 +485,18 @@ export const api = {
     }),
   resetPassword: (token: string, password: string) =>
     request<{ detail: string }>("/api/auth/reset-password", {
+      advancesAuthSessionEpoch: true,
+      broadcastsIdentityTransition: true,
       method: "POST",
+      serializesAuthCookie: true,
       body: JSON.stringify({ token, password }),
       suppressAuthExpired: true,
     }),
   changePassword: (currentPassword: string, password: string) =>
     request<{ detail: string }>("/api/auth/change-password", {
+      advancesAuthSessionEpoch: true,
       method: "POST",
+      serializesAuthCookie: true,
       body: JSON.stringify({ currentPassword, password }),
     }),
 
@@ -350,17 +510,27 @@ export const api = {
     }),
 
   sessions: () => request<{ results: DeviceSession[] }>("/api/auth/sessions"),
-  revokeSession: (id: string) => request<void>(`/api/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  signOutEverywhere: () => request<void>("/api/auth/sessions/sign-out-everywhere", { method: "POST" }),
+  revokeSession: (id: string) => request<void>(`/api/auth/sessions/${encodeURIComponent(id)}`, {
+    advancesAuthSessionEpoch: true,
+    method: "DELETE",
+    serializesAuthCookie: true,
+  }),
+  signOutEverywhere: () => request<void>("/api/auth/sessions/sign-out-everywhere", {
+    advancesAuthSessionEpoch: true,
+    method: "POST",
+    serializesAuthCookie: true,
+  }),
 
   setupMfa: (currentPassword: string) =>
     request<{ secret: string; provisioningUri: string }>("/api/auth/mfa/setup", {
       method: "POST",
+      serializesAuthCookie: true,
       body: JSON.stringify({ currentPassword }),
     }),
   confirmMfa: (code: string) =>
     request<{ recoveryCodes: string[] }>("/api/auth/mfa/confirm", {
       method: "POST",
+      serializesAuthCookie: true,
       body: JSON.stringify({ code }),
     }),
   regenerateRecoveryCodes: (code: string) =>
@@ -430,7 +600,7 @@ export const api = {
   systemOverview: () => request<PlatformOverview>("/api/system/overview"),
   systemStepUp: (code: string) => request<{ detail: string; platformAccess: PlatformAccess }>(
     "/api/system/step-up",
-    { method: "POST", body: JSON.stringify({ code }) },
+    { method: "POST", serializesAuthCookie: true, body: JSON.stringify({ code }) },
   ),
   systemOrganizations: (params: SystemOrganizationListParams = {}) =>
     request<Paginated<PlatformOrganizationSummary>>(`/api/system/organizations${buildQuery({
@@ -464,6 +634,11 @@ export const api = {
     `/api/system/organizations/${encodeURIComponent(id)}`,
     { method: "PATCH", headers: idempotencyHeaders(idempotencyKey), body: JSON.stringify(data) },
   ),
+  approveSystemOrganization: (id: string, reason: string, revision: number, idempotencyKey: string) =>
+    request<{ organization: PlatformOrganization; rev: number }>(
+      `/api/system/organizations/${encodeURIComponent(id)}/approve`,
+      { method: "POST", headers: idempotencyHeaders(idempotencyKey), body: JSON.stringify({ reason, revision }) },
+    ),
   suspendSystemOrganization: (id: string, reason: string, revision: number, idempotencyKey: string) =>
     request<{ organization: PlatformOrganization; rev: number }>(
       `/api/system/organizations/${encodeURIComponent(id)}/suspend`,
@@ -690,6 +865,11 @@ export const api = {
 };
 
 export function resetApiSecurityStateForTests(): void {
+  csrfRequestController?.abort();
   csrfToken = null;
   csrfRequest = null;
+  csrfRequestController = null;
+  authCookieMutationQueue = Promise.resolve();
+  activeAuthSessionTransitions = 0;
+  resetAuthSessionEpochForTests();
 }

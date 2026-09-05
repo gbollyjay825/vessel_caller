@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 
+import { useAuth } from "../auth/AuthContext";
 import { DataTable, EmptyState, StatCard, type Column } from "../components/ui";
 import { Icon } from "../components/Icon";
 import { api } from "../lib/api";
 import { fmtDate } from "../lib/format";
 import { Link } from "../lib/navigation";
 import type { PlatformOrganizationSummary } from "../types";
+import { getPlatformEnvironment } from "./environment";
 import { OrganizationLifecycleBadge, SystemError } from "./SystemComponents";
 
 const RECENT_COLUMNS: Column<PlatformOrganizationSummary>[] = [
@@ -47,7 +49,10 @@ const RECENT_COLUMNS: Column<PlatformOrganizationSummary>[] = [
 ];
 
 export function SystemOverview() {
+  const { platformAccess } = useAuth();
   const overview = useQuery({ queryKey: ["system-overview"], queryFn: api.systemOverview });
+  const environment = getPlatformEnvironment(platformAccess?.environment);
+  const mutationsEnabled = platformAccess?.mutationsEnabled === true && environment.kind !== "unknown";
 
   if (overview.isError) {
     return (
@@ -66,12 +71,13 @@ export function SystemOverview() {
           <p className="desc">Organization lifecycle and access across Vessel Caller. Tenant operational records remain isolated.</p>
         </div>
         <Link className="btn btn-primary" to="/system/organizations">
-          <Icon name="building" size={17} /> Manage organizations
+          <Icon name="building" size={17} /> {mutationsEnabled ? "Manage organizations" : "View organizations"}
         </Link>
       </div>
 
       <section className="kpi-strip system-kpis" aria-label="Platform totals" aria-busy={overview.isPending}>
         <StatCard label="Organizations" value={data?.organizationCount ?? "—"} sub="Customer organizations" />
+        <StatCard label="Pending approval" value={data?.pendingApprovalOrganizationCount ?? "—"} sub="Awaiting platform review" />
         <StatCard label="Active" value={data?.activeOrganizationCount ?? "—"} sub="Can access workspaces" />
         <StatCard label="Suspended" value={data?.suspendedOrganizationCount ?? "—"} sub="Access blocked" />
         <StatCard label="Active users" value={data?.activeUserCount ?? "—"} sub={`${data?.pendingInvitationCount ?? 0} pending invitations`} />
@@ -87,7 +93,15 @@ export function SystemOverview() {
           rows={data?.recentOrganizations ?? []}
           getKey={(organization) => organization.id}
           loading={overview.isPending}
-          emptyState={<EmptyState icon="building" title="No organizations yet" body="Create an organization and securely invite its first Admin." />}
+          emptyState={(
+            <EmptyState
+              icon="building"
+              title="No organizations yet"
+              body={mutationsEnabled
+                ? "Create an organization and securely invite its first Admin."
+                : "No customer organizations are available in this environment."}
+            />
+          )}
         />
       </section>
     </div>

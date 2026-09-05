@@ -8,6 +8,7 @@ import { api } from "../lib/api";
 import { fmtDate } from "../lib/format";
 import { Link, useNavigate, useSearchParams } from "../lib/navigation";
 import type { PlatformOrganizationStatus, PlatformOrganizationSummary } from "../types";
+import { getPlatformEnvironment } from "./environment";
 import { OrganizationLifecycleBadge, SystemError, SystemMutationError, SystemPagination } from "./SystemComponents";
 import { useIdempotencyKey } from "./useIdempotencyKey";
 
@@ -27,7 +28,7 @@ function positivePage(value: string | null): number {
 }
 
 export function SystemOrganizations() {
-  const { can } = useAuth();
+  const { can, platformAccess } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   // Search can contain email, registration, or organization identifiers, so it
@@ -38,6 +39,11 @@ export function SystemOrganizations() {
   const page = positivePage(searchParams.get("page"));
   const status = (searchParams.get("status") ?? "all") as PlatformOrganizationStatus | "all";
   const primaryPort = searchParams.get("primaryPort") ?? "";
+  const canManage = can("platform.organizations.manage");
+  const environment = getPlatformEnvironment(platformAccess?.environment);
+  const mutationsEnabled = platformAccess?.mutationsEnabled === true && environment.kind !== "unknown";
+  const emailDeliveryReady = platformAccess?.emailDeliveryReady === true;
+  const canCreate = mutationsEnabled && emailDeliveryReady;
 
   const updateSearchParams = (changes: Record<string, string | number | null>) => {
     const next = new URLSearchParams(searchParams);
@@ -68,7 +74,7 @@ export function SystemOrganizations() {
       label: "Access",
       sortable: true,
       sortVal: (organization) => organization.activeUserCount,
-      render: (organization) => <div><div>{organization.activeUserCount} active users</div><div className="cell-sub">{organization.adminCount} Admin{organization.adminCount === 1 ? "" : "s"}</div></div>,
+      render: (organization) => <div><div>{organization.activeUserCount} active users</div><div className="cell-sub">{organization.adminCount} verified Admin{organization.adminCount === 1 ? "" : "s"}</div></div>,
     },
     {
       key: "onboarding",
@@ -93,10 +99,24 @@ export function SystemOrganizations() {
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Organizations</h1>
-          <p className="desc">Manage customer onboarding, profile, lifecycle, and administrator access without entering tenant workspaces.</p>
+          <p className="desc">
+            {mutationsEnabled
+              ? "Manage customer onboarding, profile, lifecycle, and administrator access without entering tenant workspaces."
+              : "Review customer onboarding, profile, lifecycle, and administrator access. Changes are locked in this environment."}
+          </p>
         </div>
-        {can("platform.organizations.manage") && (
-          <button className="btn btn-primary" type="button" onClick={() => setCreateOpen(true)}>
+        {canManage && (
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={!canCreate}
+            title={!emailDeliveryReady
+              ? "Email delivery must be ready before inviting the first Admin"
+              : !mutationsEnabled
+                ? "Platform changes are locked in this environment"
+                : undefined}
+            onClick={() => setCreateOpen(true)}
+          >
             <Icon name="plus" size={17} /> Create organization
           </button>
         )}
@@ -120,6 +140,7 @@ export function SystemOrganizations() {
           <span className="hide-sr">Lifecycle status</span>
           <select value={status} onChange={(event) => updateSearchParams({ status: event.target.value, page: 1 })}>
             <option value="all">All statuses</option>
+            <option value="pending_approval">Pending approval</option>
             <option value="active">Active</option>
             <option value="suspended">Suspended</option>
           </select>
@@ -147,18 +168,24 @@ export function SystemOrganizations() {
             <EmptyState
               icon="building"
               title={deferredSearch || status !== "all" || primaryPort ? "No organizations match" : "No organizations yet"}
-              body={deferredSearch || status !== "all" || primaryPort ? "Change or clear the filters and try again." : "Create an organization and invite its first Admin."}
+              body={deferredSearch || status !== "all" || primaryPort
+                ? "Change or clear the filters and try again."
+                : canManage && canCreate
+                  ? "Create an organization and invite its first Admin."
+                  : "No customer organizations are available in this environment."}
             />
           )}
         />
       </div>
       <SystemPagination page={page} count={organizations.data?.count ?? 0} pageSize={PAGE_SIZE} onPage={(next) => updateSearchParams({ page: next })} />
-      {createOpen && <CreateOrganizationDrawer onClose={() => setCreateOpen(false)} />}
+      {createOpen && (
+        <CreateOrganizationDrawer enabled={canCreate} onClose={() => setCreateOpen(false)} />
+      )}
     </div>
   );
 }
 
-function CreateOrganizationDrawer({ onClose }: { onClose: () => void }) {
+function CreateOrganizationDrawer({ enabled, onClose }: { enabled: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -199,7 +226,13 @@ function CreateOrganizationDrawer({ onClose }: { onClose: () => void }) {
       footer={(
         <>
           <button className="btn btn-secondary" type="button" disabled={mutation.isPending} onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" type="button" disabled={mutation.isPending || !ready} onClick={() => mutation.mutate()}>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={!enabled || mutation.isPending || !ready}
+            title={!enabled ? "Platform changes are locked in this environment" : undefined}
+            onClick={() => mutation.mutate()}
+          >
             {mutation.isPending ? "Creating…" : "Create and invite Admin"}
           </button>
         </>

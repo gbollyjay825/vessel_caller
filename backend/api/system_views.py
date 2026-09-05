@@ -16,7 +16,7 @@ def _runtime_capabilities() -> dict[str, bool]:
         "organizationAccessStatus": True,
         "systemAdminEmailDeliveryReady": (
             settings.EMAIL_DELIVERY_BACKEND == "resend"
-            and bool(settings.RESEND_API_KEY)
+            and bool((settings.RESEND_API_KEY or "").strip())
             and bool(settings.EMAIL_FROM.strip())
         ),
     }

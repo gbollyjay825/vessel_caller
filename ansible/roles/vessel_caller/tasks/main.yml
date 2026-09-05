@@ -33,9 +33,14 @@
     mode: "0755"
   loop:
     - verify-release.sh
+    - snapshot-release.py
     - install-release.sh
     - promote-release.sh
     - deploy-release.sh
+    - staging-writer-guard.sh
+    - staging-compatibility-guard.sh
+    - staging-lifecycle-state.sh
+    - release-target-policy.sh
     - postgres-backup.sh
     - postgres-restore.sh
     - database-manifest.sh

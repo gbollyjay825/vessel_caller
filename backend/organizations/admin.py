@@ -11,6 +11,10 @@ class OrganizationAdmin(admin.ModelAdmin):
     readonly_fields = (
         "kind",
         "access_status",
+        "registered",
+        "approved_at",
+        "approved_by",
+        "approval_reason",
         "suspended_at",
         "suspension_reason",
         "revision",
@@ -19,6 +23,11 @@ class OrganizationAdmin(admin.ModelAdmin):
     )
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_add_permission(self, request):
+        # Customer onboarding must pass through the audited product workflow;
+        # a Django staff form would otherwise default straight to ACTIVE.
         return False
 
 

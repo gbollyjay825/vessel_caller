@@ -7,6 +7,7 @@ import App from "./App";
 const authMock = vi.hoisted(() => ({
   platformAccess: null as null | { role: "SystemAdmin" },
   homePath: "/app",
+  status: "anonymous" as "anonymous" | "authenticated",
 }));
 
 vi.mock("./auth/AuthContext", () => ({
@@ -70,6 +71,12 @@ function renderPath(path: string) {
 }
 
 describe("App route contract", () => {
+  afterEach(() => {
+    authMock.platformAccess = null;
+    authMock.homePath = "/app";
+    authMock.status = "anonymous";
+  });
+
   it.each([
     ["/", "Landing screen"],
     ["/login", "Auth:login"],
@@ -115,6 +122,30 @@ describe("App route contract", () => {
 
     renderPath("/not-a-route");
     expect(screen.getByText("Navigate:/")).toBeInTheDocument();
+  });
+
+  it("redirects a platform identity away from tenant state before mounting the tenant loader", () => {
+    authMock.platformAccess = { role: "SystemAdmin" };
+    authMock.homePath = "/system/account";
+
+    renderPath("/app");
+
+    expect(screen.getByText("Navigate:/system/account")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-loader")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("app-shell")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["/login", "/app"],
+    ["/register", "/system"],
+  ])("redirects an authenticated identity away from %s", (path, homePath) => {
+    authMock.status = "authenticated";
+    authMock.homePath = homePath;
+
+    renderPath(path);
+
+    expect(screen.getByText(`Navigate:${homePath}`)).toBeInTheDocument();
+    expect(screen.queryByText(/Auth:/)).not.toBeInTheDocument();
   });
 
   it.each([

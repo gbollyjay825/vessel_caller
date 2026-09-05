@@ -62,7 +62,8 @@ release evidence.
 - [ ] `/system` Overview shows accurate account totals and recent customer
       organizations without operational/financial aggregates.
 - [ ] `/system/organizations` search, filters, pagination, empty states, and
-      status labels distinguish registration from access suspension.
+      status labels distinguish pending approval, registration completion,
+      active access, and suspension.
 - [ ] `/system/organizations/:id` Overview, Access, and Audit tabs show only
       safe profile, user/invitation identity/status, and sanitized audit data.
 - [ ] `/system/audit` enforces permission, safe filters, pagination, and export
@@ -78,6 +79,35 @@ release evidence.
       retry, success, and no-op states are explicit and accessible.
 - [ ] Keyboard and screen-reader checks identify routes, tabs, validation, and
       action results; suspension requires confirmation and reason.
+
+## Registration approval
+
+- [ ] The signed manifest marks this lifecycle migration
+      `stagingOnlySchemaCutover: true`; CI and the host both refuse a production
+      target before installation. Production remains on its prior release.
+- [ ] During the staging cutover, web and worker writers stop before the
+      release symlink changes or migrations begin. Repeated registration
+      attempts throughout that interval cannot create an active, unapproved
+      organization. Once installation begins, any failure keeps both writers
+      stopped until the operator verifies the selected link, migration state,
+      and readiness; v0.1.10 must not reopen against the expanded schema.
+- [ ] Public self-registration creates `pending_approval`, sends one
+      verification message, and grants no tenant session or workspace access.
+- [ ] Email verification succeeds while approval is pending, marks onboarding
+      complete, and clearly reports that workspace approval is still pending.
+      No other token, invitation, recovery, business-email, or signed-object
+      path receives the pending-approval exception.
+- [ ] Approval requires an active System Admin with recent MFA, a reason,
+      expected revision, idempotency key, a registered organization, and an
+      active verified tenant Admin. Unknown, platform, active, suspended, or
+      unverified targets fail without changing state.
+- [ ] Approval is the only `pending_approval` to `active` transition. Direct
+      reactivation cannot bypass it, and a concurrent approval/retry produces
+      one state change, platform audit event, tenant-safe event, and notice.
+- [ ] Approval restores no earlier session, token, invitation, challenge,
+      recovery code, or signed URL; the tenant Admin signs in afresh.
+- [ ] Existing active organizations with null approval metadata remain active
+      and are labelled as predating approval tracking, never as pending.
 
 ## Suspension
 

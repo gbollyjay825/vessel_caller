@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,16 +15,24 @@ const authMock = vi.hoisted(() => ({
     permissions: ["platform.organizations.view", "platform.audit.view"],
     mfaEnrollmentRequired: false,
     stepUpRequired: false,
-  } as { role: "SystemAdmin"; permissions: string[]; mfaEnrollmentRequired: boolean; stepUpRequired?: boolean } | null,
+  } as {
+    role: "SystemAdmin";
+    permissions: string[];
+    mfaEnrollmentRequired: boolean;
+    stepUpRequired?: boolean;
+    environment?: string;
+    emailDeliveryReady?: boolean;
+    mutationsEnabled?: boolean;
+  } | null,
   can: vi.fn<(permission: string) => boolean>(),
   logout: vi.fn(),
+  refreshSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => authMock }));
 vi.mock("../components/ProtectedRoute", () => ({
   ProtectedRoute: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
-
 describe("SystemShell", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/system");
@@ -33,10 +41,14 @@ describe("SystemShell", () => {
       permissions: ["platform.organizations.view", "platform.audit.view"],
       mfaEnrollmentRequired: false,
       stepUpRequired: false,
+      environment: "staging",
+      emailDeliveryReady: true,
+      mutationsEnabled: true,
     };
     authMock.can.mockReset();
     authMock.can.mockImplementation((permission) => authMock.platformAccess?.permissions.includes(permission) ?? false);
     authMock.logout.mockReset();
+    authMock.refreshSession.mockReset().mockResolvedValue(undefined);
   });
 
   it("shows only authorized platform navigation in the isolated shell", () => {
@@ -47,6 +59,8 @@ describe("SystemShell", () => {
     expect(screen.getByRole("link", { name: "Organizations" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Platform audit" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Account & security" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Staging environment")).toHaveTextContent("staging organizations only");
+    expect(screen.getByText("Staging", { selector: ".system-environment-tag" })).toBeInTheDocument();
     expect(screen.queryByText("Vessel calls")).not.toBeInTheDocument();
   });
 
@@ -61,6 +75,14 @@ describe("SystemShell", () => {
     expect(authMock.logout).toHaveBeenCalledOnce();
   });
 
+  it("refreshes dynamic platform controls when the operator returns to the window", async () => {
+    render(<SystemShell>Platform content</SystemShell>);
+
+    fireEvent.focus(window);
+
+    await vi.waitFor(() => expect(authMock.refreshSession).toHaveBeenCalledOnce());
+  });
+
   it("filters each navigation item by its platform permission", () => {
     authMock.platformAccess = {
       role: "SystemAdmin",
@@ -73,7 +95,7 @@ describe("SystemShell", () => {
     expect(screen.queryByRole("link", { name: "Platform audit" })).not.toBeInTheDocument();
   });
 
-  it("limits an unenrolled platform identity to account security", () => {
+  it("keeps the locked control plane discoverable while limiting an unenrolled identity to account security", () => {
     authMock.platformAccess = {
       role: "SystemAdmin",
       permissions: [],
@@ -82,7 +104,13 @@ describe("SystemShell", () => {
     render(<SystemShell>Enrollment content</SystemShell>);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Complete authenticator enrollment");
+    expect(screen.getByText("Control plane locked")).toBeInTheDocument();
+    expect(screen.getByText("Overview", { selector: ".lbl" })).toBeInTheDocument();
+    expect(screen.getByText("Organizations", { selector: ".lbl" })).toBeInTheDocument();
+    expect(screen.getByText("Platform audit", { selector: ".lbl" })).toBeInTheDocument();
+    expect(screen.getAllByText("Locked")).toHaveLength(3);
     expect(screen.queryByRole("link", { name: "Overview" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Organizations" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Account & security" })).toBeInTheDocument();
   });
 
@@ -92,12 +120,45 @@ describe("SystemShell", () => {
       permissions: ["platform.organizations.view"],
       mfaEnrollmentRequired: false,
       stepUpRequired: true,
+      emailDeliveryReady: true,
+      mutationsEnabled: true,
     };
     render(<SystemShell>Read-only platform content</SystemShell>);
 
     expect(screen.getByText("Read-only platform content")).toBeInTheDocument();
     expect(screen.getByText(/Recent MFA verification is required/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Verify now" })).toHaveAttribute("href", "/system/account");
+  });
+
+  it("explains a read-only environment without hiding the organization directory", () => {
+    authMock.platformAccess = {
+      role: "SystemAdmin",
+      permissions: ["platform.organizations.view"],
+      mfaEnrollmentRequired: false,
+      environment: "staging",
+      emailDeliveryReady: true,
+      mutationsEnabled: false,
+    };
+    render(<SystemShell>Read-only platform content</SystemShell>);
+
+    expect(screen.getByText("Read only", { selector: ".system-mutation-state" })).toBeInTheDocument();
+    expect(screen.getByText(/Platform changes are locked in this environment/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Organizations" })).toBeInTheDocument();
+  });
+
+  it("identifies email delivery as the reason platform changes are locked", () => {
+    authMock.platformAccess = {
+      role: "SystemAdmin",
+      permissions: ["platform.organizations.view"],
+      mfaEnrollmentRequired: false,
+      environment: "staging",
+      emailDeliveryReady: false,
+      mutationsEnabled: false,
+    };
+    render(<SystemShell>Platform content</SystemShell>);
+
+    expect(screen.getByText(/Email delivery is unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/platform changes and email-based support actions are locked/i)).toBeInTheDocument();
   });
 
   it("redirects tenant identities away from platform controls", async () => {

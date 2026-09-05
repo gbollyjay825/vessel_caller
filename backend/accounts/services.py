@@ -99,15 +99,21 @@ def queue_email(
     idempotency_key: str,
     organization: Organization,
     allow_suspended_organization: bool = False,
+    allow_pending_approval_organization: bool = False,
 ) -> EmailOutbox:
     if organization is None:
         raise ValueError("Transactional application email requires an organization scope")
+    if allow_pending_approval_organization and template != "verify_email":
+        raise ValueError("Only email-verification delivery may bypass pending approval")
+    if allow_pending_approval_organization and allow_suspended_organization:
+        raise ValueError("An email cannot bypass both pending approval and suspension")
     outbox, created = EmailOutbox.objects.get_or_create(
         idempotency_key=idempotency_key,
         defaults={
             "to_email": to_email,
             "organization": organization,
             "allow_suspended_organization": allow_suspended_organization,
+            "allow_pending_approval_organization": allow_pending_approval_organization,
             "subject": subject,
             "template": template,
             "context": {
@@ -244,6 +250,8 @@ def end_current_session(request) -> None:
     key = request.session.session_key
     if key:
         UserSession.objects.filter(session_key=key).update(revoked_at=timezone.now())
+    raw_request = getattr(request, "_request", request)
+    raw_request._vessel_allow_session_cookie_delete = True
     logout(request)
 
 

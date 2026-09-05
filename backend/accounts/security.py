@@ -34,12 +34,18 @@ def issue_action_token(
     *,
     hours: int,
     metadata: dict | None = None,
+    allow_pending_approval: bool = False,
 ) -> tuple[ActionToken, str]:
     from organizations.models import Organization
 
+    if allow_pending_approval and kind != ActionToken.Kind.VERIFY_EMAIL:
+        raise ValueError("Only email verification tokens may bypass pending approval")
+    allowed_statuses = [Organization.AccessStatus.ACTIVE]
+    if allow_pending_approval:
+        allowed_statuses.append(Organization.AccessStatus.PENDING_APPROVAL)
     organization = (
         Organization.objects.select_for_update()
-        .filter(pk=user.organization_id, access_status=Organization.AccessStatus.ACTIVE)
+        .filter(pk=user.organization_id, access_status__in=allowed_statuses)
         .first()
     )
     if not organization:
@@ -58,7 +64,12 @@ def issue_action_token(
 
 
 @transaction.atomic
-def consume_action_token(raw: str, kind: str) -> ActionToken | None:
+def consume_action_token(
+    raw: str,
+    kind: str,
+    *,
+    allow_pending_approval: bool = False,
+) -> ActionToken | None:
     from organizations.models import Organization
 
     hashed = token_hash(raw)
@@ -69,11 +80,16 @@ def consume_action_token(raw: str, kind: str) -> ActionToken | None:
     )
     if not candidate:
         return None
+    if allow_pending_approval and kind != ActionToken.Kind.VERIFY_EMAIL:
+        raise ValueError("Only email verification tokens may bypass pending approval")
+    allowed_statuses = [Organization.AccessStatus.ACTIVE]
+    if allow_pending_approval:
+        allowed_statuses.append(Organization.AccessStatus.PENDING_APPROVAL)
     organization = (
         Organization.objects.select_for_update()
         .filter(
             pk=candidate["user__organization_id"],
-            access_status=Organization.AccessStatus.ACTIVE,
+            access_status__in=allowed_statuses,
         )
         .first()
     )
@@ -96,9 +112,14 @@ def consume_action_token(raw: str, kind: str) -> ActionToken | None:
     )
     if not token:
         return None
+    pending_approval_verification = bool(
+        allow_pending_approval
+        and kind == ActionToken.Kind.VERIFY_EMAIL
+        and token.user.organization.access_status == Organization.AccessStatus.PENDING_APPROVAL
+    )
     if (
         token.expires_at <= timezone.now()
-        or not token.user.organization.is_access_active
+        or not (token.user.organization.is_access_active or pending_approval_verification)
         or token.user.is_staff
         or token.user.is_superuser
     ):

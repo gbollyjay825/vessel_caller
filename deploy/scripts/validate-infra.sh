@@ -61,5 +61,6 @@ else
 fi
 
 "${repo_root}/tests/infra/test-system-admin-controls.sh"
+"${repo_root}/tests/infra/test-staging-writer-guard.sh"
 
 echo "Available infrastructure validation completed."

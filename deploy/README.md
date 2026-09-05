@@ -19,8 +19,32 @@ credentials keep external-provider gates deferred and fail-closed.
 - Independently authenticated staging Redis: loopback port 6381
 
 CI runs `scripts/build-release.sh`; the Droplet uses `verify-release.sh`,
-`install-release.sh`, and `promote-release.sh`. The deployment user can invoke
-only the guarded `vessel-caller-deploy` entrypoint through sudo.
+`install-release.sh`, `release-target-policy.sh`, `staging-writer-guard.sh`,
+`staging-compatibility-guard.sh`, `staging-lifecycle-state.sh`, and
+`promote-release.sh`. The deployment user can invoke only the guarded
+`vessel-caller-deploy` entrypoint through sudo. A signed manifest with
+`stagingOnlySchemaCutover: true` is rejected for production in both CI and the
+root-owned host entrypoint.
+
+The same signed manifest carries `organizationApprovalLifecycle: true`. After
+staging web and worker are proven inactive, the host atomically persists a
+root-owned compatibility marker under `/var/lib/vessel-caller` before running
+the migration. If that local marker is absent after a host replacement, the
+root-installed guard consults the authoritative Django migration ledger and
+reconstructs it only from a compatible signed release. The supported deployment
+path permanently rejects older releases that could reopen legacy writers
+against the expanded approval schema, including after a failed cutover.
+
+The entrypoint and installer are host controls, not self-updating application
+files. The staging systemd units are part of the same host safety boundary. A
+release that changes their safety contract requires a separate, privileged
+bootstrap from that exact signed release before its normal deploy.
+Verify the archive with the environment's pinned release key, hold the same
+release lock, install only the reviewed scripts atomically as `root:root 0755`,
+retain root-only backups, install the exact authenticated staging units, run
+`systemctl daemon-reload`, and record all hashes. Never copy controls from an
+unsigned checkout or let a candidate replace the script currently executing
+it.
 
 Ansible changes only files named for Vessel Caller and records the set of
 enabled Nginx sites before/after bootstrap. It validates Nginx before reload

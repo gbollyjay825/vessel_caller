@@ -69,6 +69,8 @@ jq -n \
     commit: $commit,
     createdAt: $created,
     runtimes: {python: $python, node: $node},
+    organizationApprovalLifecycle: true,
+    stagingOnlySchemaCutover: true,
     immutable: true
   }' > "${payload}/RELEASE.json"
 

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 import boto3
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.management import CommandError, call_command
@@ -115,8 +116,8 @@ def test_auth_backend_permission_and_security_branches(admin, viewer):
 def test_managed_session_missing_expired_and_touch_branches(admin):
     factory = RequestFactory()
 
-    def request_with_session():
-        request = factory.get("/api/auth/me")
+    def request_with_session(path="/api/auth/me"):
+        request = factory.get(path)
         SessionMiddleware(lambda req: HttpResponse()).process_request(request)
         request.session.save()
         request.user = admin
@@ -145,6 +146,18 @@ def test_managed_session_missing_expired_and_touch_branches(admin):
     ManagedSessionMiddleware(lambda req: HttpResponse("ok"))(touched)
     managed.refresh_from_db()
     assert managed.last_seen_at > timezone.now() - timedelta(minutes=1)
+
+    ordinary = request_with_session("/api/state")
+    ordinary_managed = UserSession.objects.create(
+        session_key=ordinary.session.session_key,
+        user=admin,
+        absolute_expires_at=timezone.now() + timedelta(days=1),
+        last_seen_at=timezone.now() - timedelta(hours=1),
+    )
+    ordinary_response = ManagedSessionMiddleware(lambda req: HttpResponse("ok"))(ordinary)
+    ordinary_managed.refresh_from_db()
+    assert ordinary_managed.last_seen_at < timezone.now() - timedelta(minutes=5)
+    assert settings.SESSION_COOKIE_NAME not in ordinary_response.cookies
 
 
 def test_email_delivery_backends_and_resend_status(monkeypatch):

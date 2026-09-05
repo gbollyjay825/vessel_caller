@@ -33,6 +33,11 @@ function SecureScreen({ permission, children }: { permission?: Permission; child
   return <ProtectedRoute permission={permission}>{children}</ProtectedRoute>;
 }
 
+function PublicAuthRoute({ children }: { children: ReactNode }) {
+  const { status, homePath } = useAuth();
+  return status === "authenticated" ? <Navigate to={homePath} replace /> : <>{children}</>;
+}
+
 function WorkspaceRoutes() {
   return (
     <Switch>
@@ -117,8 +122,8 @@ export default function App() {
       <AuthProvider>
         <Switch>
           <Route path="/"><Landing /></Route>
-          <Route path="/login"><AuthPage mode="login" /></Route>
-          <Route path="/register"><AuthPage mode="register" /></Route>
+          <Route path="/login"><PublicAuthRoute><AuthPage mode="login" /></PublicAuthRoute></Route>
+          <Route path="/register"><PublicAuthRoute><AuthPage mode="register" /></PublicAuthRoute></Route>
           <Route path="/verify-email"><EmailVerification /></Route>
           <Route path="/forgot-password"><ForgotPassword /></Route>
           <Route path="/reset-password"><ResetPassword /></Route>

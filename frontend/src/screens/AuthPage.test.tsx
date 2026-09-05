@@ -63,7 +63,7 @@ describe("AuthPage", () => {
   });
 
   it("keeps a new organization pending until email verification", async () => {
-    authMock.register.mockResolvedValue({ detail: "Check your inbox." });
+    authMock.register.mockResolvedValue({ detail: "Check your inbox.", approvalRequired: true });
     render(<AuthPage mode="register" />);
 
     await userEvent.type(screen.getByLabelText("Your name"), "Ada Admin");
@@ -74,6 +74,9 @@ describe("AuthPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Verify your email" })).toBeInTheDocument();
     expect(screen.getByText("Check your inbox.")).toBeInTheDocument();
+    expect(screen.getByText(/must approve your organization before anyone can sign in/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Continue to sign in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Return to home" })).toHaveAttribute("href", "/");
   });
 
   it("redirects only after the authenticated state has committed", async () => {

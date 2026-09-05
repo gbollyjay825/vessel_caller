@@ -15,3 +15,10 @@ id = "generic-api-key"
     '''^frontend/src/app/store\.test\.tsx$''',
     '''^frontend/src/screens/PublicFlows\.test\.tsx$''',
   ]
+
+  [[rules.allowlists]]
+  description = "Deterministic non-secret idempotency values used by System Admin tests"
+  condition = "AND"
+  regexTarget = "secret"
+  regexes = ['''^(approve-missing-reason-001|approve-unverified-001|approve-active-unverified-001|approve-stale-mfa-001|approve-disabled-gate-001|suspend-pending-approval-001|reactivate-pending-approval-001|approve-platform-container-001|approve-suspended-001)$''']
+  paths = ['''^backend/tests/test_system_admin\.py$''']

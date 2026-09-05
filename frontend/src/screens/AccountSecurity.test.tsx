@@ -62,13 +62,13 @@ const profile = {
   mfaRequired: true,
 };
 
-function renderAccount() {
+function renderAccount(props: Parameters<typeof AccountSecurity>[0] = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <AccountSecurity />
+      <AccountSecurity {...props} />
     </QueryClientProvider>,
   );
 }
@@ -118,6 +118,20 @@ describe("AccountSecurity", () => {
     expect(await screen.findByText("System Administrator")).toBeInTheDocument();
     expect(screen.getByText(/controlled operator process/i)).toBeInTheDocument();
     expect(screen.queryByText(/another organization Admin/i)).not.toBeInTheDocument();
+  });
+
+  it("can open directly on MFA and put authenticator setup before password for enrollment", () => {
+    authState.platformAccess = { role: "SystemAdmin", permissions: [] };
+    renderAccount({ initialTab: "security", prioritizeMfa: true });
+
+    expect(screen.getByRole("tab", { name: "Password & MFA" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "Authenticator app" })).toBeInTheDocument();
+    expect(screen.queryByText("Profile", { selector: ".card-title" })).not.toBeInTheDocument();
+
+    const panels = document.querySelectorAll(".account-grid > .account-panel");
+    expect(panels).toHaveLength(2);
+    expect(panels[0]).toHaveAttribute("aria-labelledby", "mfa-heading");
+    expect(panels[1].tagName).toBe("FORM");
   });
 
   it("requires a current factor for recovery codes and hides platform MFA disable", async () => {

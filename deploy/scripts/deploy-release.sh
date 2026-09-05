@@ -1,10 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+script_dir="$(dirname -- "${script_path}")"
+if [[ "${1:-}" == "--print-resolved-script-dir" ]]; then
+  # Read-only diagnostic used by the symlink-path regression test. The forced
+  # SSH command and sudo rule cannot invoke this mode.
+  printf '%s\n' "${script_dir}"
+  exit 0
+fi
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root through the restricted vessel-deploy sudo rule." >&2
   exit 1
 fi
+if [[ ! -f "${script_path}" || -L "${script_path}" ]] \
+  || [[ "$(stat -c '%U:%G:%a' "${script_path}")" != root:root:755 ]] \
+  || [[ ! -d "${script_dir}" || -L "${script_dir}" ]] \
+  || [[ "$(stat -c '%U:%G:%a' "${script_dir}")" != root:root:755 ]]; then
+  echo "The installed deployment control path is not trusted." >&2
+  exit 1
+fi
+
+for helper in \
+  install-release.sh \
+  release-target-policy.sh \
+  snapshot-release.py \
+  staging-compatibility-guard.sh \
+  staging-lifecycle-state.sh \
+  staging-writer-guard.sh \
+  libpq-env.sh \
+  verify-release.sh; do
+  helper_path="${script_dir}/${helper}"
+  if [[ ! -f "${helper_path}" || -L "${helper_path}" ]] \
+    || [[ "$(stat -c '%U:%G:%a' "${helper_path}")" != root:root:755 ]]; then
+    echo "Installed deployment helper is not trusted: ${helper}" >&2
+    exit 1
+  fi
+done
 
 exec 9>/run/lock/vessel-caller-release.lock
 if ! flock --nonblock 9; then
@@ -13,7 +46,40 @@ if ! flock --nonblock 9; then
 fi
 target="${1:-}"
 archive="${2:-}"
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=deploy/scripts/staging-writer-guard.sh
+source "${script_dir}/staging-writer-guard.sh"
+# shellcheck source=deploy/scripts/release-target-policy.sh
+source "${script_dir}/release-target-policy.sh"
+
+release_snapshot_root=""
+
+cleanup_release_snapshot() {
+  if [[ -z "${release_snapshot_root}" ]]; then
+    return 0
+  fi
+  if [[ "${release_snapshot_root}" != /var/lib/vessel-caller/.release-input.* ]] \
+    || [[ ! -d "${release_snapshot_root}" ]] \
+    || [[ -L "${release_snapshot_root}" ]]; then
+    echo "Refusing to remove an unexpected release snapshot path." >&2
+    return 1
+  fi
+  rm -rf -- "${release_snapshot_root}"
+  release_snapshot_root=""
+}
+
+handle_deploy_release_exit() {
+  local exit_status=$?
+  trap - EXIT
+  if ! cleanup_release_snapshot && [[ "${exit_status}" -eq 0 ]]; then
+    exit_status=1
+  fi
+  if ! cleanup_paused_staging_writers && [[ "${exit_status}" -eq 0 ]]; then
+    exit_status=1
+  fi
+  exit "${exit_status}"
+}
+
+trap handle_deploy_release_exit EXIT
 
 export REQUIRE_RELEASE_SIGNATURE=true
 
@@ -47,39 +113,72 @@ fail_close_system_admin_mutations() {
 }
 
 case "${target}" in
+  staging|production) ;;
+  *)
+    echo "Usage: $0 <staging|production> <release.tar.gz>" >&2
+    exit 2
+    ;;
+esac
+
+# The upload account owns /var/tmp and can retain writable file descriptors.
+# Snapshot all inputs under the release lock before any verification; every
+# subsequent verifier, policy check, and extractor uses only these bytes.
+release_snapshot_base=/var/lib/vessel-caller
+if [[ ! -d "${release_snapshot_base}" || -L "${release_snapshot_base}" ]] \
+  || [[ "$(stat -c '%U:%G:%a' "${release_snapshot_base}")" != root:root:755 ]]; then
+  echo "The release snapshot base is not a trusted root-owned directory." >&2
+  exit 1
+fi
+release_snapshot_root="$(mktemp -d "${release_snapshot_base}/.release-input.XXXXXX")"
+chown root:root "${release_snapshot_root}"
+chmod 0700 "${release_snapshot_root}"
+archive="$("${script_dir}/snapshot-release.py" "${archive}" "${release_snapshot_root}")"
+
+case "${target}" in
   staging)
     # Staging has an independently pinned artifact key.  Never replace the
     # production verifier merely to stage a candidate release.
     export RELEASE_SIGNATURE_PUBLIC_KEY=/etc/vessel-caller/staging-release-signing-public.pem
+    "${script_dir}/verify-release.sh" "${archive}"
+    enforce_release_target_policy staging "${archive}"
     fail_close_system_admin_mutations staging vessel-caller-staging
+    pause_staging_writers
+    # From this point every exit path stays fail-closed. Persist the floor only
+    # after both legacy writers are confirmed down.
+    staging_cutover_started=true
+    enforce_staging_compatibility_floor "${archive}"
     "${script_dir}/install-release.sh" staging "${archive}"
-    # The isolated staging browser gate authenticates only deterministic
-    # fixture accounts. Refresh them on each staging release so an expired
-    # MFA grace period can never silently remove their permissions. The
-    # password remains in the root-owned staging environment file; it is
-    # neither emitted nor passed through GitHub Actions.
-    set -a
-    # shellcheck disable=SC1091
-    . /etc/vessel-caller/staging.env
-    # shellcheck disable=SC1091
-    . /opt/vessel-caller/slots/staging/current/RELEASE.env
-    set +a
-    runuser -u vessel-caller-staging --preserve-environment -- \
-      /opt/vessel-caller/slots/staging/current/backend/.venv/bin/python \
-      /opt/vessel-caller/slots/staging/current/backend/manage.py \
-      seed_e2e --force
-    systemctl restart vessel-caller-staging-worker.service
-    systemctl enable vessel-caller-staging-worker.service >/dev/null
-    curl \
-      --fail \
-      --silent \
-      --show-error \
-      --header "Host: staging.vesselcalls.com" \
-      --header "X-Forwarded-Proto: https" \
-      http://127.0.0.1:8010/api/readiness >/dev/null
+    # The prepare unit already refreshes deterministic staging fixtures before
+    # the candidate web starts. Do not seed a second time through a live slot.
+    resume_staging_writers
+    systemctl enable \
+      vessel-caller-staging-worker.service \
+      vessel-caller-staging-web.service >/dev/null
+    staging_healthy=false
+    for _ in $(seq 1 30); do
+      if curl \
+        --fail \
+        --silent \
+        --show-error \
+        --max-time 3 \
+        --header "Host: staging.vesselcalls.com" \
+        --header "X-Forwarded-Proto: https" \
+        http://127.0.0.1:8010/api/readiness >/dev/null; then
+        staging_healthy=true
+        break
+      fi
+      sleep 1
+    done
+    if [[ "${staging_healthy}" != true ]]; then
+      echo "Staging candidate failed readiness; keeping web and worker fail-closed." >&2
+      exit 1
+    fi
+    staging_cutover_verified=true
     ;;
   production)
     export RELEASE_SIGNATURE_PUBLIC_KEY=/etc/vessel-caller/release-signing-public.pem
+    "${script_dir}/verify-release.sh" "${archive}"
+    enforce_release_target_policy production "${archive}"
     active_port="$(awk '/^server / {gsub(/[;:]/, " ", $0); print $3}' \
       /etc/nginx/vessel-caller/active-upstream.conf 2>/dev/null || true)"
     if [[ "${active_port}" == "8002" ]]; then
@@ -97,10 +196,4 @@ case "${target}" in
     "${script_dir}/install-release.sh" "${candidate}" "${archive}"
     "${script_dir}/promote-release.sh" "${candidate}"
     ;;
-  *)
-    echo "Usage: $0 <staging|production> <release.tar.gz>" >&2
-    exit 2
-    ;;
 esac
-
-rm -f "${archive}" "${archive}.sha256" "${archive}.sig"

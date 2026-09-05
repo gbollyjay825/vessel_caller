@@ -15,6 +15,7 @@ EnvironmentFile=/etc/vessel-caller/staging.env
 EnvironmentFile=/opt/vessel-caller/slots/staging/current/RELEASE.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/usr/local/lib/vessel-caller/staging-compatibility-guard.sh
 ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/celery -A vessel_caller worker --loglevel=INFO --concurrency=2 --max-tasks-per-child=500
 ExecStop=/bin/kill -s TERM $MAINPID
 TimeoutStartSec=60
@@ -30,6 +31,7 @@ CPUQuota=100%
 
 RuntimeDirectory=vessel-caller-staging-worker
 StateDirectory=vessel-caller/staging
+StateDirectoryMode=0750
 LogsDirectory=vessel-caller/staging
 NoNewPrivileges=true
 PrivateTmp=true

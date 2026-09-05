@@ -24,9 +24,16 @@ async function signIn(page: Page, email: string) {
 }
 
 async function signOut(page: Page) {
+  // The next sign-in reloads /login, so prove Django finished invalidating the
+  // server session before that navigation can cancel the in-page logout task.
+  const logoutResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/auth/logout"
+  ));
   await page.getByRole("button", { name: "User menu" }).click();
   await page.getByRole("button", { name: "Sign out" }).filter({ visible: true }).last().click();
   await expect(page).toHaveURL(/\/login$/);
+  expect((await logoutResponse).ok()).toBe(true);
 }
 
 async function navigateInWorkspace(page: Page, label: string) {

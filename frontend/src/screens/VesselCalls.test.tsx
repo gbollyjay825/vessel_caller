@@ -284,4 +284,16 @@ describe("VesselCallDetail", () => {
     render(<VesselCallDetail />);
     expect(screen.getByText("Vessel call not found.")).toBeInTheDocument();
   });
+
+  it("links to measurements and displays both harbour dues and disparity invoices", async () => {
+    mocks.params = { id: completedCall.id };
+    mocks.store = makeStore({ invoices: [invoice, { ...invoice, id: "disparity-1", invoiceNo: "INV-DISPARITY-1", inspectionId: null, purpose: "disparity", dues: 100 }] });
+    render(<VesselCallDetail />);
+    await userEvent.click(screen.getByRole("button", { name: "Measurements" }));
+    expect(mocks.navigate).toHaveBeenCalledWith("/app/measurements?callId=call-completed");
+    expect(screen.getAllByText("INV-2026-0001").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("INV-DISPARITY-1").length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole("row", { name: /INV-DISPARITY-1/ }));
+    expect(mocks.navigate).toHaveBeenCalledWith("/app/invoices?focus=disparity-1");
+  });
 });

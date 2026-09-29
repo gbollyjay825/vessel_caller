@@ -16,7 +16,7 @@ DJANGO_SETTINGS_MODULE = "vessel_caller.settings.test"
 
 [tool.coverage.run]
 branch = true
-source = ["accounts", "api", "audit", "billing", "operations", "organizations", "vessel_caller"]
+source = ["accounts", "api", "audit", "billing", "measurements", "operations", "organizations", "vessel_caller"]
 omit = [
   "legacy_fastapi/*",
   "manage.py",

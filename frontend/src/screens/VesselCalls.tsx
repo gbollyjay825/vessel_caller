@@ -11,9 +11,9 @@ import {
   type Column,
 } from "../components/ui";
 import {
-  fmtDate, fmtDateTime, fmtNGN, fmtNum, fmtTons, fmtUSD,
+  effectiveInvoiceStatus, fmtDate, fmtDateTime, fmtNGN, fmtNum, fmtTons, fmtUSD,
 } from "../lib/format";
-import type { Inspection, VesselCall } from "../types";
+import type { Inspection, Invoice, VesselCall } from "../types";
 
 type StoreApi = ReturnType<typeof useStore>;
 
@@ -298,6 +298,15 @@ export function VesselCallDetail() {
   const inspections = store.inspectionsForCall(call.id);
   const completedInsp = inspections.find((i) => i.status === "completed");
   const invoice = store.invoiceForCall(call.id);
+  const invoices = store.invoices.filter((item) => item.callId === call.id);
+
+  const invoiceColumns: Column<Invoice>[] = [
+    { key: "invoiceNo", label: "Invoice", render: (item) => <span className="mono-ref">{item.invoiceNo}</span> },
+    { key: "purpose", label: "Purpose", render: (item) => item.purpose === "disparity" ? "Measurement disparity" : "Harbour dues" },
+    { key: "dues", label: "Amount (USD)", num: true, render: (item) => fmtUSD(item.dues) },
+    { key: "status", label: "Status", render: (item) => <StatusBadge status={effectiveInvoiceStatus(item)} /> },
+    { key: "actions", label: "", render: (item) => <PdfButton kind="invoice" id={item.id} /> },
+  ];
 
   const inspColumns: Column<Inspection>[] = [
     { key: "date", label: "Date", render: (r) => <span className="tnum">{fmtDate(r.date)}</span> },
@@ -326,7 +335,10 @@ export function VesselCallDetail() {
             <span className="mono-ref">{call.reference}</span> &nbsp;·&nbsp; {call.type}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 wrap">
+          <button className="btn btn-secondary btn-sm" type="button" onClick={() => navigate("/app/measurements?callId=" + encodeURIComponent(call.id))}>
+            <Icon name="clipboard" size={16} /> Measurements
+          </button>
           {store.can("cancelCall") && call.status !== "cancelled" && call.status !== "completed" && (
             <button className="btn btn-secondary btn-sm" type="button" onClick={() => setEditOpen(true)}>
               <Icon name="edit" size={16} /> Edit call
@@ -412,6 +424,13 @@ export function VesselCallDetail() {
         )}
       </div>
 
+      <div className="card section-gap">
+        <div className="card-head"><div className="card-title">Invoices on this call</div></div>
+        {invoices.length ? <DataTable columns={invoiceColumns} rows={invoices} getKey={(item) => item.id}
+          onRowClick={(item) => navigate("/app/invoices?focus=" + encodeURIComponent(item.id))} /> :
+          <p className="muted" style={{ padding: "16px 24px" }}>No invoices issued on this call yet.</p>}
+      </div>
+
       {completedInsp && f && (
         <div className="card card-pad section-gap">
           <div className="card-title" style={{ marginBottom: 18 }}>Financials</div>
@@ -422,15 +441,15 @@ export function VesselCallDetail() {
             </div>
             <div className="fin-row">
               <div className="fl">Commission rate</div>
-              <div className="fv">{store.settings.commissionRate}%</div>
+              <div className="fv">{f.dues ? fmtNum(f.commissionUsd / f.dues * 100, 2) : "0"}%</div>
             </div>
             <div className="fin-row">
-              <div className="fl">Agency commission<span className="basis">at ₦{fmtNum(store.settings.exchangeRate)}/USD</span></div>
+              <div className="fl">Agency commission<span className="basis">at ₦{fmtNum(invoice?.fx ?? store.settings.exchangeRate)}/USD</span></div>
               <div className="fv">{fmtUSD(f.commissionUsd)} <span style={{ color: "var(--slate)", fontWeight: 500 }}>· {fmtNGN(f.commissionNgn)}</span></div>
             </div>
             <div className="fin-total">
               <div className="fl">Invoice total</div>
-              <div className="fv tnum">{fmtUSD(f.dues)}<span className="ngn">{fmtNGN(f.dues * store.settings.exchangeRate)}</span></div>
+              <div className="fv tnum">{fmtUSD(f.dues)}<span className="ngn">{fmtNGN(f.dues * (invoice?.fx ?? store.settings.exchangeRate))}</span></div>
             </div>
           </div>
           <div className="flex gap-3 mt-6">

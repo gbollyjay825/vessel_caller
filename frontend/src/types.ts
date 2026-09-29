@@ -160,6 +160,27 @@ export interface Payment {
 }
 export type InvoiceStatus = "paid" | "unpaid" | "void";
 export type EffectiveInvoiceStatus = "paid" | "unpaid" | "overdue" | "void";
+export interface InvoiceLineItem {
+  lineId: string;
+  description: string;
+  unit: string;
+  category?: string | null;
+  direction?: string | null;
+  containerSize?: string | null;
+  loadStatus?: string | null;
+  basis?: string | null;
+  baselineQuantity: string;
+  finalQuantity: string;
+  variance: string;
+  rate: string;
+  tolerance: string;
+  toleranceMode: "threshold" | "deductible";
+  chargeableQuantity: string;
+  entitlement: string;
+  openingBilledAmount: string;
+  priorInvoicedAmount: string;
+  amount: string;
+}
 export interface InvoiceWorkflowStatus {
   id: string | null; code: string; label: string; position: number | null; active: boolean;
   isPaid: boolean; isTerminal: boolean; isProtected: boolean;
@@ -184,6 +205,14 @@ export interface Invoice {
   invoiceNo: string;
   callId: string;
   inspectionId: string | null;
+  purpose?: "harbour-dues" | "disparity";
+  currency?: string;
+  payer?: string;
+  reconciliationId?: string | null;
+  assessmentId?: string | null;
+  lineItems?: InvoiceLineItem[];
+  paidAmount?: number;
+  outstandingAmount?: number;
   cargoType: string;
   issued: string;
   due: string;

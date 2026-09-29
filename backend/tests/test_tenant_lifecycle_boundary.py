@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 
 import pytest
+from django.urls import URLResolver
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory, force_authenticate
@@ -14,18 +15,22 @@ from api.operation_views import (
 )
 from api.permissions import HasVesselPermission
 from api.tenant_lifecycle import TenantLifecycleAPIView
-from api.urls import urlpatterns
+from measurements.evidence import MeasurementEvidenceDetailView
+from vessel_caller.urls import urlpatterns
 from organizations.models import OrganizationSettings
 
 
 pytestmark = pytest.mark.django_db
 
 
-def _view_classes():
-    for pattern in urlpatterns:
-        view_class = getattr(pattern.callback, "view_class", None)
-        if view_class is not None:
-            yield view_class
+def _view_classes(patterns=None):
+    for pattern in urlpatterns if patterns is None else patterns:
+        if isinstance(pattern, URLResolver):
+            yield from _view_classes(pattern.url_patterns)
+        else:
+            view_class = getattr(pattern.callback, "view_class", None)
+            if view_class is not None:
+                yield view_class
 
 
 def _declares_unsafe_handler(view_class) -> bool:
@@ -56,6 +61,7 @@ def test_every_signed_download_capability_get_declares_the_lifecycle_guard():
         OrganizationLogoView,
         EvidenceDetailView,
         InvoiceAttachmentDetailView,
+        MeasurementEvidenceDetailView,
     }
     discovered = {
         view_class

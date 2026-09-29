@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     "accounts",
     "organizations",
     "operations",
+    "measurements",
     "billing",
     "audit",
     "api",

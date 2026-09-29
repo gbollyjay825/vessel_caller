@@ -302,7 +302,9 @@ def object_exists(key: str) -> bool:
     return object_metadata(key) is not None
 
 
-def promote_object(source_key: str, destination_key: str) -> dict | None:
+def promote_object(
+    source_key: str, destination_key: str, *, preserve_source: bool = False
+) -> dict | None:
     client = _s3_client()
     if client:
         try:
@@ -318,7 +320,8 @@ def promote_object(source_key: str, destination_key: str) -> dict | None:
             metadata = object_metadata(destination_key)
             if not metadata:
                 raise RuntimeError("Promoted evidence object could not be verified")
-            client.delete_object(Bucket=os.environ["VC_SPACES_BUCKET"], Key=source_key)
+            if not preserve_source:
+                client.delete_object(Bucket=os.environ["VC_SPACES_BUCKET"], Key=source_key)
             return metadata
         except Exception:
             try:
@@ -343,7 +346,8 @@ def promote_object(source_key: str, destination_key: str) -> dict | None:
     if not metadata:
         default_storage.delete(destination_key)
         return None
-    default_storage.delete(source_key)
+    if not preserve_source:
+        default_storage.delete(source_key)
     return metadata
 
 

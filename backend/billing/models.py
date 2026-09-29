@@ -85,6 +85,10 @@ class InvoiceStatusStep(models.Model):
 
 
 class Invoice(models.Model):
+    class Purpose(models.TextChoices):
+        HARBOUR_DUES = "harbour-dues", "Harbour dues"
+        DISPARITY = "disparity", "Measurement disparity"
+
     class Status(models.TextChoices):
         UNPAID = "unpaid", "Unpaid"
         PAID = "paid", "Paid"
@@ -101,7 +105,27 @@ class Invoice(models.Model):
         "operations.Inspection",
         on_delete=models.PROTECT,
         related_name="invoice",
+        null=True,
+        blank=True,
     )
+    purpose = models.CharField(max_length=20, choices=Purpose.choices, default=Purpose.HARBOUR_DUES)
+    currency = models.CharField(max_length=3, default="USD")
+    payer = models.CharField(max_length=255, blank=True)
+    reconciliation = models.ForeignKey(
+        "measurements.Reconciliation",
+        on_delete=models.PROTECT,
+        related_name="invoices",
+        null=True,
+        blank=True,
+    )
+    assessment = models.OneToOneField(
+        "measurements.DisparityAssessment",
+        on_delete=models.PROTECT,
+        related_name="invoice",
+        null=True,
+        blank=True,
+    )
+    line_items = models.JSONField(default=list, blank=True)
     invoice_no = models.CharField(max_length=100)
     cargo_type = models.CharField(max_length=20)
     issued_on = models.DateField()

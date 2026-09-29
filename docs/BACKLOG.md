@@ -51,6 +51,7 @@ and downstream qualification/cutover remains prohibited.
 | E06-S03 | Normalized payments, reversal, and server-generated PDFs | E03 | In progress | accounting, authorization, and snapshot tests |
 | E06-S04 | Private evidence uploads | E03, Spaces | Deferred | MIME/size/tenant tests and signed-URL expiry proof |
 | E06-S05 | Real IndexedDB PWA queue and conflict recovery | E06-S02 | In progress | offline browser journeys |
+| E06-S06 | Cargo measurement planning, stakeholder returns, immutable reconciliation and disparity billing | E03, E05, E06-S03 | In progress | Implemented and locally tested 2026-09-29; 32 PostgreSQL workflow/evidence/billing tests passed, measurement coverage 93.25%, migration drift clean. Not deployed or staging-qualified by this entry; retain release and operator UAT evidence from docs/MEASUREMENTS.md before completion. |
 | E07-S01 | Remove every fake control, simulated success, demo credential, and unsupported claim | E05, E06 | In progress | repository search manifest and UAT checklist |
 | E08-S01 | Cookie/CSRF client, effective permissions, and expiry handling | E05 | In progress | role/session component and browser tests |
 | E08-S02 | Paginated resource queries, caching, and accessible responsive states | E05, E06 | In progress | component/accessibility/performance tests |

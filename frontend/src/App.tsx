@@ -17,6 +17,7 @@ import { EmailVerification } from "./screens/EmailVerification";
 import { Inspections, NewInspection } from "./screens/Inspections";
 import { InvitationAccept } from "./screens/InvitationAccept";
 import { Invoices } from "./screens/Invoices";
+import { Measurements, MeasurementDetail, NewMeasurement } from "./screens/Measurements";
 import { Landing } from "./screens/LandingFull";
 import { ForgotPassword, ResetPassword } from "./screens/PasswordRecovery";
 import { Settings } from "./screens/Settings";
@@ -44,6 +45,9 @@ function WorkspaceRoutes() {
       <Route path="/app"><Dashboard /></Route>
       <Route path="/app/vessel-calls/:id"><VesselCallDetail /></Route>
       <Route path="/app/vessel-calls"><VesselCalls /></Route>
+      <Route path="/app/measurements/new"><SecureScreen permission="measurements.manage"><NewMeasurement /></SecureScreen></Route>
+      <Route path="/app/measurements/:id"><SecureScreen permission="measurements.view"><MeasurementDetail /></SecureScreen></Route>
+      <Route path="/app/measurements"><SecureScreen permission="measurements.view"><Measurements /></SecureScreen></Route>
       <Route path="/app/inspections/new">
         <SecureScreen permission="inspections.manage"><NewInspection /></SecureScreen>
       </Route>

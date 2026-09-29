@@ -1631,6 +1631,14 @@ class InvoiceDocumentView(APIView):
             for index, item in enumerate(invoice.line_items, start=1):
                 rows += [
                     (f"Line {index}", item.get("description", "")),
+                    ("Category", item.get("category", "")),
+                    ("Direction", item.get("direction", "")),
+                    (
+                        "Container size",
+                        f"{item['containerSize']}-foot" if item.get("containerSize") else "",
+                    ),
+                    ("Load status", item.get("loadStatus", "")),
+                    ("Measurement basis", item.get("basis", "")),
                     ("Unit", item.get("unit", "")),
                     (
                         "Baseline / final",

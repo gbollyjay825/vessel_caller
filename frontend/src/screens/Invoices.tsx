@@ -15,6 +15,10 @@ import type { EffectiveInvoiceStatus, Invoice, InvoiceAttachment, VesselCall } f
 
 type Store = ReturnType<typeof useStore>;
 
+const unitRateFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4,
+});
+
 // A store invoice enriched with the joined call + display/snapshot fields the
 // table and drawer read. cargoType is derived from the linked inspection.
 type InvoiceRow = Omit<Invoice, "cargoType"> & {
@@ -243,10 +247,12 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
         <a className="link-btn" href={`/app/measurements?callId=${encodeURIComponent(row.callId)}`}>View measurement reconciliation</a>
         {(row.lineItems || []).map((item) => <div key={item.lineId} className="card card-pad" style={{ marginTop: 16 }}>
           <div className="card-title">{item.description}</div>
+          {(item.direction || item.category || item.containerSize || item.loadStatus) && <p className="muted" style={{ marginTop: 6 }}>{[item.direction, item.category, item.containerSize ? `${item.containerSize} ft` : null, item.loadStatus].filter(Boolean).join(" · ")}</p>}
+          {item.basis && <div className="fin-row"><div className="fl">Quantity basis</div><div className="fv">{item.basis}</div></div>}
           <div className="fin-row"><div className="fl">Baseline / final ({item.unit})</div><div className="fv tnum">{item.baselineQuantity} / {item.finalQuantity}</div></div>
           <div className="fin-row"><div className="fl">Variance ({item.unit})</div><div className="fv tnum">{item.variance}</div></div>
           <div className="fin-row"><div className="fl">Tolerance<span className="basis">{item.toleranceMode}</span></div><div className="fv tnum">{item.tolerance} {item.unit}</div></div>
-          <div className="fin-row"><div className="fl">Chargeable quantity / rate</div><div className="fv tnum">{item.chargeableQuantity} {item.unit} × {fmtUSD(Number(item.rate))}</div></div>
+          <div className="fin-row"><div className="fl">Chargeable quantity / rate</div><div className="fv tnum">{item.chargeableQuantity} {item.unit} × {unitRateFormatter.format(Number(item.rate))}</div></div>
           <div className="fin-row"><div className="fl">Cumulative entitlement</div><div className="fv tnum">{fmtUSD(Number(item.entitlement))}</div></div>
           <div className="fin-row"><div className="fl">Opening charges / prior invoices</div><div className="fv tnum">{fmtUSD(Number(item.openingBilledAmount))} / {fmtUSD(Number(item.priorInvoicedAmount))}</div></div>
           <div className="fin-total"><div className="fl">Additional charge</div><div className="fv tnum">{fmtUSD(Number(item.amount))}</div></div>

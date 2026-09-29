@@ -233,3 +233,121 @@ def test_issued_disparity_pdf_keeps_frozen_voyage_after_call_rename(
         == documents[1]["Total disparity (USD)"]
         == Decimal("17.36")
     )
+
+
+def test_duplicate_container_descriptions_retain_approved_context_in_api_and_pdfs(
+    operations, admin, finance, monkeypatch
+):
+    from measurements.models import CargoLine
+    from reportlab.platypus import Paragraph
+    from .test_measurements import assessment_payload, post_action, ready_plan
+
+    call = VesselCall.objects.create(
+        organization=operations.organization,
+        vessel_name="MV Container Context",
+        reference="ROT-CONTAINER-CONTEXT",
+    )
+    cargo = [
+        {
+            "direction": "import",
+            "containerSize": "20",
+            "loadStatus": "laden",
+            "basis": "Import tally",
+        },
+        {
+            "direction": "export",
+            "containerSize": "40",
+            "loadStatus": "empty",
+            "basis": "Export tally",
+        },
+    ]
+    payload = {
+        "callId": call.id,
+        "title": "Container classifications",
+        "scheduledAt": timezone.now().isoformat(),
+        "method": "Container tally",
+        "stage": "Completed cargo operations",
+        "scope": "Separate import and export container lines",
+        "leadSurveyor": "Surveyor One",
+        "participants": [{"name": "Terminal", "role": "operator"}],
+        "lines": [
+            {
+                "description": "Containers",
+                "category": "Container",
+                "unit": "count",
+                "manifestQuantity": "100",
+                "baselineReference": "Container manifest",
+                **context,
+            }
+            for context in cargo
+        ],
+    }
+    plan, _ = ready_plan(operations, admin, payload, quantity="110")
+    expected = {
+        line["id"]: {
+            key: line[key]
+            for key in ("category", "direction", "containerSize", "loadStatus", "basis")
+        }
+        for line in plan["reconciliations"][-1]["snapshot"]["lines"]
+    }
+    plan = post_action(finance, plan, "assessments", assessment_payload(plan))
+    assessment = plan["assessments"][-1]
+    for line in assessment["lines"]:
+        assert {key: line[key] for key in expected[line["lineId"]]} == expected[line["lineId"]]
+    plan = post_action(finance, plan, f"assessments/{assessment['id']}/issue", {}, expected=200)
+    invoice = Invoice.objects.get(pk=plan["assessments"][-1]["invoiceId"])
+    assert {line["containerSize"] for line in invoice.line_items} == {"20", "40"}
+    for line in invoice.line_items:
+        assert {key: line[key] for key in expected[line["lineId"]]} == expected[line["lineId"]]
+
+    # Even a later maintenance change to mutable planning rows cannot rewrite approved context.
+    CargoLine.objects.filter(plan_id=plan["id"]).update(
+        category="Changed category",
+        direction="changed",
+        container_size="45",
+        load_status="changed",
+        basis="Changed basis",
+    )
+    refreshed = authenticated(finance).get(f"/api/measurement-plans/{plan['id']}").json()["plan"]
+    for line in refreshed["assessments"][-1]["lines"]:
+        assert {key: line[key] for key in expected[line["lineId"]]} == expected[line["lineId"]]
+
+    paragraphs = []
+
+    def capture_paragraph(text, *args, **kwargs):
+        paragraphs.append(text)
+        return Paragraph(text, *args, **kwargs)
+
+    monkeypatch.setattr("measurements.documents.Paragraph", capture_paragraph)
+    rid = plan["reconciliations"][-1]["id"]
+    sheet = authenticated(finance).get(
+        f"/api/measurement-plans/{plan['id']}/reconciliations/{rid}/document"
+    )
+    assert sheet.status_code == 200 and sheet.content.startswith(b"%PDF-")
+    for context in cargo:
+        assert any(
+            f"{context['containerSize']}-foot" in text
+            and context["direction"] in text
+            and context["loadStatus"] in text
+            and context["basis"] in text
+            and "Container" in text
+            for text in paragraphs
+        )
+    assert not any("Changed basis" in text for text in paragraphs)
+
+    rows = []
+
+    def capture_invoice(title, document_rows, **kwargs):
+        rows.extend(document_rows)
+        return simple_pdf(title, document_rows, **kwargs)
+
+    monkeypatch.setattr("api.operation_views.simple_pdf", capture_invoice)
+    result = authenticated(finance).get(f"/api/invoices/{invoice.id}/document")
+    assert result.status_code == 200 and result.content.startswith(b"%PDF-")
+    for context in cargo:
+        assert ("Container size", f"{context['containerSize']}-foot") in rows
+        assert ("Direction", context["direction"]) in rows
+        assert ("Load status", context["loadStatus"]) in rows
+        assert ("Measurement basis", context["basis"]) in rows
+    assert ("Category", "Container") in rows
+    assert ("Measurement basis", "Changed basis") not in rows

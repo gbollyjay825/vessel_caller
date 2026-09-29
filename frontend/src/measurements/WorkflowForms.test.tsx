@@ -151,4 +151,46 @@ describe('measurement entry controls', () => {
     expect(screen.getByLabelText(/Opening amount already charged/)).toHaveValue(0);
   });
 
+  it('keeps same-named container returns distinguishable and saves their quantities to the correct cargo lines', async () => {
+    const plan = measurementFixture(); const base = plan.lines[0];
+    plan.lines = [
+      { ...base, id: 'containers-20', description: 'Containers', category: 'Container', unit: 'count', direction: 'import', containerSize: '20', loadStatus: 'laden', basis: 'Physical containers' },
+      { ...base, id: 'containers-40', description: 'Containers', category: 'Container', unit: 'count', direction: 'export', containerSize: '40', loadStatus: 'empty', basis: 'Physical containers' },
+    ];
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<ReturnForm plan={plan} onSave={onSave} onCancel={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Containers · import · 20 ft · laden · count' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Containers · export · 40 ft · empty · count' })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Source document reference'), 'CONTAINER-TALLY');
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'Reported quantity · Containers · import · 20 ft · laden' }), '70');
+    await userEvent.type(screen.getByRole('spinbutton', { name: 'Reported quantity · Containers · export · 40 ft · empty' }), '0');
+    await userEvent.click(screen.getByLabelText('signed-survey.pdf'));
+    await userEvent.click(screen.getByRole('button', { name: 'Record stakeholder return' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ lines: [
+      { lineId: 'containers-20', status: 'reported', quantity: '70', note: '' },
+      { lineId: 'containers-40', status: 'reported', quantity: '0', note: '' },
+    ] })));
+  });
+  it('retains full scope in reconciliation and finance controls for identical cargo descriptions', async () => {
+    const plan = measurementFixture(); const base = plan.lines[0];
+    plan.lines = [
+      { ...base, id: 'containers-20', description: 'Containers', category: 'Container', unit: 'count', direction: 'import', containerSize: '20', loadStatus: 'laden', basis: 'Physical containers' },
+      { ...base, id: 'containers-40', description: 'Containers', category: 'Container', unit: 'count', direction: 'export', containerSize: '40', loadStatus: 'empty', basis: 'Physical containers' },
+    ];
+    const proposal = render(<ProposalForm plan={plan} onSave={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByRole('spinbutton', { name: 'Proposed quantity · Containers · import · 20 ft · laden' })).toHaveValue(null);
+    expect(screen.getByRole('spinbutton', { name: 'Proposed quantity · Containers · export · 40 ft · empty' })).toHaveValue(null);
+    expect(screen.getByLabelText('Decision rationale · Containers · export · 40 ft · empty')).toBeRequired();
+    proposal.unmount();
+    render(<AssessmentForm plan={plan} reconciliation={reconciliationFixture()} onSave={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Containers · import · 20 ft · laden · count' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Containers · export · 40 ft · empty · count' })).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: 'USD rate per count · Containers · import · 20 ft · laden' })).toHaveValue(null);
+    expect(screen.getByRole('spinbutton', { name: 'USD rate per count · Containers · export · 40 ft · empty' })).toHaveValue(null);
+    expect(screen.getByRole('spinbutton', { name: 'Tolerance (count) · Containers · export · 40 ft · empty' })).toBeRequired();
+    await userEvent.selectOptions(screen.getByLabelText('Billing policy'), 'quantity-adjustment');
+    expect(screen.getByLabelText(/Previously billed quantity · Containers · export · 40 ft · empty/)).toBeRequired();
+    expect(screen.getByLabelText(/Opening amount already charged \(USD\) · Containers · import · 20 ft · laden/)).toBeRequired();
+  });
+
 });

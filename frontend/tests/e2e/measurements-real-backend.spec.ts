@@ -80,6 +80,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   const vesselName = `MV Measurement ${suffix}`;
   const title = `Discharge tally ${suffix}`;
   const cargo = "20 foot laden containers";
+  const cargoLabel = `${cargo} · import · 20 ft · laden`;
   const evidenceName = `synthetic-paper-tally-${suffix}.pdf`;
 
   await signIn(page, "operations@e2e.vesselcalls.test");
@@ -126,7 +127,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
     await page.getByRole("button", { name: "Record return", exact: true }).click();
     await page.getByRole("combobox", { name: "Reporting stakeholder", exact: true }).selectOption({ label: `${party} · ${index ? "Terminal operator" : "Agent"}` });
     await page.getByLabel("Source document reference", { exact: true }).fill(`SYNTHETIC-RETURN-${index + 1}`);
-    await page.getByLabel(`Reported quantity · ${cargo}`, { exact: true }).fill(index ? "110" : "108");
+    await page.getByLabel(`Reported quantity · ${cargoLabel}`, { exact: true }).fill(index ? "110" : "108");
     if (!index) {
       await page.locator('input[type="file"]').setInputFiles({ name: evidenceName, mimeType: "application/pdf", buffer: syntheticPdf() });
       await expect(page.getByLabel(evidenceName, { exact: true })).toBeChecked();
@@ -142,8 +143,8 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await assertMeasurementWorkspace(page, "Reconciliation");
   await page.getByRole("button", { name: "Propose reconciliation", exact: true }).click();
   await page.getByLabel("Reconciliation rationale", { exact: true }).fill("Physical recount resolves the two container difference.");
-  await page.getByLabel(`Proposed quantity · ${cargo}`, { exact: true }).fill("110");
-  await page.getByLabel(`Decision rationale · ${cargo}`, { exact: true }).fill("Terminal recount accepted against the recorded tally evidence.");
+  await page.getByLabel(`Proposed quantity · ${cargoLabel}`, { exact: true }).fill("110");
+  await page.getByLabel(`Decision rationale · ${cargoLabel}`, { exact: true }).fill("Terminal recount accepted against the recorded tally evidence.");
   await page.getByRole("button", { name: "Create reconciliation proposal", exact: true }).click();
   await expect(page.getByText("Reconciliation proposal saved", { exact: true })).toBeVisible();
   for (const [index, party] of ["Test Ship Agent", "Test Terminal"].entries()) {
@@ -177,9 +178,9 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await page.getByLabel("Payer", { exact: true }).fill("Synthetic Cargo Receiver");
   await page.getByLabel("Approved tariff / rate reference", { exact: true }).fill("SYNTHETIC-TARIFF-2.50-PER-CONTAINER");
   await page.getByLabel("Verified opening charges reference").fill("No prior cargo charges");
-  await page.getByLabel(`USD rate per count · ${cargo}`, { exact: true }).fill("2.50");
-  await page.getByLabel(`Tolerance (count) · ${cargo}`, { exact: true }).fill("0");
-  await page.getByLabel(`Opening amount already charged (USD) · ${cargo}`).fill("0");
+  await page.getByLabel(`USD rate per count · ${cargoLabel}`, { exact: true }).fill("2.50");
+  await page.getByLabel(`Tolerance (count) · ${cargoLabel}`, { exact: true }).fill("0");
+  await page.getByLabel(`Opening amount already charged (USD) · ${cargoLabel}`).fill("0");
   await page.getByLabel("Assessment rationale", { exact: true }).fill("Ten additional containers at the verified USD 2.50 rate.");
   await page.getByRole("checkbox", { name: /I have verified the tariff/ }).check();
   await page.getByRole("button", { name: "Calculate and save assessment", exact: true }).click();
@@ -208,6 +209,8 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   const drawer = page.getByRole("dialog", { name: issued.invoice.invoiceNo });
   await expect(drawer).toBeVisible();
   await expect(drawer.getByText("Measurement disparity", { exact: true })).toBeVisible();
+  await expect(drawer.getByText("import · Container · 20 ft · laden", { exact: true })).toBeVisible();
+  await expect(drawer.getByText("Physical container count", { exact: true })).toBeVisible();
   await expect(drawer.getByText("100.000 / 110.000", { exact: true })).toBeVisible();
   await expect(drawer.getByText("$25.00", { exact: true }).first()).toBeVisible();
   const state = await (await page.request.get("/api/state")).json();

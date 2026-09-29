@@ -21,6 +21,16 @@ from .models import Reconciliation
 from .serializers import reconciliation_data
 
 
+def cargo_description(line):
+    parts = [line.get("description"), line.get("category"), line.get("direction")]
+    if line.get("containerSize"):
+        parts.append(f"{line['containerSize']}-foot")
+    parts.extend([line.get("loadStatus"), line.get("unit")])
+    if line.get("basis"):
+        parts.append(f"Basis: {line['basis']}")
+    return " / ".join(str(part) for part in parts if part)
+
+
 def reconciliation_pdf(reconciliation):
     """Render approved sources from the frozen snapshot, never today's call data."""
     current = reconciliation_data(reconciliation)
@@ -103,7 +113,7 @@ def reconciliation_pdf(reconciliation):
     # Limit table width: additional parties get another comparison panel with the same final figures.
     groups = [participants[i : i + 4] for i in range(0, len(participants), 4)] or [[]]
     for group in groups:
-        headers = ["Cargo / direction / unit", "Manifest"]
+        headers = ["Cargo / classification / basis", "Manifest"]
         headers += [f"{p.get('name', '')}\n{p.get('role', '')}" for p in group]
         headers += ["Agreed", "Variance"]
         rows: list[list[Any]] = [headers]
@@ -120,9 +130,7 @@ def reconciliation_pdf(reconciliation):
                     if reading.get("status") == "reported"
                     else reading.get("status", "Missing")
                 )
-            description = " / ".join(
-                str(line.get(k) or "") for k in ("description", "direction", "unit")
-            )
+            description = cargo_description(line)
             rows.append(
                 [
                     description,
@@ -143,7 +151,9 @@ def reconciliation_pdf(reconciliation):
         source: dict[str, Any] = next(
             (item for item in cargo_lines if item["id"] == line["lineId"]), {}
         )
-        story.append(text(f"{source.get('description', line['lineId'])}: {line.get('reason', '')}"))
+        story.append(
+            text(f"{cargo_description(source) or line['lineId']}: {line.get('reason', '')}")
+        )
     story.extend([Spacer(1, 4 * mm), Paragraph("Recorded acknowledgements", styles["Heading2"])])
     approvals = record.get("approvals", [])
     approval_rows = [["Party", "Decision / representative", "Source reference", "Recorded at / by"]]

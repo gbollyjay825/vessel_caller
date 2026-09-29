@@ -164,6 +164,11 @@ export interface InvoiceLineItem {
   lineId: string;
   description: string;
   unit: string;
+  category?: string | null;
+  direction?: string | null;
+  containerSize?: string | null;
+  loadStatus?: string | null;
+  basis?: string | null;
   baselineQuantity: string;
   finalQuantity: string;
   variance: string;

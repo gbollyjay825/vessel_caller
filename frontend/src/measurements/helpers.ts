@@ -1,4 +1,4 @@
-import type { MeasurementPlan, Reconciliation, Submission } from "./types";
+import type { CargoLine, MeasurementPlan, Reconciliation, Submission } from "./types";
 
 export function latestReturns(plan: MeasurementPlan): Map<string, Submission> {
   const returns = new Map<string, Submission>();
@@ -31,3 +31,21 @@ export const localDateTime = (value?: string | null) => {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 };
 export const dateLabel = (value?: string | null) => value ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Not set";
+
+
+type CargoContext = Pick<CargoLine, "description"> & Partial<Pick<CargoLine, "direction" | "containerSize" | "loadStatus" | "basis">>;
+export function cargoScopeLabel(line: CargoContext): string {
+  return [line.direction, line.containerSize && `${line.containerSize} ft`, line.loadStatus].filter(Boolean).join(" · ");
+}
+export function cargoInputLabel(line: CargoLine, lines: CargoLine[]): string {
+  const sameDescription = lines.filter(item => item.description === line.description);
+  if (!line.containerSize && !line.loadStatus && sameDescription.length === 1) return line.description;
+  const scope = cargoScopeLabel(line);
+  const repeatedScope = sameDescription.filter(item => cargoScopeLabel(item) === scope).length > 1;
+  const label = [line.description, scope].filter(Boolean).join(" · ");
+  return repeatedScope ? `${label} · line ${lines.findIndex(item => item.id === line.id) + 1}` : label;
+}
+export function cargoLabelForId(lines: CargoLine[], lineId: string): string {
+  const line = lines.find(item => item.id === lineId);
+  return line ? cargoInputLabel(line, lines) : "Cargo line";
+}

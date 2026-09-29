@@ -273,11 +273,25 @@ def reconciliation_data(item, include_snapshot=True):
 
 
 def assessment_line_data(item):
+    approved_line = next(
+        (
+            line
+            for line in item.assessment.reconciliation.snapshot.get("lines", [])
+            if line["id"] == item.line_id
+        ),
+        None,
+    )
+    if approved_line is None:
+        approved_line = cargo_line_data(item.line)
     result = {
         "lineId": item.line_id,
         "description": item.description,
         "unit": item.unit,
         "toleranceMode": item.tolerance_mode,
+        **{
+            key: approved_line.get(key, "")
+            for key in ("category", "direction", "containerSize", "loadStatus", "basis")
+        },
     }
     for key, field in [
         ("baselineQuantity", "baseline_quantity"),

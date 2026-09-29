@@ -154,4 +154,20 @@ describe('measurement workflow', () => {
     await waitFor(() => expect(mocked.update).toHaveBeenCalledWith('plan-1', { version: 5, status: 'cancelled', reason: 'Cargo operation cancelled' }));
   });
 
+  it('shows complete container context in saved assessments and historical line decisions and returns', async () => {
+    const plan = measurementFixture();
+    plan.lines[0] = { ...plan.lines[0], description: 'Containers', category: 'Container', unit: 'count', direction: 'import', containerSize: '20', loadStatus: 'laden', basis: 'Physical containers' };
+    const recon = reconciliationFixture(); recon.status = 'final'; recon.finalizedAt = '2026-09-29T12:00:00Z'; plan.reconciliations = [recon];
+    const assessment = assessmentFixture(); assessment.lines[0] = { ...assessment.lines[0], description: 'Containers', unit: 'count', direction: 'import', containerSize: '20', loadStatus: 'laden', basis: 'Physical containers' }; plan.assessments = [assessment];
+    mocked.detail.mockResolvedValue({ plan });
+    renderScreen(<MeasurementDetail />); await screen.findByRole('heading', { name: 'Discharge survey' });
+    await userEvent.click(screen.getByRole('tab', { name: 'Disparity billing' }));
+    expect(screen.getByText('count · import · 20 ft · laden · Physical containers')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Reconciliation' }));
+    expect(screen.getByText('Containers · import · 20 ft · laden:', { selector: '.measurement-decision strong' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Documents & history' }));
+    await userEvent.click(screen.getByText('Harbour Agent', { selector: 'summary strong' }));
+    expect(screen.getByText('Containers · import · 20 ft · laden: 19,508', { selector: 'li' })).toBeInTheDocument();
+  });
+
 });

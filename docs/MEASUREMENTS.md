@@ -177,9 +177,9 @@ operator results. Do not mark this checklist complete based on local tests.
 - Verify legacy inspections, harbour-dues amounts, invoices, payments and reversals
   remain unchanged and usable.
 
-Local evidence: all 245 backend tests passed against PostgreSQL, including concurrent
-finalization and issuance, with 95.77% line and 86.80% branch coverage. All 263 frontend
-tests passed with 90.02% line and 80.87% branch coverage; lint, type checks, build and
+Local evidence: all 246 backend tests passed against PostgreSQL, including concurrent
+finalization and issuance, with 95.92% line and 87.03% branch coverage. All 272 frontend
+tests passed with 90.05% line and 81.35% branch coverage; lint, type checks, build and
 migration drift were clean. The complete Operations → independent Admin → Finance
 journey passed against the real backend in Chromium, Firefox, WebKit and iPhone 13,
 including private evidence, PDF downloads, invoice persistence, keyboard tab

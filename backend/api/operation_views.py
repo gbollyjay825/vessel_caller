@@ -7,7 +7,7 @@ from typing import Any
 
 from django.core import signing
 from django.db import transaction
-from django.db.models import F, Max
+from django.db.models import F, Max, Sum
 from django.http import FileResponse, HttpResponse
 from django.utils.text import slugify
 from django.utils import timezone
@@ -535,9 +535,18 @@ class PaymentCreateView(APIView):
                     }
                 )
         data = serializer.validated_data
+        current_paid = invoice.payments.filter(reversed_at__isnull=True).aggregate(
+            total=Sum("amount")
+        )["total"] or Decimal("0")
+        balance = max(invoice.dues - current_paid, Decimal("0"))
+        if invoice.status == Invoice.Status.PAID or balance == 0:
+            raise Conflict("This invoice is already fully paid")
+        amount = data.get("amount", balance)
+        if amount > balance:
+            raise ValidationError({"amount": ["Payment exceeds the outstanding invoice amount"]})
         payment = Payment.objects.create(
             invoice=invoice,
-            amount=data.get("amount", invoice.dues),
+            amount=amount,
             paid_on=data["paidOn"],
             method=data["method"],
             reference=data["reference"],
@@ -1204,13 +1213,16 @@ class AnalyticsView(APIView):
         liquid_revenue = dry_revenue = Decimal("0")
         for invoice in organization.invoices.exclude(status=Invoice.Status.VOID):
             invoiced += invoice.dues
-            if invoice.status == Invoice.Status.PAID:
-                collected += invoice.dues
-            else:
-                outstanding += invoice.dues
+            paid = invoice.payments.filter(reversed_at__isnull=True).aggregate(total=Sum("amount"))[
+                "total"
+            ]
+            if paid is None:
+                paid = invoice.dues if invoice.status == Invoice.Status.PAID else Decimal("0")
+            collected += paid
+            outstanding += max(invoice.dues - paid, Decimal("0"))
             if invoice.cargo_type == "Dry":
                 dry_revenue += invoice.dues
-            else:
+            elif invoice.cargo_type == "Liquid":
                 liquid_revenue += invoice.dues
             key = invoice.issued_on.strftime("%Y-%m")
             if key in series:
@@ -1587,31 +1599,62 @@ class InvoiceDocumentView(APIView):
 
     def get(self, request, invoice_id):
         invoice = (
-            request.user.organization.invoices.select_related("vessel_call", "inspection")
+            request.user.organization.invoices.select_related(
+                "vessel_call", "inspection", "reconciliation"
+            )
             .filter(pk=invoice_id)
             .first()
         )
         if not invoice:
             raise NotFound("Invoice not found")
-        content = simple_pdf(
-            f"Invoice {invoice.invoice_no}",
-            [
-                ("Vessel", invoice.vessel_call.vessel_name),
-                ("Rotation", invoice.vessel_call.reference),
-                ("Issued", invoice.issued_on),
-                ("Due", invoice.due_on),
-                (
-                    "Status",
-                    workflow_step_data(invoice.current_status, legacy_status=invoice.status)[
-                        "label"
-                    ],
-                ),
+        voyage = {}
+        if invoice.purpose == Invoice.Purpose.DISPARITY and invoice.reconciliation_id:
+            voyage = invoice.reconciliation.snapshot.get("plan", {})
+        rows = [
+            ("Vessel", voyage.get("vesselName", invoice.vessel_call.vessel_name)),
+            ("Rotation", voyage.get("callReference", invoice.vessel_call.reference)),
+            ("Issued", invoice.issued_on),
+            ("Due", invoice.due_on),
+            (
+                "Status",
+                workflow_step_data(invoice.current_status, legacy_status=invoice.status)["label"],
+            ),
+            ("Currency", invoice.currency),
+        ]
+        if invoice.purpose == Invoice.Purpose.DISPARITY:
+            rows += [
+                ("Purpose", "Measurement disparity"),
+                ("Payer", invoice.payer),
+                ("Reconciliation", invoice.reconciliation_id),
+                ("Assessment", invoice.assessment_id),
+            ]
+            for index, item in enumerate(invoice.line_items, start=1):
+                rows += [
+                    (f"Line {index}", item.get("description", "")),
+                    ("Unit", item.get("unit", "")),
+                    (
+                        "Baseline / final",
+                        f"{item.get('baselineQuantity', '')} / {item.get('finalQuantity', '')}",
+                    ),
+                    ("Variance", item.get("variance", "")),
+                    ("Tolerance", f"{item.get('tolerance', '')} ({item.get('toleranceMode', '')})"),
+                    ("Chargeable quantity", item.get("chargeableQuantity", "")),
+                    ("Rate (USD)", item.get("rate", "")),
+                    ("Entitlement (USD)", item.get("entitlement", "")),
+                    ("Opening billed (USD)", item.get("openingBilledAmount", "")),
+                    ("Prior invoiced (USD)", item.get("priorInvoicedAmount", "")),
+                    ("Line amount (USD)", item.get("amount", "")),
+                ]
+            rows.append(("Total disparity (USD)", invoice.dues))
+        else:
+            rows += [
                 ("Rate (USD)", invoice.rate),
                 ("Harbour dues (USD)", invoice.dues),
                 ("Commission (USD)", invoice.commission_usd),
                 ("Commission (NGN)", invoice.commission_ngn),
-            ],
-            logo_key=invoice.organization.logo_object_key,
+            ]
+        content = simple_pdf(
+            f"Invoice {invoice.invoice_no}", rows, logo_key=invoice.organization.logo_object_key
         )
         response = HttpResponse(content, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{invoice.invoice_no}.pdf"'

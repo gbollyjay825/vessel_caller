@@ -166,6 +166,36 @@ describe("Invoices payment workflow", () => {
     );
   });
 
+  it("shows the approved disparity snapshot without a net tonnage charge", async () => {
+    storeMock.invoices = [{
+      ...invoice(), inspectionId: null, purpose: "disparity", payer: "Cargo Receiver",
+      reconciliationId: "recon-1", assessmentId: "assessment-1", dues: 100,
+      commissionUsd: 0, commissionNgn: 0, paidAmount: 40, outstandingAmount: 60,
+      lineItems: [{ lineId: "line-1", description: "20 foot containers", unit: "count",
+        baselineQuantity: "100", finalQuantity: "110", variance: "10", rate: "10",
+        tolerance: "0", toleranceMode: "threshold", chargeableQuantity: "10",
+        entitlement: "100", openingBilledAmount: "0", priorInvoicedAmount: "0", amount: "100" }],
+    }];
+    render(<Invoices />);
+    await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
+    expect(screen.getByText("Cargo Receiver")).toBeInTheDocument();
+    expect(screen.getByText("20 foot containers")).toBeInTheDocument();
+    expect(screen.getByText("100 / 110")).toBeInTheDocument();
+    expect(screen.getByText(/remaining balance of \$60.00/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View measurement reconciliation" })).toHaveAttribute("href", "/app/measurements?callId=call-1");
+    expect(screen.queryByText("Net tonnage")).not.toBeInTheDocument();
+    expect(screen.queryByText("NPA harbour dues")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Report PDF" })).not.toBeInTheDocument();
+  });
+
+  it("does not offer payment on a void invoice", async () => {
+    storeMock.invoices = [{ ...invoice(), status: "void" }];
+    render(<Invoices />);
+    await userEvent.click(screen.getByRole("row", { name: /INV-2026-0001/ }));
+    expect(screen.queryByRole("button", { name: /Record payment/ })).not.toBeInTheDocument();
+    expect(screen.getByText("This invoice is void. No payment can be recorded.")).toBeInTheDocument();
+  });
+
   it("shows workflow history and clearly saves a Finance status transition", async () => {
     storeMock.invoices = [{ ...invoice(), workflowStatus: storeMock.invoiceStatusSteps[0], statusHistory: [{ id: "event-1", toCode: "draft", toLabel: "Draft", source: "created", createdAt: "2026-07-26T10:00:00Z" }] }];
     render(<Invoices />);

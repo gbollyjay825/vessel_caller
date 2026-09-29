@@ -8,6 +8,10 @@ Users belong to one organization. Effective permissions come from
 | View organization operations | Yes | Yes | Yes | Yes |
 | Create/edit vessel calls and inspections | Yes | Yes | No | No |
 | Finalize inspections | Yes | Yes | No | No |
+| View measurement plans, returns, reconciliations and evidence (`measurements.view`) | Yes | Yes | Yes | Yes |
+| Plan/capture measurements and record paper acknowledgements (`measurements.manage`) | Yes | Yes | No | No |
+| Finalize a reconciliation (`measurements.approve`) | Independent reviewer only | No | No | No |
+| Assess/issue disparity invoices (`measurements.bill`) | Yes | No | Yes | No |
 | View invoices and reports | Yes | Yes | Yes | Yes |
 | Record/reverse payments | Yes | No | Yes | No |
 | Manage charge/settings data | Yes | No | Yes | No |
@@ -24,3 +28,10 @@ Admin and Finance users must enroll TOTP MFA within seven days. Other roles may
 opt in. Sessions expire after 12 idle hours and 30 absolute days. Passwords use
 Argon2id; legacy Passlib PBKDF2 hashes are recognized only long enough to
 upgrade on successful authentication or reset.
+
+Measurement final approval must be performed by an Admin other than the proposal's
+preparer. Acknowledgements record staff-entered paper evidence; stakeholder parties
+are not application user roles. Measurement permissions remain subject to customer
+organization lifecycle, active-account and MFA requirements. Suspended organizations
+cannot read or mutate measurement records or obtain new private evidence links.
+See [measurement operations](MEASUREMENTS.md) for approval, amendment and billing controls.

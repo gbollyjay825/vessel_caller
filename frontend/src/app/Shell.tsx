@@ -21,6 +21,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { key: "dashboard",    label: "Dashboard",    icon: "dashboard", to: "/app", end: true },
   { key: "vessel-calls", label: "Vessel Calls", icon: "ship",      to: "/app/vessel-calls", permission: "calls.view" },
+  { key: "measurements", label: "Measurements", icon: "ruler", to: "/app/measurements", permission: "measurements.view" },
   { key: "inspections",  label: "Inspections",  icon: "clipboard", to: "/app/inspections", permission: "inspections.view" },
   { key: "invoices",     label: "Invoices",     icon: "invoice",   to: "/app/invoices", permission: "invoices.view" },
   { key: "analytics",    label: "Analytics",    icon: "gauge",     to: "/app/analytics", permission: "analytics.view" },

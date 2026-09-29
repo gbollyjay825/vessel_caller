@@ -216,7 +216,12 @@ def payment_data(payment) -> dict:
 
 
 def invoice_data(invoice) -> dict:
-    current = invoice.payments.filter(reversed_at__isnull=True).first()
+    payments = list(invoice.payments.filter(reversed_at__isnull=True))
+    current = payments[0] if payments else None
+    # Retain the historical paid status of imported invoices without a payment ledger.
+    paid = sum((payment.amount for payment in payments), Decimal("0"))
+    if not payments and invoice.status == "paid":
+        paid = invoice.dues
     current_step = getattr(invoice, "current_status", None)
     history = []
     try:
@@ -243,6 +248,16 @@ def invoice_data(invoice) -> dict:
         "invoiceNo": invoice.invoice_no,
         "callId": invoice.vessel_call_id,
         "inspectionId": invoice.inspection_id,
+        "purpose": invoice.purpose,
+        "currency": invoice.currency,
+        "payer": invoice.payer,
+        "reconciliationId": invoice.reconciliation_id,
+        "assessmentId": invoice.assessment_id,
+        "lineItems": invoice.line_items,
+        "paidAmount": number(paid),
+        "outstandingAmount": number(max(invoice.dues - paid, Decimal("0")))
+        if invoice.status != "void"
+        else 0,
         "cargoType": invoice.cargo_type,
         "issued": iso(invoice.issued_on),
         "due": iso(invoice.due_on),

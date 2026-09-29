@@ -12,6 +12,7 @@ function titleFor(pathname: string): string {
   const p = pathname.replace(/\/+$/, "");
   if (p === "/app" || p === "") return "Dashboard";
   if (p.includes("/vessel-calls")) return "Vessel Calls";
+  if (p.includes("/measurements")) return "Measurements";
   if (p.includes("/inspections/new")) return "New Inspection";
   if (p.includes("/inspections")) return "Inspections";
   if (p.includes("/invoices")) return "Invoices";

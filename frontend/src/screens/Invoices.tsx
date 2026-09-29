@@ -1,6 +1,7 @@
-// Invoices screen — harbour-dues invoices, payment-tracking KPIs, and a
+// Invoices screen — harbour dues and disparity invoices, payment tracking, and a
 // per-invoice detail drawer for recording payments. Ported from calabar/screens-ops.jsx.
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "../lib/navigation";
 
 import { useStore } from "../app/store";
 import { Icon } from "../components/Icon";
@@ -26,9 +27,10 @@ type InvoiceRow = Omit<Invoice, "cargoType"> & {
 
 export function Invoices() {
   const store = useStore();
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [detail, setDetail] = useState<InvoiceRow | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(searchParams.get("focus"));
 
   const allRows = useMemo<InvoiceRow[]>(() => {
     return store.invoices.map((iv) => {
@@ -38,7 +40,7 @@ export function Invoices() {
       // from current settings only for legacy invoices without a snapshot
       const f = iv.dues != null ? null : store.financialsForCall(call);
       return {
-        ...iv, call, effective: effectiveInvoiceStatus(iv), cargoType: insp?.cargoType || null,
+        ...iv, call, effective: effectiveInvoiceStatus(iv), cargoType: iv.purpose === "disparity" ? null : (iv.cargoType || insp?.cargoType || null),
         vesselName: call?.vesselName || (iv as any).vesselName || "—",
         callRef: call?.reference || (iv as any).callRef || "—",
         dues: iv.dues != null ? iv.dues : (f?.dues || 0),
@@ -49,14 +51,19 @@ export function Invoices() {
     }).sort((a, b) => +new Date(b.issued) - +new Date(a.issued));
   }, [store.invoices, store.calls, store.inspections, store.settings]);
 
+  const detail = allRows.find((row) => row.id === detailId);
+
   // Payment tracking summary across ALL invoices (unfiltered)
   const tracking = useMemo(() => {
     const t = { invoiced: 0, collected: 0, outstanding: 0, overdue: 0, overdueCount: 0 };
     allRows.forEach((r) => {
       if (r.effective === "void") return;
       t.invoiced += r.dues;
-      if (r.effective === "paid") t.collected += r.dues;
-      else { t.outstanding += r.dues; if (r.effective === "overdue") { t.overdue += r.dues; t.overdueCount += 1; } }
+      const paid = r.paidAmount ?? (r.effective === "paid" ? r.dues : 0);
+      const outstanding = r.outstandingAmount ?? Math.max(0, r.dues - paid);
+      t.collected += paid;
+      t.outstanding += outstanding;
+      if (r.effective === "overdue") { t.overdue += outstanding; t.overdueCount += 1; }
     });
     return t;
   }, [allRows]);
@@ -73,6 +80,7 @@ export function Invoices() {
     { key: "invoiceNo", label: "Invoice No.", sortable: true, render: (r) => <span className="cell-primary mono-ref" style={{ color: "var(--ink)", fontWeight: 600 }}>{r.invoiceNo}</span> },
     { key: "vesselName", label: "Vessel", sortable: true, render: (r) => r.vesselName },
     { key: "callRef", label: "Rotation Number", render: (r) => <span className="mono-ref">{r.callRef}</span> },
+    { key: "purpose", label: "Purpose", render: (r) => r.purpose === "disparity" ? "Measurement disparity" : "Harbour dues" },
     { key: "cargoType", label: "Cargo", render: (r) => r.cargoType ? <CargoTag type={r.cargoType} /> : <span className="muted">—</span> },
     { key: "dues", label: "Amount (USD)", num: true, sortable: true, render: (r) => <span className="money tnum"><span className="usd">{fmtUSD(r.dues)}</span></span> },
     { key: "commissionUsd", label: "Commission", num: true, render: (r) => <span className="money tnum"><span className="usd">{fmtUSD(r.commissionUsd)}</span><span className="ngn">{fmtNGN(r.commissionNgn)}</span></span> },
@@ -81,7 +89,7 @@ export function Invoices() {
     { key: "actions", label: "", num: true, render: (r) => (
       <div className="cell-actions">
         <PdfButton kind="invoice" id={r.id} />
-        <PdfButton kind="report" id={r.inspectionId} />
+        {r.inspectionId && <PdfButton kind="report" id={r.inspectionId} />}
       </div>) },
   ];
 
@@ -92,7 +100,7 @@ export function Invoices() {
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Invoices</h1>
-          <p className="desc">Harbour-dues invoices, payment tracking and receivables.</p>
+          <p className="desc">Harbour dues and measurement disparity invoices, payment tracking and receivables.</p>
         </div>
       </div>
 
@@ -114,27 +122,27 @@ export function Invoices() {
       </div>
 
       <div className="card">
-        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} onRowClick={(r) => setDetail(r)} mobileCards={false}
-          emptyState={<EmptyState icon="invoice" title="No invoices found" body="Invoices appear here once an inspection is completed." />} />
+        <DataTable columns={columns} rows={rows} getKey={(r) => r.id} onRowClick={(r) => setDetailId(r.id)} mobileCards={false}
+          emptyState={<EmptyState icon="invoice" title="No invoices found" body="Invoices appear here when an inspection is completed or Finance issues a disparity charge." />} />
         {/* mobile cards */}
         <div className="m-cards" style={{ padding: 16 }}>
           {rows.map((r) => (
-            <div className="m-card" key={r.id} onClick={() => setDetail(r)}>
+            <div className="m-card" key={r.id} onClick={() => setDetailId(r.id)}>
               <div className="mc-top">
-                <div><div className="mc-title">{r.vesselName}</div><div className="mc-sub mono-ref">{r.invoiceNo}{r.cargoType ? " · " + r.cargoType : ""}</div></div>
+                <div><div className="mc-title">{r.vesselName}</div><div className="mc-sub mono-ref">{r.invoiceNo} · {r.purpose === "disparity" ? "Measurement disparity" : r.cargoType || "Harbour dues"}</div></div>
                 <StatusBadge status={r.effective} />
               </div>
-              <div className="mc-amt tnum">{fmtUSD(r.dues)}<span className="ngn">Commission {fmtUSD(r.commissionUsd)} · {fmtNGN(r.commissionNgn)}</span></div>
+              <div className="mc-amt tnum">{fmtUSD(r.dues)}{r.purpose !== "disparity" && <span className="ngn">Commission {fmtUSD(r.commissionUsd)} · {fmtNGN(r.commissionNgn)}</span>}</div>
               <div className="mc-actions" onClick={(e) => e.stopPropagation()}>
                 <PdfButton kind="invoice" id={r.id} />
-                <PdfButton kind="report" id={r.inspectionId} />
+                {r.inspectionId && <PdfButton kind="report" id={r.inspectionId} />}
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {detail && <InvoiceDetail store={store} row={detail} onClose={() => setDetail(null)} />}
+      {detail && <InvoiceDetail store={store} row={detail} onClose={() => setDetailId(null)} />}
     </div>
   );
 }
@@ -144,7 +152,10 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
   const currentInvoice: Invoice = store.invoices.find((invoice) => invoice.id === row.id)
     || (row as unknown as Invoice);
   const effective = effectiveInvoiceStatus(currentInvoice);
-  const canPay = store.can("recordPayment");
+  const canPay = store.can("recordPayment") && effective !== "void";
+  const disparity = row.purpose === "disparity";
+  const paidAmount = row.paidAmount ?? (effective === "paid" ? row.dues : 0);
+  const outstanding = row.outstandingAmount ?? Math.max(0, row.dues - paidAmount);
   const [pay, setPay] = useState({ paidOn: new Date().toISOString().slice(0, 10), method: "Bank transfer", reference: "" });
   const [reversalReason, setReversalReason] = useState("");
   const [reversing, setReversing] = useState(false);
@@ -217,7 +228,7 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
   return (
     <Drawer title={row.invoiceNo} sub={`${row.vesselName} · ${row.callRef}`} onClose={onClose}
       footer={<>
-        <PdfButton kind="report" id={row.inspectionId} />
+        {row.inspectionId && <PdfButton kind="report" id={row.inspectionId} />}
         <PdfButton kind="invoice" id={row.id} />
       </>}>
       <div className="flex between items-center" style={{ marginBottom: 20 }}>
@@ -225,12 +236,30 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
         <span className="muted" style={{ fontSize: 13 }}>Issued {fmtDate(row.issued)} · Due {fmtDate(row.due)}</span>
       </div>
       <div className="card-title" style={{ marginBottom: 14 }}>Line-item breakdown</div>
-      <div className="fin-row"><div className="fl">Cargo / product type</div><div className="fv">{row.cargoType ? <CargoTag type={row.cargoType} /> : "—"}</div></div>
-      <div className="fin-row"><div className="fl">Net tonnage<span className="basis">dues basis</span></div><div className="fv tnum">{call ? fmtNum(call.nrt) : "—"} NT</div></div>
-      <div className="fin-row"><div className="fl">Dues rate<span className="basis">{row.cargoType === "Liquid" ? "jetty tariff" : "dry cargo"}</span></div><div className="fv tnum">{fmtUSD(row.rate)} / ton</div></div>
-      <div className="fin-row"><div className="fl">NPA harbour dues</div><div className="fv tnum">{fmtUSD(row.dues)}</div></div>
-      <div className="fin-row"><div className="fl">Agency commission<span className="basis">{store.settings.commissionRate}% · ₦{fmtNum(store.settings.exchangeRate)}/USD</span></div><div className="fv tnum">{fmtUSD(row.commissionUsd)} · {fmtNGN(row.commissionNgn)}</div></div>
-      <div className="fin-total"><div className="fl">Invoice total</div><div className="fv tnum">{fmtUSD(row.dues)}<span className="ngn">{fmtNGN(row.dues * store.settings.exchangeRate)}</span></div></div>
+      {disparity ? <>
+        <div className="fin-row"><div className="fl">Purpose</div><div className="fv">Measurement disparity</div></div>
+        <div className="fin-row"><div className="fl">Payer</div><div className="fv">{row.payer || "—"}</div></div>
+        <div className="fin-row"><div className="fl">Final reconciliation</div><div className="fv mono-ref">{row.reconciliationId || "—"}</div></div>
+        <a className="link-btn" href={`/app/measurements?callId=${encodeURIComponent(row.callId)}`}>View measurement reconciliation</a>
+        {(row.lineItems || []).map((item) => <div key={item.lineId} className="card card-pad" style={{ marginTop: 16 }}>
+          <div className="card-title">{item.description}</div>
+          <div className="fin-row"><div className="fl">Baseline / final ({item.unit})</div><div className="fv tnum">{item.baselineQuantity} / {item.finalQuantity}</div></div>
+          <div className="fin-row"><div className="fl">Variance ({item.unit})</div><div className="fv tnum">{item.variance}</div></div>
+          <div className="fin-row"><div className="fl">Tolerance<span className="basis">{item.toleranceMode}</span></div><div className="fv tnum">{item.tolerance} {item.unit}</div></div>
+          <div className="fin-row"><div className="fl">Chargeable quantity / rate</div><div className="fv tnum">{item.chargeableQuantity} {item.unit} × {fmtUSD(Number(item.rate))}</div></div>
+          <div className="fin-row"><div className="fl">Cumulative entitlement</div><div className="fv tnum">{fmtUSD(Number(item.entitlement))}</div></div>
+          <div className="fin-row"><div className="fl">Opening charges / prior invoices</div><div className="fv tnum">{fmtUSD(Number(item.openingBilledAmount))} / {fmtUSD(Number(item.priorInvoicedAmount))}</div></div>
+          <div className="fin-total"><div className="fl">Additional charge</div><div className="fv tnum">{fmtUSD(Number(item.amount))}</div></div>
+        </div>)}
+      </> : <>
+        <div className="fin-row"><div className="fl">Cargo / product type</div><div className="fv">{row.cargoType ? <CargoTag type={row.cargoType} /> : "—"}</div></div>
+        <div className="fin-row"><div className="fl">Net tonnage<span className="basis">dues basis</span></div><div className="fv tnum">{call ? fmtNum(call.nrt) : "—"} NT</div></div>
+        <div className="fin-row"><div className="fl">Dues rate<span className="basis">{row.cargoType === "Liquid" ? "jetty tariff" : "dry cargo"}</span></div><div className="fv tnum">{fmtUSD(row.rate)} / ton</div></div>
+        <div className="fin-row"><div className="fl">NPA harbour dues</div><div className="fv tnum">{fmtUSD(row.dues)}</div></div>
+        <div className="fin-row"><div className="fl">Agency commission</div><div className="fv tnum">{fmtUSD(row.commissionUsd)} · {fmtNGN(row.commissionNgn)}</div></div>
+      </>}
+      <div className="fin-total"><div className="fl">Invoice total (USD)</div><div className="fv tnum">{fmtUSD(row.dues)}{!disparity && <span className="ngn">{fmtNGN(row.dues * row.fx)}</span>}</div></div>
+      <div className="fin-row"><div className="fl">Collected / outstanding</div><div className="fv tnum">{fmtUSD(paidAmount)} / {fmtUSD(outstanding)}</div></div>
 
       <div className="card-title" style={{ margin: "26px 0 14px" }}>Status progression</div>
       <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>{(currentInvoice.statusHistory || []).map((event) => event.toLabel).join(" → ") || workflow?.label || currentInvoice.status}</div>
@@ -297,13 +326,16 @@ function InvoiceDetail({ store, row, onClose }: { store: Store; row: InvoiceRow;
             </>
           )}
         </>
+      ) : effective === "void" ? (
+        <p className="muted">This invoice is void. No payment can be recorded.</p>
       ) : canPay ? (
         <>
           {effective === "overdue" && (
             <p className="muted" style={{ fontSize: 13, margin: "0 0 12px", color: "var(--danger)" }}>
-              This invoice passed its due date ({fmtDate(row.due)}) without a recorded payment.
+              This invoice passed its due date ({fmtDate(row.due)}) with {fmtUSD(outstanding)} outstanding.
             </p>
           )}
+          <p className="muted">Record payment for the remaining balance of {fmtUSD(outstanding)}.</p>
           <div className="field-row">
             <Field label="Paid on">
               <input type="date" value={pay.paidOn} onChange={(e) => setPay({ ...pay, paidOn: e.target.value })} />

@@ -199,7 +199,7 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
   );
 
   const invoiceForCall = useCallback(
-    (callId: string) => state.invoices.find((invoice) => invoice.callId === callId),
+    (callId: string) => state.invoices.find((invoice) => invoice.callId === callId && invoice.purpose !== "disparity"),
     [state.invoices],
   );
 
@@ -209,6 +209,8 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
       (item) => item.callId === call.id && item.status === "completed",
     );
     if (!inspection) return null;
+    const invoice = state.invoices.find((item) => item.inspectionId === inspection.id && item.purpose !== "disparity");
+    if (invoice) return { dues: invoice.dues, rate: invoice.rate, commissionUsd: invoice.commissionUsd, commissionNgn: invoice.commissionNgn, inspection };
     const rate = rateForInspection(inspection, state.settings);
     if (!rate) return null;
     const dues = calcDues(call.nrt, rate);
@@ -220,7 +222,7 @@ export function StoreProvider({ initial, children }: { initial: AppState; childr
       commissionNgn: commission.ngn,
       inspection,
     };
-  }, [state.inspections, state.settings]);
+  }, [state.inspections, state.invoices, state.settings]);
 
   const mergeInspection = useCallback((result: Awaited<ReturnType<typeof api.createInspection>>) => {
     const inspection = result.inspection as Inspection;

@@ -177,7 +177,11 @@ operator results. Do not mark this checklist complete based on local tests.
 - Verify legacy inspections, harbour-dues amounts, invoices, payments and reversals
   remain unchanged and usable.
 
-Local evidence: the measurement workflow, evidence/PDF and billing integration
-suites passed 32 tests against PostgreSQL, including concurrent finalization and
-issuance. Measurement branch-aware coverage was 93.25%; migration drift was clean.
-See the release record for subsequent checks and staging results.
+Local evidence: all 245 backend tests passed against PostgreSQL, including concurrent
+finalization and issuance, with 95.77% line and 86.80% branch coverage. All 263 frontend
+tests passed with 90.02% line and 80.87% branch coverage; lint, type checks, build and
+migration drift were clean. The complete Operations → independent Admin → Finance
+journey passed against the real backend in Chromium, Firefox, WebKit and iPhone 13,
+including private evidence, PDF downloads, invoice persistence, keyboard tab
+activation and viewport checks. These synthetic checks do not certify staging.
+See the release record for hosted gates and staging results.

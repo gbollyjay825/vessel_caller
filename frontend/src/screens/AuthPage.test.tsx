@@ -94,6 +94,22 @@ describe("AuthPage", () => {
     await vi.waitFor(() => expect(window.location.pathname).toBe("/app"));
   });
 
+  it.each(["/app/measurements", "/capture"])("routes overdue customer MFA to enrollment before restoring %s", async (from) => {
+    window.history.replaceState({ from }, "", "/login");
+    authMock.login.mockResolvedValue({
+      ...tenantSession,
+      user: { ...tenantSession.user, mfaEnabled: false, mfaEnrollmentRequired: true },
+    });
+    const view = render(<AuthPage mode="login" />);
+    await userEvent.type(screen.getByLabelText("Email"), "admin@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "a valid password");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    authMock.status = "authenticated";
+    view.rerender(<AuthPage mode="login" />);
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/app/account"));
+  });
+
   it("routes a password-only platform login to mandatory MFA enrollment and ignores a tenant return path", async () => {
     window.history.replaceState({ from: "/app/users" }, "", "/login");
     authMock.login.mockResolvedValue({

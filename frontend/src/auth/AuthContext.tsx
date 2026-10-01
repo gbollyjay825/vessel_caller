@@ -95,7 +95,7 @@ interface AuthValue {
   permissions: ReadonlySet<string>;
   authError: string | null;
   sessionExpired: boolean;
-  homePath: "/app" | "/system" | "/system/account";
+  homePath: "/app" | "/app/account" | "/system" | "/system/account";
   login: (email: string, password: string) => Promise<LoginResult>;
   verifyMfa: (challengeId: string, code: string) => Promise<AuthSession>;
   register: (data: RegisterPayload) => Promise<{ detail: string; approvalRequired: boolean }>;
@@ -501,7 +501,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const permissionSet = useMemo(() => new Set(permissions), [permissions]);
   const homePath = platformAccess
     ? platformAccess.mfaEnrollmentRequired ? "/system/account" : "/system"
-    : "/app";
+    : user?.mfaEnrollmentRequired ? "/app/account" : "/app";
   const can = useCallback((action: Action | Permission) => {
     const permission = action in ACTION_PERMISSION
       ? ACTION_PERMISSION[action as Action]

@@ -29,6 +29,13 @@ opt in. Sessions expire after 12 idle hours and 30 absolute days. Passwords use
 Argon2id; legacy Passlib PBKDF2 hashes are recognized only long enough to
 upgrade on successful authentication or reset.
 
+After mandatory MFA grace expires, authenticated customers are routed to
+`/app/account` before workspace data is requested. Account security remains
+available independently of tenant data permissions. Successful enrollment
+refreshes permissions but keeps the recovery codes on screen until the user
+chooses to open the workspace. Disabling MFA that is already disabled cannot
+renew its enrollment grace period.
+
 Measurement final approval must be performed by an Admin other than the proposal's
 preparer. Acknowledgements record staff-entered paper evidence; stakeholder parties
 are not application user roles. Measurement permissions remain subject to customer

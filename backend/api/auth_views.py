@@ -885,6 +885,8 @@ class MFADisableView(APIView):
             raise ValidationError(
                 {"mfa": ["Platform multi-factor authentication requires operator recovery"]}
             )
+        if not user.mfa_enabled:
+            raise ValidationError({"mfa": ["Multi-factor authentication is not enabled"]})
         if not (
             verify_totp(user, str(request.data.get("code", "")))
             or user.check_password(str(request.data.get("password", "")))

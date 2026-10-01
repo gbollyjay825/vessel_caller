@@ -1,11 +1,12 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 
 const authMock = vi.hoisted(() => ({
   platformAccess: null as null | { role: "SystemAdmin" },
+  user: { id: "user-1", mfaEnrollmentRequired: false },
   homePath: "/app",
   status: "anonymous" as "anonymous" | "authenticated",
 }));
@@ -29,7 +30,12 @@ vi.mock("./lib/navigation", () => ({
   Navigate: ({ to }: { to: string }) => <div>Navigate:{to}</div>,
 }));
 vi.mock("./mobile/MobileApp", () => ({ MobileApp: () => <div>Mobile capture screen</div> }));
-vi.mock("./screens/AccountSecurity", () => ({ AccountSecurity: () => <div>Account security screen</div> }));
+vi.mock("./app/CustomerAccount", () => ({
+  CustomerAccount: () => {
+    const [initialOwner] = useState(authMock.user.id);
+    return <div><span>Account security screen</span><span>Account owner:{initialOwner}</span></div>;
+  },
+}));
 vi.mock("./screens/Analytics", () => ({ Analytics: () => <div>Analytics screen</div> }));
 vi.mock("./screens/AuthPage", () => ({ AuthPage: ({ mode }: { mode: string }) => <div>Auth:{mode}</div> }));
 vi.mock("./screens/Dashboard", () => ({ Dashboard: () => <div>Dashboard screen</div> }));
@@ -73,6 +79,8 @@ function renderPath(path: string) {
 describe("App route contract", () => {
   afterEach(() => {
     authMock.platformAccess = null;
+    authMock.user.id = "user-1";
+    authMock.user.mfaEnrollmentRequired = false;
     authMock.homePath = "/app";
     authMock.status = "anonymous";
   });
@@ -98,7 +106,6 @@ describe("App route contract", () => {
     ["/app/inspections", "Inspections screen", "authenticated"],
     ["/app/inspections/new", "New inspection screen", "inspections.manage"],
     ["/app/invoices", "Invoices screen", "authenticated"],
-    ["/app/account", "Account security screen", "authenticated"],
     ["/app/analytics", "Analytics screen", "analytics.view"],
     ["/app/users", "User management screen", "users.view"],
     ["/app/settings", "Settings screen", "settings.view"],
@@ -108,6 +115,39 @@ describe("App route contract", () => {
     expect(screen.getByTestId("app-loader")).toBeInTheDocument();
     expect(screen.getByTestId("app-shell")).toBeInTheDocument();
     expect(view.container.querySelector(`[data-permission="${permission}"]`)).toBeInTheDocument();
+  });
+
+  it("opens customer account security without tenant state or the store shell", () => {
+    authMock.user.mfaEnrollmentRequired = true;
+    renderPath("/app/account");
+    expect(screen.getByText("Account security screen")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-loader")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("app-shell")).not.toBeInTheDocument();
+  });
+
+  it("resets account-local security state when the authenticated identity changes", () => {
+    const view = renderPath("/app/account");
+    expect(screen.getByText("Account owner:user-1")).toBeInTheDocument();
+    authMock.user.id = "user-2";
+    view.rerender(<App />);
+    expect(screen.getByText("Account owner:user-2")).toBeInTheDocument();
+    expect(screen.queryByText("Account owner:user-1")).not.toBeInTheDocument();
+  });
+
+  it.each(["/app", "/app/measurements", "/capture"])("redirects mandatory enrollment from %s before loading tenant data", (path) => {
+    authMock.user.mfaEnrollmentRequired = true;
+    renderPath(path);
+    expect(screen.getByText("Navigate:/app/account")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-loader")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mobile capture screen")).not.toBeInTheDocument();
+  });
+
+  it("keeps platform accounts out of customer account security", () => {
+    authMock.platformAccess = { role: "SystemAdmin" };
+    authMock.homePath = "/system/account";
+    renderPath("/app/account");
+    expect(screen.getByText("Navigate:/system/account")).toBeInTheDocument();
+    expect(screen.queryByText("Account security screen")).not.toBeInTheDocument();
   });
 
   it("protects field capture and redirects unknown paths safely", () => {

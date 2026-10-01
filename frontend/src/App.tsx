@@ -4,12 +4,12 @@ import type { ReactNode } from "react";
 
 import { AppLoader } from "./app/AppLoader";
 import { AppShell } from "./app/AppShell";
+import { CustomerAccount } from "./app/CustomerAccount";
 import { AuthProvider, useAuth, type Permission } from "./auth/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Navigate } from "./lib/navigation";
 import { queryClient } from "./lib/queryClient";
 import { MobileApp } from "./mobile/MobileApp";
-import { AccountSecurity } from "./screens/AccountSecurity";
 import { Analytics } from "./screens/Analytics";
 import { AuthPage } from "./screens/AuthPage";
 import { Dashboard } from "./screens/Dashboard";
@@ -53,7 +53,6 @@ function WorkspaceRoutes() {
       </Route>
       <Route path="/app/inspections"><Inspections /></Route>
       <Route path="/app/invoices"><Invoices /></Route>
-      <Route path="/app/account"><AccountSecurity /></Route>
       <Route path="/app/analytics">
         <SecureScreen permission="analytics.view"><Analytics /></SecureScreen>
       </Route>
@@ -68,15 +67,30 @@ function WorkspaceRoutes() {
   );
 }
 
-function Workspace() {
-  const { platformAccess, homePath } = useAuth();
+function CustomerRoute({ children }: { children: ReactNode }) {
+  const { platformAccess, homePath, user } = useAuth();
   return (
     <ProtectedRoute>
-      {platformAccess ? <Navigate to={homePath} replace /> : (
-        <AppLoader>
-          <AppShell><WorkspaceRoutes /></AppShell>
-        </AppLoader>
-      )}
+      {platformAccess ? <Navigate to={homePath} replace /> : user?.mfaEnrollmentRequired ? (
+        <Navigate to="/app/account" replace />
+      ) : children}
+    </ProtectedRoute>
+  );
+}
+
+function Workspace() {
+  return (
+    <CustomerRoute>
+      <AppLoader><AppShell><WorkspaceRoutes /></AppShell></AppLoader>
+    </CustomerRoute>
+  );
+}
+
+function AccountWorkspace() {
+  const { platformAccess, homePath, user } = useAuth();
+  return (
+    <ProtectedRoute>
+      {platformAccess ? <Navigate to={homePath} replace /> : <CustomerAccount key={user?.id} />}
     </ProtectedRoute>
   );
 }
@@ -114,9 +128,11 @@ function SystemWorkspace() {
 
 function Capture() {
   return (
-    <ProtectedRoute permission="inspections.manage">
-      <AppLoader><MobileApp /></AppLoader>
-    </ProtectedRoute>
+    <CustomerRoute>
+      <SecureScreen permission="inspections.manage">
+        <AppLoader><MobileApp /></AppLoader>
+      </SecureScreen>
+    </CustomerRoute>
   );
 }
 
@@ -135,6 +151,7 @@ export default function App() {
           <Route path="/capture"><Capture /></Route>
           <Route path="/system"><SystemWorkspace /></Route>
           <Route path="/system/*"><SystemWorkspace /></Route>
+          <Route path="/app/account"><AccountWorkspace /></Route>
           <Route path="/app"><Workspace /></Route>
           <Route path="/app/*"><Workspace /></Route>
           <Route><Navigate to="/" replace /></Route>

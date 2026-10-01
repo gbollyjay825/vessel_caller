@@ -63,6 +63,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   );
   const destinationFor = (session: AuthSession): string => {
     const platform = Boolean(session.platformAccess);
+    if (!platform && session.user.mfaEnrollmentRequired) return "/app/account";
     const home = platform
       ? session.platformAccess?.mfaEnrollmentRequired ? "/system/account" : "/system"
       : "/app";

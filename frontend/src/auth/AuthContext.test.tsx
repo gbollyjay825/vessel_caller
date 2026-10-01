@@ -131,6 +131,19 @@ describe("AuthProvider", () => {
     expect(screen.getByTestId("can-settings")).toHaveTextContent("false");
   });
 
+  it.each(["Admin", "Finance"] as const)("opens mandatory MFA enrollment for an overdue customer %s", async (role) => {
+    apiMock.me.mockResolvedValue({
+      ...session,
+      user: { ...session.user, role, mfaEnabled: false, mfaEnrollmentRequired: true },
+      permissions: [],
+    });
+    render(<AuthProvider><Probe /></AuthProvider>);
+
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
+    expect(screen.getByTestId("platform-home")).toHaveTextContent("/app/account");
+    expect(screen.getByTestId("can-users")).toHaveTextContent("false");
+  });
+
   it("hydrates an isolated platform session and trusts platform permissions", async () => {
     apiMock.me.mockResolvedValue(platformSession);
     render(<AuthProvider><Probe /></AuthProvider>);

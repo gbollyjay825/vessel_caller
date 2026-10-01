@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pyotp
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import ActionToken
@@ -83,7 +86,7 @@ def test_session_listing_selective_revoke_and_sign_out_everywhere(admin):
     assert first.get("/api/auth/me").status_code in (401, 403)
 
 
-def test_mfa_recovery_regeneration_and_disable(admin):
+def test_mfa_recovery_regeneration_and_disable(admin, monkeypatch):
     client = APIClient()
     assert login(client, admin, "A-strong-admin-password-2026!").status_code == 200
     setup = client.post(
@@ -104,6 +107,52 @@ def test_mfa_recovery_regeneration_and_disable(admin):
     assert disabled.status_code == 204
     admin.refresh_from_db()
     assert not admin.mfa_enabled
+    grace_ends_at = admin.mfa_grace_ends_at
+    updated_at = admin.updated_at
+    later = timezone.now() + timedelta(minutes=1)
+    monkeypatch.setattr("api.auth_views.timezone.now", lambda: later)
+    repeated = client.delete(
+        "/api/auth/mfa",
+        {"password": "A-strong-admin-password-2026!"},
+        format="json",
+    )
+    assert repeated.status_code == 400
+    admin.refresh_from_db()
+    assert admin.mfa_grace_ends_at == grace_ends_at
+    assert admin.updated_at == updated_at
+    assert client.get("/api/auth/me").status_code == 200
+
+
+def test_unenrolled_admin_cannot_renew_expired_mfa_grace_by_disabling(admin):
+    grace_ends_at = timezone.now() - timedelta(days=1)
+    admin.mfa_grace_ends_at = grace_ends_at
+    admin.save(update_fields=("mfa_grace_ends_at",))
+    client = APIClient()
+    other_client = APIClient()
+    for session in (client, other_client):
+        assert login(session, admin, "A-strong-admin-password-2026!").status_code == 200
+        assert session.get("/api/state").status_code == 403
+    session_key = client.session.session_key
+    updated_at = admin.updated_at
+
+    rejected = client.delete(
+        "/api/auth/mfa",
+        {"password": "A-strong-admin-password-2026!"},
+        format="json",
+    )
+
+    assert rejected.status_code == 400
+    admin.refresh_from_db()
+    assert admin.mfa_grace_ends_at == grace_ends_at
+    assert admin.updated_at == updated_at
+    assert not admin.mfa_enabled
+    assert client.session.session_key == session_key
+    for session in (client, other_client):
+        identity = session.get("/api/auth/me")
+        assert identity.status_code == 200
+        assert identity.json()["user"]["mfaEnrollmentRequired"] is True
+        assert identity.json()["permissions"] == []
+        assert session.get("/api/state").status_code == 403
 
 
 def test_resend_and_expired_or_invalid_actions_are_generic(admin):

@@ -16,11 +16,11 @@
     "e2e:integration": "PLAYWRIGHT_REAL_BACKEND=1 playwright test"
   },
   "dependencies": {
-    "@sentry/react": "10.67.0",
-    "@tanstack/react-query": "^5.101.4",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "wouter": "^3.7.1"
+    "@sentry/react": "11.0.0",
+    "@tanstack/react-query": "^5.104.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "wouter": "^3.11.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -29,8 +29,8 @@
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^26.1.1",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.8.0",

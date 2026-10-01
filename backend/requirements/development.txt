@@ -456,9 +456,9 @@ djangorestframework-stubs==3.16.9 \
     --hash=sha256:27b3e245d5f9c22ff6988d9e54388249f98f88608cc2b365b71e9f39dd096958 \
     --hash=sha256:b1abb97490c90c85eabcd09b8ecbadae1b9360f21ad3021abf830227c0129697
     # via -r requirements/development.in
-gunicorn==23.0.0 \
-    --hash=sha256:ec400d38950de4dfd418cff8328b2c8faed0edb0d517d3394e457c317908ca4d \
-    --hash=sha256:f014447a0101dc57e294f6c18ca6b40227a4c90e9bdb586042628030cba004ec
+gunicorn==26.0.0 \
+    --hash=sha256:40233d26a5f0d1872916188c276e21641155111c2853f0c2cd55260aec0d24fc \
+    --hash=sha256:ca9346f85e3a4aeeb64d491045c16b9a35647abd37ea15efe53080eb8b090baf
     # via -r requirements/base.in
 inflection==0.5.1 \
     --hash=sha256:1a29730d366e996aaacffb2f1f1cb9593dc38e2ddd30c91250c6dde09ea9b417 \

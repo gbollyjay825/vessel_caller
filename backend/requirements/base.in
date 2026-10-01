@@ -13,4 +13,4 @@ pyotp==2.9.0
 redis==6.4.0
 reportlab==4.4.3
 uritemplate==4.2.0
-whitenoise==6.9.0
+whitenoise==6.12.0

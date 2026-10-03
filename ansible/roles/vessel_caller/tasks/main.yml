@@ -36,6 +36,7 @@
     - snapshot-release.py
     - install-release.sh
     - promote-release.sh
+    - qualify-release-with-retry.sh
     - deploy-release.sh
     - staging-writer-guard.sh
     - staging-compatibility-guard.sh

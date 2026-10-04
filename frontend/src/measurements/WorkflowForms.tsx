@@ -31,7 +31,7 @@ function readingLabel(value: string | null | undefined): string {
 function readingDifference(value: string | null | undefined, declaration: string | null, notApplicable = false): string {
   if (notApplicable) return "Not comparable";
   if (value == null || value === "") return "Awaiting reading";
-  if (declaration == null) return "Unknown declaration";
+  if (declaration == null) return "Owner declaration not provided";
   return quantityDifference(value, declaration) ?? "Awaiting reading";
 }
 
@@ -58,7 +58,7 @@ export function ReturnForm({ plan, onSave, onCancel }: FormProps<SubmissionInput
   });
 
   return <ActionForm submit={previous ? "Save revised return" : "Record stakeholder return"} onCancel={onCancel} disabled={!participantId || !draft.evidenceIds.length || uploading} onSubmit={() => onSave({ ...draft, participantId, observedAt: new Date(draft.observedAt).toISOString() })}>
-    <div className="measurement-section-head"><div><h3>Agency measurement entry</h3><p>Record the selected agency’s figures exactly as received. Agreement is recorded separately.</p></div></div>
+    <div className="measurement-section-head"><div><h3>Agency measurement entry</h3><p>Record the selected agency’s independent measurement. The owner’s declaration is shown separately for comparison; NPA reconciliation follows the agency readings.</p></div></div>
     <div className="measurement-form-grid">
       <FormField label="Reporting agency"><select required disabled={uploading} value={participantId} onChange={event => setParticipantId(event.target.value)}>{plan.participants.map(party => <option key={party.id} value={party.id}>{party.name} · {party.role}</option>)}</select></FormField>
       <dl className="measurement-entry-identity">
@@ -76,8 +76,8 @@ export function ReturnForm({ plan, onSave, onCancel }: FormProps<SubmissionInput
     <p className="measurement-help">Enter 0 for an explicit NIL reading. Blank means unknown and cannot be submitted as reported. Use N/A only with a reason.</p>
     <div className="measurement-table-wrap" role="region" aria-label="Agency measurement entry sheet" tabIndex={0}>
       <table className="measurement-table measurement-entry-sheet">
-        <caption className="hide-sr">{selectedAgency?.name ?? "Agency"} readings against the vessel declaration</caption>
-        <thead><tr><th scope="col">Cargo scope / type</th><th scope="col">Vessel declaration</th><th scope="col">Your reading</th><th scope="col">Status</th><th scope="col">Difference vs vessel</th><th scope="col">Note</th></tr></thead>
+        <caption className="hide-sr">{selectedAgency?.name ?? "Agency"} independent measurements against the owner declaration</caption>
+        <thead><tr><th scope="col">Cargo scope / type</th><th scope="col">Owner declaration<small>Owner-provided baseline</small></th><th scope="col">Agency’s measured quantity</th><th scope="col">Status</th><th scope="col">Difference vs owner declaration</th><th scope="col">Note</th></tr></thead>
         <tbody>{draft.lines.map(entry => {
           const cargo = plan.lines.find(line => line.id === entry.lineId)!;
           const label = cargoInputLabel(cargo, plan.lines);
@@ -85,10 +85,10 @@ export function ReturnForm({ plan, onSave, onCancel }: FormProps<SubmissionInput
           const unknown = entry.quantity == null || entry.quantity === "";
           return <tr key={entry.lineId}>
             <th scope="row"><h3>{label} <span className="muted">· {cargo.unit}</span></h3><small>{cargo.category === "Liquid" ? "Tanker / liquid cargo" : cargo.category} · {cargoScopeLabel(cargo)} · {cargo.basis}</small></th>
-            <td data-label="Vessel declaration"><strong>{readingLabel(cargo.manifestQuantity)}</strong><small>{cargo.unit} · {cargo.baselineReference || "No reference"}</small></td>
-            <td data-label="Your reading"><div className="measurement-cell-field"><FormField label={`Reported quantity · ${label}`}><input required={!notApplicable} disabled={notApplicable} type="number" min="0" step={cargo.unit === "count" ? "1" : "0.001"} value={entry.quantity ?? ""} onChange={event => updateLine(entry.lineId, { quantity: event.target.value === "" ? null : event.target.value })} /></FormField></div><small className="measurement-reading-state">{notApplicable ? "N/A · no quantity" : unknown ? "Unknown · enter a reading" : readingQuantity(entry.quantity) === "NIL (0)" ? "NIL · explicit zero" : cargo.unit}</small></td>
+            <td data-label="Owner declaration"><strong>{readingQuantity(cargo.manifestQuantity)}</strong><small>{cargo.unit} · {cargo.baselineReference || "No reference"}</small></td>
+            <td data-label="Agency’s measured quantity"><div className="measurement-cell-field"><FormField label={`Reported quantity · ${label}`}><input required={!notApplicable} disabled={notApplicable} type="number" min="0" step={cargo.unit === "count" ? "1" : "0.001"} value={entry.quantity ?? ""} onChange={event => updateLine(entry.lineId, { quantity: event.target.value === "" ? null : event.target.value })} /></FormField></div><small className="measurement-reading-state">{notApplicable ? "N/A · no quantity" : unknown ? "Unknown · enter a reading" : readingQuantity(entry.quantity) === "NIL (0)" ? "NIL · explicit zero" : cargo.unit}</small></td>
             <td data-label="Status"><div className="measurement-cell-field"><FormField label={`Report status · ${label}`}><select value={entry.status} onChange={event => updateLine(entry.lineId, { status: event.target.value as SubmissionLine["status"], quantity: null })}><option value="reported">Reported</option><option value="not-applicable">N/A</option></select></FormField></div></td>
-            <td data-label="Difference vs vessel"><span className={notApplicable || unknown || cargo.manifestQuantity == null ? "measurement-missing" : "measurement-difference"}>{readingDifference(entry.quantity, cargo.manifestQuantity, notApplicable)}</span>{!notApplicable && !unknown && cargo.manifestQuantity != null && <small>{cargo.unit}</small>}</td>
+            <td data-label="Difference vs owner declaration"><span className={notApplicable || unknown || cargo.manifestQuantity == null ? "measurement-missing" : "measurement-difference"}>{readingDifference(entry.quantity, cargo.manifestQuantity, notApplicable)}</span>{!notApplicable && !unknown && cargo.manifestQuantity != null && <small>{cargo.unit}</small>}</td>
             <td data-label="Note"><div className="measurement-cell-field"><FormField label={`Line note · ${label}`}><input required={notApplicable} placeholder={notApplicable ? "Why is this not applicable?" : "Optional note"} value={entry.note} onChange={event => updateLine(entry.lineId, { note: event.target.value })} /></FormField></div></td>
           </tr>;
         })}</tbody>
@@ -108,16 +108,16 @@ export function ProposalForm({ plan, onSave, onCancel }: FormProps<Reconciliatio
   const [uploading, setUploading] = useState(false);
   const [lines, setLines] = useState(plan.lines.map(line => ({ lineId: line.id, quantity: previous?.lines.find(entry => entry.lineId === line.id)?.quantity ?? "", reason: "" })));
   return <ActionForm submit={previous ? "Create revised proposal" : "Create reconciliation proposal"} disabled={uploading} onCancel={onCancel} onSubmit={() => onSave({ reason, evidenceIds, lines })}>
-    <div className="measurement-section-head"><div><h3>NPA reconciliation review</h3><p>Compare the vessel declaration and latest agency readings for each cargo line, then record the proposed quantity and decision.</p></div></div>
+    <div className="measurement-section-head"><div><h3>NPA reconciliation review</h3><p>After the required agency readings are received, compare them with the owner’s declaration and record the proposed reconciled quantity and rationale.</p></div></div>
     <div className="measurement-notice">This proposal does not change any agency return. Agreement and independent final approval are recorded separately. A new proposal requires fresh acknowledgements for this exact version.</div>
     <FormField label={previous ? "Reason for new version" : "Reconciliation rationale"}><textarea required value={reason} onChange={event => setReason(event.target.value)} /></FormField>
     {lines.map((entry, index) => {
       const cargo = plan.lines[index]; const label = cargoInputLabel(cargo, plan.lines);
       return <div className="measurement-editor-row" key={entry.lineId}>
-        <h3>{label} · {cargo.unit}</h3><p className="measurement-help">{cargo.category === "Liquid" ? "Tanker / liquid cargo" : cargo.category} · {cargoScopeLabel(cargo)} · {cargo.basis} · Vessel declaration: {readingLabel(cargo.manifestQuantity)} {cargo.unit}</p>
+        <h3>{label} · {cargo.unit}</h3><p className="measurement-help">{cargo.category === "Liquid" ? "Tanker / liquid cargo" : cargo.category} · {cargoScopeLabel(cargo)} · {cargo.basis} · Owner declaration: {readingQuantity(cargo.manifestQuantity)} {cargo.unit}</p>
         <div className="measurement-table-wrap" role="region" aria-label={`Agency readings · ${label}`} tabIndex={0}>
           <table className="measurement-table measurement-proposal-readings"><caption className="hide-sr">Latest agency readings for {label}</caption>
-            <thead><tr><th scope="col">Agency / role</th><th scope="col">Reading</th><th scope="col">Difference vs vessel</th><th scope="col">Source / note</th></tr></thead>
+            <thead><tr><th scope="col">Agency / role</th><th scope="col">Agency’s measured quantity</th><th scope="col">Difference vs owner declaration</th><th scope="col">Source / note</th></tr></thead>
             <tbody>{plan.participants.map(party => {
               const submission = returns.get(party.id);
               const reading = submission?.lines.find(line => line.lineId === cargo.id);

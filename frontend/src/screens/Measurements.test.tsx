@@ -25,6 +25,18 @@ describe('measurement workflow', () => {
     expect(screen.getByText('19,508')).toBeInTheDocument();
     expect(screen.getByText('Missing')).toBeInTheDocument();
   });
+  it('places the owner baseline and agencies before independent measurement arrangements', async () => {
+    renderScreen(<MeasurementDetail />);
+    await screen.findByRole('heading', { name: 'Discharge survey' });
+    expect(screen.getByRole('tab', { name: 'Vessel baseline' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)).toEqual([
+      'Vessel & voyage', 'Owner’s baseline declaration', 'Participating agencies', 'Independent measurement arrangements',
+    ]);
+    expect(screen.getByText(/Each named agency supplies an independent measurement before NPA reconciles/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: /Agency readings/ }));
+    expect(screen.getByRole('heading', { name: 'Independent agency readings' })).toBeInTheDocument();
+    expect(screen.getByText(/The owner’s declaration is the baseline/)).toBeInTheDocument();
+  });
   it('gates proposal on missing required returns and assessment on final approval', async () => {
     renderScreen(<MeasurementDetail />);
     await screen.findByRole('heading', { name: 'Discharge survey' });

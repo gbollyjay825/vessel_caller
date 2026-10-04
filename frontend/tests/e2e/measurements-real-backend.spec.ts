@@ -118,7 +118,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   const planPath = new URL(page.url()).pathname;
   const planId = planPath.split("/").at(-1)!;
 
-  await assertMeasurementWorkspace(page, "Vessel & cargo");
+  await assertMeasurementWorkspace(page, "Vessel baseline");
   const returnsTab = page.getByRole("tab", { name: /Agency readings/ });
   await returnsTab.focus();
   await returnsTab.press("Enter");
@@ -137,7 +137,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
     }
     await page.getByRole("button", { name: "Record stakeholder return", exact: true }).click();
     await expect(page.getByText("Stakeholder return recorded", { exact: true }).last()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Record received return", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Record agency measurement", exact: true })).toHaveCount(0);
   }
 
   await page.getByRole("tab", { name: "Reconciliation", exact: true }).click();

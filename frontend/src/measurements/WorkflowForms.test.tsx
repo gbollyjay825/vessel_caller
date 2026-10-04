@@ -207,8 +207,8 @@ describe('measurement entry controls', () => {
     await userEvent.selectOptions(screen.getByLabelText('Reporting agency'), 'party-1');
     expect(within(agency).getByText('Harbour Agent')).toBeInTheDocument();
     expect(within(recorder).getByText('Mariam Recorder')).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Your reading' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Vessel declaration' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Agency’s measured quantity' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Owner declaration.*Owner-provided baseline/ })).toBeInTheDocument();
   });
 
   it('keeps NIL, unknown declaration, blank readings and not applicable distinct', async () => {
@@ -216,7 +216,7 @@ describe('measurement entry controls', () => {
     const onSave = vi.fn();
     render(<ReturnForm plan={plan} onSave={onSave} onCancel={vi.fn()} />);
     const sheet = screen.getByRole('region', { name: 'Agency measurement entry sheet' });
-    expect(within(sheet).getByText('Unknown')).toBeInTheDocument();
+    expect(within(sheet).getByText('Not provided')).toBeInTheDocument();
     expect(within(sheet).getByText('Unknown · enter a reading')).toBeInTheDocument();
     expect(within(sheet).getByText('Awaiting reading')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Source document reference'), 'TERMINAL-NIL');
@@ -225,7 +225,7 @@ describe('measurement entry controls', () => {
     expect(onSave).not.toHaveBeenCalled();
     await userEvent.type(screen.getByLabelText('Reported quantity · Wheat'), '0');
     expect(within(sheet).getByText('NIL · explicit zero')).toBeInTheDocument();
-    expect(within(sheet).getByText('Unknown declaration')).toBeInTheDocument();
+    expect(within(sheet).getByText('Owner declaration not provided')).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText('Report status · Wheat'), 'not-applicable');
     expect(screen.getByLabelText('Reported quantity · Wheat')).toHaveValue(null);
     expect(screen.getByLabelText('Reported quantity · Wheat')).toBeDisabled();

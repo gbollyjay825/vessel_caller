@@ -6,10 +6,10 @@ import { measurementFixture, reconciliationFixture } from "./fixtures.test-suppo
 describe("voyage reconciliation sheet", () => {
   it("shows each agency separately and leaves reconciliation pending until recorded", () => {
     render(<ComparisonGrid plan={measurementFixture()} />);
-    expect(screen.getByRole("columnheader", { name: /Vessel declaration/ })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /Owner declaration.*Owner-provided baseline/ })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /Harbour Agent/ })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /Terminal One/ })).toBeInTheDocument();
-    expect(screen.getByText("+8 vs declared")).toBeInTheDocument();
+    expect(screen.getByText("+8 vs owner declaration")).toBeInTheDocument();
     expect(screen.getByText("Missing")).toBeInTheDocument();
     expect(screen.getByText("Pending")).toBeInTheDocument();
     expect(screen.getByText("Awaiting comparison")).toBeInTheDocument();
@@ -44,8 +44,8 @@ describe("voyage reconciliation sheet", () => {
     reconciliation.lines[0].manifestQuantity = null;
     reconciliation.lines[0].variance = null;
     render(<ComparisonGrid plan={measurementFixture()} reconciliation={reconciliation} snapshot />);
-    expect(screen.getByText("Not declared")).toBeInTheDocument();
-    expect(screen.getByText("Declaration missing")).toBeInTheDocument();
+    expect(screen.getByText("Not provided")).toBeInTheDocument();
+    expect(screen.getByText("Owner declaration not provided")).toBeInTheDocument();
     expect(screen.queryByText("+8", { exact: true })).not.toBeInTheDocument();
   });
 

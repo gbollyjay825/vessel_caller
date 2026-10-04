@@ -85,6 +85,9 @@ test("vessel-first container sheet submits only selected directions and keeps NI
   const api = await installMeasurementApi(page);
   await page.goto("/app/measurements/new");
   await expect(page.getByRole("button", { name: "Create measurement plan", exact: true })).toBeDisabled();
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText([
+    "Choose the vessel", "Vessel owner's baseline declaration", "Participating agencies", "Arrange independent measurements",
+  ]);
   await expect(page.getByRole("option", { name: /Cancelled voyage/ })).toHaveCount(0);
   await page.getByRole("combobox", { name: "Vessel call", exact: true }).selectOption("call-1");
   const vessel = page.getByRole("region", { name: "Choose the vessel", exact: true });
@@ -198,7 +201,7 @@ test("agency drafts stay isolated and NPA review preserves the agency readings",
   await page.getByLabel("Reported quantity · Wheat", { exact: true }).fill("19509");
   await fitsViewport(page);
   await page.getByRole("button", { name: "Record stakeholder return", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Record received return", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Record agency measurement", exact: true })).toHaveCount(0);
   expect(api.requests.submissions).toHaveLength(1);
   expect(api.requests.submissions[0]).toMatchObject({ participantId: "party-2", version: 4, reason: "", sourceReference: "TERMINAL-002", lines: [{ lineId: "line-1", quantity: "19509", status: "reported", note: "Terminal draft" }], evidenceIds: ["file-1"] });
   expect(api.requests.submissions[0]).not.toHaveProperty("recordedBy");

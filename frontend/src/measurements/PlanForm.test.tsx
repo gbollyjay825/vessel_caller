@@ -19,6 +19,23 @@ const includeRow = (number: number) => screen.getByRole("checkbox", { name: new 
 const choose = (name: string) => screen.getByRole("radio", { name });
 
 describe("Vessel-first measurement planning", () => {
+  it("sets up the owner baseline before agencies and scheduling without collecting agency readings", () => {
+    setup();
+    expect(screen.getAllByRole("heading", { level: 2 }).map(heading => heading.textContent)).toEqual([
+      "Choose the vessel", "Vessel owner's baseline declaration", "Participating agencies", "Arrange independent measurements",
+    ]);
+    const baseline = within(screen.getByRole("region", { name: "Vessel owner's baseline declaration" }));
+    expect(baseline.getByLabelText("Manifest quantity 1")).toBeInTheDocument();
+    expect(baseline.getByText(/baseline declaration supplied by the vessel owner/)).toHaveTextContent("Agency readings are entered separately after setup.");
+    expect(baseline.getByText("Owner declaration: blank = unknown. 0 = declared NIL.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Participating agencies" })).getByLabelText("Party name 1")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Arrange independent measurements" })).getByLabelText(/Scheduled start/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Reported quantity/)).not.toBeInTheDocument();
+    const workflow = within(screen.getByRole("list", { name: "Measurement workflow" }));
+    expect(workflow.getAllByRole("listitem").map(item => item.querySelector("strong")?.textContent)).toEqual([
+      "Owner's baseline", "Independent agency readings", "NPA reconciliation",
+    ]);
+  });
   it("shows recorded vessel details and preserves edited schedule values when the vessel or cargo changes", async () => {
     const { user } = setup("");
     expect(screen.getByRole("button", { name: "Create measurement plan" })).toBeDisabled();

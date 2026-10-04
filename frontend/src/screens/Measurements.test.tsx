@@ -17,8 +17,8 @@ describe('measurement workflow', () => {
   it('exposes an actionable plan worklist and search', async () => {
     renderScreen(<Measurements />);
     expect(await screen.findByRole('link', { name: /Discharge survey/ })).toHaveAttribute('href', '/app/measurements/plan-1');
-    await userEvent.type(screen.getByLabelText('Search measurement plans'), 'unknown');
-    expect(screen.getByText('No measurement plans found')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Search vessels or voyages'), 'unknown');
+    expect(screen.getByText('No voyages found')).toBeInTheDocument();
   });
   it('shows missing party returns separately from reported quantities', () => {
     render(<ComparisonGrid plan={measurementFixture()} />);
@@ -45,6 +45,17 @@ describe('measurement workflow', () => {
     expect(screen.getByText('Terminal One: required return missing.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'Disparity billing' }));
     expect(screen.getByRole('button', { name: 'Assess disparity' })).toBeDisabled();
+  });
+  it('requires an agency reading before reconciliation even when all returns are optional', async () => {
+    const plan = measurementFixture();
+    plan.participants = plan.participants.map(party => ({ ...party, requiredSubmission: false }));
+    plan.submissions = [];
+    mocked.detail.mockResolvedValue({ plan });
+    renderScreen(<MeasurementDetail />);
+    await screen.findByRole('heading', { name: 'Discharge survey' });
+    await userEvent.click(screen.getByRole('tab', { name: 'Reconciliation' }));
+    expect(screen.getByRole('button', { name: 'Propose reconciliation' })).toBeDisabled();
+    expect(screen.getByText('Record at least one agency measurement before NPA reconciliation.')).toBeInTheDocument();
   });
   it('requires an independent Admin and fresh submission snapshot', () => {
     const plan = measurementFixture(); const recon = reconciliationFixture();

@@ -25,7 +25,7 @@ export function ComparisonGrid({ plan, reconciliation, snapshot = false }: {
 
   return <div className="measurement-table-wrap" tabIndex={0} role="region" aria-label="Stakeholder quantities comparison">
     <table className="measurement-table comparison measurement-voyage-sheet">
-      <caption>Owner-provided declaration, independent agency measurements and the NPA reconciliation result, compared in each cargo row’s stated unit. NPA reconciliation follows the required agency readings.</caption>
+      <caption>Owner-provided declaration, independent agency measurements and the NPA reconciliation result, compared in each cargo item’s stated unit. NPA reconciliation follows the required agency readings.</caption>
       <thead><tr>
         <th scope="col">Cargo / unit</th>
         <th scope="col" className="measurement-declaration">Owner declaration<small>Owner-provided baseline</small></th>

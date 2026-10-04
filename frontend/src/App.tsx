@@ -18,6 +18,7 @@ import { Inspections, NewInspection } from "./screens/Inspections";
 import { InvitationAccept } from "./screens/InvitationAccept";
 import { Invoices } from "./screens/Invoices";
 import { Measurements, MeasurementDetail, NewMeasurement } from "./screens/Measurements";
+import { AgencyDirectory } from "./measurements/AgencyDirectoryScreen";
 import { Landing } from "./screens/LandingFull";
 import { ForgotPassword, ResetPassword } from "./screens/PasswordRecovery";
 import { Settings } from "./screens/Settings";
@@ -58,6 +59,9 @@ function WorkspaceRoutes() {
       </Route>
       <Route path="/app/users">
         <SecureScreen permission="users.view"><UserManagement /></SecureScreen>
+      </Route>
+      <Route path="/app/settings/agencies">
+        <SecureScreen permission="settings.view"><AgencyDirectory /></SecureScreen>
       </Route>
       <Route path="/app/settings">
         <SecureScreen permission="settings.view"><Settings /></SecureScreen>

@@ -6,7 +6,7 @@ import type { AppState, AuthSession, VesselCall } from "../../src/types";
 
 test.skip(process.env.PLAYWRIGHT_REAL_BACKEND === "1", "These presentation checks use an isolated mocked API.");
 
-async function installMeasurementApi(page: Page, initialPlan = measurementFixture()) {
+async function installMeasurementApi(page: Page, initialPlan = measurementFixture(), options: { admin?: boolean; seedAgencies?: boolean } = {}) {
   let plan: MeasurementPlan = structuredClone(initialPlan);
   const requests = {
     plans: [] as PlanInput[],
@@ -14,12 +14,19 @@ async function installMeasurementApi(page: Page, initialPlan = measurementFixtur
     reconciliations: [] as (ReconciliationInput & { version: number })[],
     unexpected: [] as string[],
   };
-  const user: AuthSession["user"] = { id: "recorder-1", name: "Mariam Recorder", email: "recorder@example.test", role: "Operations", status: "active", emailVerified: true, mfaEnabled: true, mfaRequired: false };
+  const user: AuthSession["user"] = { id: "recorder-1", name: "Mariam Recorder", email: "recorder@example.test", role: options.admin ? "Admin" : "Operations", status: "active", emailVerified: true, mfaEnabled: true, mfaRequired: false };
   const org: NonNullable<AuthSession["org"]> = { id: "org-1", registered: true, name: "Mock Marine", rcNumber: "", email: "office@example.test", phone: "", address: "", designatedPort: "Port of Calabar", primaryPort: "Port of Calabar", ports: ["Port of Calabar"], logo: null, rev: 1 };
   const vessel: VesselCall = { id: "call-1", vesselName: "MV Atlas", reference: "CALL-001", type: "Cargo", flag: "NG", nrt: 12345, eta: "2026-10-07T12:00:00Z", sailingEta: "", berth: "Berth 3", berthDate: null, status: "pending", notes: "", version: 1, registered: "2026-10-01" };
-  const calls: VesselCall[] = [vessel, { ...vessel, id: "call-2", vesselName: "MV Horizon", reference: "CALL-002", berth: "Berth 8" }, { ...vessel, id: "cancelled", vesselName: "Cancelled voyage", status: "cancelled" }];
+  const calls: VesselCall[] = [vessel, { ...vessel, id: "call-2", vesselName: "MV Horizon", reference: "CALL-002", berth: "Berth 8" }, { ...vessel, id: "call-3", reference: "CALL-003", eta: "2026-10-10T12:00:00Z" }, { ...vessel, id: "cancelled", vesselName: "Cancelled voyage", status: "cancelled" }];
   const state: AppState = { rev: 1, org, calls, inspections: [], invoices: [], invoiceStatusSteps: [], settings: { commissionRate: 0.2, exchangeRate: 1500, liquidDuesRates: { government: 1, private: 2, international: 3 }, dryDuesRate: 1, portName: "Port of Calabar", terminals: [] } };
-  const session: AuthSession = { user, org, permissions: ["organization.view", "calls.view", "measurements.view", "measurements.manage", "invoices.view", "evidence.manage"], platformAccess: null };
+  const session: AuthSession = { user, org, permissions: ["organization.view", "calls.view", "measurements.view", "measurements.manage", "invoices.view", "evidence.manage", ...(options.admin ? ["settings.view", "settings.manage"] : [])], platformAccess: null };
+
+  if (options.seedAgencies !== false) await page.addInitScript(() => {
+    localStorage.setItem("vessel-caller:agency-directory:v1:org-1", JSON.stringify({ version: 1, organizationId: "org-1", agencies: [
+      { id: "agency-agent", name: "Harbour Agency", role: "Agent", representative: "Ada Agent", active: true },
+      { id: "agency-terminal", name: "Port Terminal", role: "Terminal operator", representative: "Terminal Lead", active: true },
+    ] }));
+  });
 
   // Block unrecognized API requests so these browser checks cannot modify a
   // real tenant even when run against an externally provided frontend server.
@@ -60,16 +67,21 @@ async function installMeasurementApi(page: Page, initialPlan = measurementFixtur
   return { requests, plan: () => plan };
 }
 
-async function fillPlanningPeople(page: Page) {
-  await page.getByLabel("Lead surveyor", { exact: true }).fill("Grace Surveyor");
-  await page.getByLabel("Party name 1", { exact: true }).fill("Harbour Agency");
-  await page.getByLabel("Representative 1", { exact: true }).fill("Ada Agent");
+async function openDeclaration(page: Page) {
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Owner declaration", exact: true })).toBeVisible();
 }
 
-async function createPlan(page: Page, title: string) {
+async function createPlan(page: Page, title: string, agencies = ["Harbour Agency"]) {
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Select agencies", exact: true })).toBeVisible();
+  for (const name of agencies) await page.getByRole("checkbox", { name: `Select agency ${name}`, exact: true }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Review & arrange", exact: true })).toBeVisible();
+  await page.getByLabel("Lead surveyor", { exact: true }).fill("Grace Surveyor");
+  await page.getByText("Additional planning details", { exact: true }).click();
   await page.getByLabel("Plan title", { exact: true }).fill(title);
-  await fillPlanningPeople(page);
-  await page.getByRole("button", { name: "Create measurement plan", exact: true }).click();
+  await page.getByRole("button", { name: "Create voyage sheet", exact: true }).click();
   await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/app\/measurements\/created-plan$/);
 }
@@ -79,92 +91,137 @@ async function fitsViewport(page: Page) {
   expect(width, "Cargo tables should scroll inside the viewport").toBeLessThanOrEqual(page.viewportSize()!.width + 1);
 }
 
-const includeCargo = (page: Page, line: number) => page.getByRole("checkbox", { name: new RegExp(`^Include cargo line ${line} ·`) });
+const includeCargo = (page: Page, item: number) => page.getByRole("checkbox", { name: new RegExp(`^Include cargo item ${item} ·`) });
 
-test("vessel-first container sheet submits only selected directions and keeps NIL distinct from unknown", async ({ page }) => {
+test("import declaration wizard requires an explicit voyage and keeps NIL distinct from unknown", async ({ page }) => {
   const api = await installMeasurementApi(page);
   await page.goto("/app/measurements/new");
-  await expect(page.getByRole("button", { name: "Create measurement plan", exact: true })).toBeDisabled();
-  await expect(page.getByRole("heading", { level: 2 })).toHaveText([
-    "Choose the vessel", "Vessel owner's baseline declaration", "Participating agencies", "Arrange independent measurements",
-  ]);
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText(["Vessel & voyage"]);
   await expect(page.getByRole("option", { name: /Cancelled voyage/ })).toHaveCount(0);
-  await page.getByRole("combobox", { name: "Vessel call", exact: true }).selectOption("call-1");
-  const vessel = page.getByRole("region", { name: "Choose the vessel", exact: true });
+  await page.getByRole("combobox", { name: "Vessel", exact: true }).selectOption({ label: "MV Atlas · NG" });
+  await expect(page.getByRole("combobox", { name: "Voyage", exact: true })).toHaveValue("");
+  await page.getByRole("combobox", { name: "Voyage", exact: true }).selectOption("call-1");
+  const vessel = page.getByRole("region", { name: "Vessel & voyage", exact: true });
   await expect(vessel.getByText("12,345", { exact: true })).toBeVisible();
-  await expect(vessel.getByText("NG", { exact: true })).toBeVisible();
+  await openDeclaration(page);
   await page.getByRole("radio", { name: "Containers", exact: true }).check();
-  await expect(page.getByRole("checkbox", { name: /^Include cargo line/ })).toHaveCount(12);
+  await expect(page.getByRole("checkbox", { name: /^Include cargo item/ })).toHaveCount(6);
+  await expect(page.getByText("Export / loading", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: /^Direction/ })).toHaveCount(0);
   await includeCargo(page, 1).uncheck();
+  await includeCargo(page, 4).check();
   await includeCargo(page, 6).check();
-  await includeCargo(page, 12).check();
   await page.getByLabel("Manifest quantity 6", { exact: true }).fill("0");
   await page.getByLabel("Manifest / baseline reference 6", { exact: true }).fill("MANIFEST-NIL");
   await expect(page.getByText("NIL declared", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Manifest quantity 12", { exact: true })).toHaveValue("");
-  await page.getByLabel("Cargo details for line 6", { exact: true }).click();
+  await expect(page.getByLabel("Manifest quantity 4", { exact: true })).toHaveValue("");
+  await page.getByLabel("Cargo details for item 6", { exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Category 6", exact: true })).toBeDisabled();
   await fitsViewport(page);
-  await createPlan(page, "Selected container scopes");
+  await createPlan(page, "Selected container categories");
   expect(api.requests.plans).toHaveLength(1);
+  expect(api.requests.plans[0].callId).toBe("call-1");
   expect(api.requests.plans[0].lines).toEqual([
-    { description: "45 ft empty containers", category: "Container", direction: "import", containerSize: "45", loadStatus: "empty", unit: "count", basis: "Physical container count", manifestQuantity: "0", baselineReference: "MANIFEST-NIL" },
-    { description: "45 ft empty containers", category: "Container", direction: "export", containerSize: "45", loadStatus: "empty", unit: "count", basis: "Physical container count", manifestQuantity: null, baselineReference: "" },
+    expect.objectContaining({ description: "40 ft empty containers", direction: "import", containerSize: "40", loadStatus: "empty", unit: "count", manifestQuantity: null }),
+    expect.objectContaining({ description: "45 ft empty containers", direction: "import", containerSize: "45", loadStatus: "empty", unit: "count", manifestQuantity: "0", baselineReference: "MANIFEST-NIL" }),
   ]);
   expect(api.requests.plans[0]).not.toHaveProperty("cargoType");
+  expect(api.requests.plans[0].participants[0]).not.toHaveProperty("id");
   expect(api.requests.unexpected).toEqual([]);
 });
 
-test("tanker products retain separate mass and volume quantities", async ({ page }) => {
+test("import tanker products retain separate mass and volume quantities", async ({ page }) => {
   const api = await installMeasurementApi(page);
   await page.goto("/app/measurements/new?callId=call-1");
+  await openDeclaration(page);
   await page.getByRole("radio", { name: "Tanker", exact: true }).click();
-  await expect(page.getByLabel("Measurement method", { exact: true })).toHaveValue("Product measurement");
   await expect(page.getByText(/petroleum, chemicals or gas/).first()).toBeVisible();
   await page.getByLabel("Cargo description 1", { exact: true }).fill("Petroleum · AGO");
   await page.getByLabel("Manifest quantity 1", { exact: true }).fill("125.75");
   await page.getByLabel("Manifest / baseline reference 1", { exact: true }).fill("BOL-MASS");
-  await page.getByRole("button", { name: "Add import row", exact: true }).click();
+  await page.getByRole("button", { name: "Add cargo item", exact: true }).click();
   await page.getByLabel("Cargo description 2", { exact: true }).fill("Chemicals · Methanol");
   await page.getByRole("combobox", { name: "Unit 2", exact: true }).selectOption("m3");
+  await page.getByLabel("Quantity basis for item 2", { exact: true }).click();
   await expect(page.getByLabel("Quantity basis 2", { exact: true })).toHaveValue("Volume in cubic metres");
   await page.getByLabel("Manifest quantity 2", { exact: true }).fill("80.125");
   await page.getByLabel("Manifest / baseline reference 2", { exact: true }).fill("BOL-VOLUME");
-  await expect(page.getByText(/Count, tonnes and m³ are never added together/)).toBeVisible();
   await fitsViewport(page);
   await createPlan(page, "Tanker products");
+  expect(api.requests.plans[0].method).toBe("Product measurement");
   expect(api.requests.plans[0].lines).toEqual([
-    expect.objectContaining({ description: "Petroleum · AGO", category: "Liquid", unit: "tonnes", manifestQuantity: "125.75" }),
-    expect.objectContaining({ description: "Chemicals · Methanol", category: "Liquid", unit: "m3", manifestQuantity: "80.125" }),
+    expect.objectContaining({ description: "Petroleum · AGO", category: "Liquid", direction: "import", unit: "tonnes", manifestQuantity: "125.75" }),
+    expect.objectContaining({ description: "Chemicals · Methanol", category: "Liquid", direction: "import", unit: "m3", manifestQuantity: "80.125" }),
   ]);
   expect(api.requests.plans[0]).not.toHaveProperty("totalQuantity");
   expect(api.requests.unexpected).toEqual([]);
 });
 
-test("mixed cargo preserves edited declarations and accepts agency role presets", async ({ page }) => {
+test("mixed import cargo preserves declarations and snapshots reusable agencies", async ({ page }) => {
   const api = await installMeasurementApi(page);
   await page.goto("/app/measurements/new?callId=call-1");
+  await openDeclaration(page);
   await page.getByLabel("Cargo description 1", { exact: true }).fill("Wheat");
   await page.getByLabel("Manifest quantity 1", { exact: true }).fill("400");
   await page.getByLabel("Manifest / baseline reference 1", { exact: true }).fill("BOL-WHEAT");
   await page.getByRole("radio", { name: "Tanker", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Keep the cargo values you entered?");
-  await page.getByRole("button", { name: "Keep rows and use Mixed", exact: true }).click();
+  await page.getByRole("button", { name: "Keep items and use Mixed", exact: true }).click();
   await expect(page.getByRole("radio", { name: "Mixed", exact: true })).toBeChecked();
   await expect(page.getByLabel("Manifest quantity 1", { exact: true })).toHaveValue("400");
   await page.getByRole("button", { name: "Add Vehicle", exact: true }).click();
   await page.getByLabel("Cargo description 2", { exact: true }).fill("Passenger cars");
   await page.getByLabel("Manifest quantity 2", { exact: true }).fill("5");
   await page.getByLabel("Manifest / baseline reference 2", { exact: true }).fill("BOL-CARS");
-  await page.getByRole("button", { name: "Ops / Terminal", exact: true }).click();
-  await page.getByLabel("Party name 2", { exact: true }).fill("Port Terminal");
-  await page.getByLabel("Representative 2", { exact: true }).fill("Terminal Lead");
-  await expect(page.getByRole("combobox", { name: "Role 2", exact: true })).toHaveValue("Terminal operator");
   await fitsViewport(page);
-  await createPlan(page, "Mixed cargo without a combined total");
-  expect(api.requests.plans[0].lines.map(line => [line.category, line.unit, line.manifestQuantity])).toEqual([["Bulk", "tonnes", "400"], ["Vehicle", "count", "5"]]);
-  expect(api.requests.plans[0].participants.map(party => party.role)).toEqual(["Agent", "Terminal operator"]);
+  await createPlan(page, "Mixed cargo without a combined total", ["Harbour Agency", "Port Terminal"]);
+  expect(api.requests.plans[0].lines.map(line => [line.category, line.direction, line.unit, line.manifestQuantity])).toEqual([["Bulk", "import", "tonnes", "400"], ["Vehicle", "import", "count", "5"]]);
+  expect(api.requests.plans[0].participants).toEqual([
+    { name: "Harbour Agency", role: "Agent", representative: "Ada Agent", requiredSubmission: true, requiredApproval: true },
+    { name: "Port Terminal", role: "Terminal operator", representative: "Terminal Lead", requiredSubmission: true, requiredApproval: true },
+  ]);
   expect(api.requests.plans[0]).not.toHaveProperty("totalQuantity");
+  expect(api.requests.unexpected).toEqual([]);
+});
+
+test("admin agency setup is reused and an owner declaration cannot cross to another voyage", async ({ page }) => {
+  const api = await installMeasurementApi(page, measurementFixture(), { admin: true, seedAgencies: false });
+  await page.goto("/app/settings/agencies");
+  await expect(page.getByText(/saved on this browser/)).toBeVisible();
+  await page.getByLabel("Agency name", { exact: true }).fill("Reusable Marine Agency");
+  await page.getByLabel("Default representative", { exact: true }).fill("Regular Agent");
+  await page.getByRole("button", { name: "Save agency", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Reusable Marine Agency", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Reusable Marine Agency", exact: true })).toBeVisible();
+  await page.goto("/app/measurements/new?callId=call-1");
+  await openDeclaration(page);
+  await page.getByLabel("Cargo description 1", { exact: true }).fill("Wheat");
+  await page.getByLabel("Manifest quantity 1", { exact: true }).fill("400");
+  await page.getByLabel("Vessel declaration reference", { exact: true }).fill("OWNER-VOYAGE-001");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Select agency Reusable Marine Agency", exact: true }).check();
+  await expect(page.getByLabel("Representative for Reusable Marine Agency", { exact: true })).toHaveValue("Regular Agent");
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page.getByRole("combobox", { name: "Voyage", exact: true }).selectOption("call-3");
+  await expect(page.getByRole("alert")).toContainText("This declaration belongs to the current voyage.");
+  await page.getByRole("button", { name: "Clear declaration and change voyage", exact: true }).click();
+  await openDeclaration(page);
+  await expect(page.getByLabel("Manifest quantity 1", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Vessel declaration reference", { exact: true })).toHaveValue("");
+  await page.getByLabel("Cargo description 1", { exact: true }).fill("New voyage wheat");
+  await page.getByLabel("Manifest quantity 1", { exact: true }).fill("500");
+  await page.getByLabel("Vessel declaration reference", { exact: true }).fill("OWNER-VOYAGE-003");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Select agency Reusable Marine Agency", exact: true })).toBeChecked();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByLabel("Lead surveyor", { exact: true }).fill("Grace Surveyor");
+  await fitsViewport(page);
+  await page.getByRole("button", { name: "Create voyage sheet", exact: true }).click();
+  await expect(page).toHaveURL(/\/created-plan$/);
+  expect(api.requests.plans[0]).toMatchObject({ callId: "call-3", lines: [expect.objectContaining({ manifestQuantity: "500", baselineReference: "OWNER-VOYAGE-003", direction: "import" })], participants: [expect.objectContaining({ name: "Reusable Marine Agency", representative: "Regular Agent" })] });
   expect(api.requests.unexpected).toEqual([]);
 });
 

@@ -14,8 +14,9 @@ vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: auth.user }) }))
 
 describe('measurement entry controls', () => {
   beforeEach(() => vi.clearAllMocks());
-  it('retains unknown and explicit NIL as distinct manifest values while adding container lines', async () => {
-    render(<PlanForm calls={[]} onSave={vi.fn()} onCancel={vi.fn()} />);
+  it('retains unknown and explicit NIL as distinct declaration values while adding container items', async () => {
+    render(<PlanForm calls={[{ id: 'call-1', vesselName: 'Atlas', reference: 'CALL-001', status: 'pending' } as VesselCall]} callId="call-1" onSave={vi.fn()} onCancel={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
     const manifest = screen.getByLabelText(/Manifest quantity 1/);
     expect(manifest).toHaveValue(null);
     await userEvent.selectOptions(screen.getByLabelText('Category 1'), 'Container');
@@ -24,7 +25,7 @@ describe('measurement entry controls', () => {
     expect(screen.getByLabelText('Unit 1')).toHaveValue('count');
     await userEvent.selectOptions(screen.getByLabelText('Container size 1'), '40');
     await userEvent.selectOptions(screen.getByLabelText('Load status 1'), 'empty');
-    await userEvent.click(screen.getByRole('button', { name: 'Add cargo line' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add Bulk' }));
     expect(screen.getByLabelText('Cargo description 2')).toHaveValue('');
     expect(screen.getByLabelText('Container size 1')).toHaveValue('40');
   });
@@ -97,26 +98,30 @@ describe('measurement entry controls', () => {
     await waitFor(() => expect(busy).toHaveBeenLastCalledWith(false));
     expect(onChange).toHaveBeenLastCalledWith(['file-1', 'file-2']);
   });
-  it('saves a multi-stakeholder plan with explicit schedule, cargo basis and manifest reference', async () => {
+  it('saves a voyage sheet with an explicit schedule, cargo basis and agency participation requirements', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(<PlanForm calls={[{ id: 'call-1', vesselName: 'Atlas', reference: 'CALL-001', status: 'pending' } as VesselCall]} onSave={onSave} onCancel={vi.fn()} />);
-    await userEvent.selectOptions(screen.getByLabelText('Vessel call'), 'call-1');
-    for (const [label, value] of [['Plan title','Arrival measurement'], ['Terminal / berth','Berth 3'], ['Lead surveyor','Ada'], ['Measurement method','Draft survey'], ['Operation stage','Arrival'], ['Parcel / cargo scope','Parcel B'], ['Planning notes (optional)','Use certified instrument'], ['Cargo description 1','Wheat'], ['Quantity basis 1','Net mass'], ['Manifest / baseline reference 1','BL-001'], ['Party name 1','Agent'], ['Representative 1','Grace']] as const) { await userEvent.clear(screen.getByLabelText(label)); await userEvent.type(screen.getByLabelText(label), value); }
+    render(<PlanForm calls={[{ id: 'call-1', vesselName: 'Atlas', reference: 'CALL-001', status: 'pending' } as VesselCall]} callId="call-1" agencyCatalog={[{ id: 'agency-1', name: 'Agent', role: 'Master', representative: 'Grace', active: true }]} onSave={onSave} onCancel={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText('Cargo description 1'), 'Wheat');
+    await userEvent.click(screen.getByLabelText('Quantity basis for item 1'));
+    await userEvent.clear(screen.getByLabelText('Quantity basis 1'));
+    await userEvent.type(screen.getByLabelText('Quantity basis 1'), 'Net mass');
+    await userEvent.type(screen.getByLabelText('Manifest / baseline reference 1'), 'BL-001');
+    await userEvent.selectOptions(screen.getByLabelText('Unit 1'), 'm3');
+    await userEvent.type(screen.getByLabelText('Manifest quantity 1'), '1000.25');
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select agency Agent' }));
+    await userEvent.click(screen.getByText('Participation requirements', { selector: 'summary' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Return required for Agent' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Agreement required for Agent' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.click(screen.getByText('Additional planning details', { selector: 'summary' }));
+    for (const [label, value] of [['Plan title','Arrival measurement'], ['Terminal / berth','Berth 3'], ['Lead surveyor','Ada'], ['Measurement method','Draft survey'], ['Operation stage','Arrival'], ['Parcel / cargo scope','Parcel B'], ['Planning notes (optional)','Use certified instrument']] as const) { await userEvent.clear(screen.getByLabelText(label)); await userEvent.type(screen.getByLabelText(label), value); }
     await userEvent.clear(screen.getByLabelText('Scheduled start', { exact: false }));
     await userEvent.type(screen.getByLabelText('Scheduled start', { exact: false }), '2026-10-01T10:00');
     await userEvent.type(screen.getByLabelText('Scheduled end (optional)'), '2026-10-01T12:00');
-    await userEvent.selectOptions(screen.getByLabelText('Direction 1'), 'export');
-    await userEvent.selectOptions(screen.getByLabelText('Unit 1'), 'm3');
-    await userEvent.type(screen.getByLabelText(/Manifest quantity 1/), '1000.25');
-    await userEvent.selectOptions(screen.getByLabelText('Role 1'), 'Master');
-    await userEvent.click(screen.getByRole('button', { name: 'Add cargo line' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Remove cargo line 2' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Add stakeholder' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Remove stakeholder 2' }));
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Return required' }));
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Agreement required' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Create measurement plan' }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ callId: 'call-1', title: 'Arrival measurement', endsAt: expect.any(String), lines: [expect.objectContaining({ manifestQuantity: '1000.25', direction: 'export', unit: 'm3' })], participants: [expect.objectContaining({ name: 'Agent', role: 'Master', requiredSubmission: false, requiredApproval: false })] })));
+    await userEvent.click(screen.getByRole('button', { name: 'Create voyage sheet' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ callId: 'call-1', title: 'Arrival measurement', endsAt: expect.any(String), lines: [expect.objectContaining({ manifestQuantity: '1000.25', direction: 'import', unit: 'm3' })], participants: [expect.objectContaining({ name: 'Agent', role: 'Master', requiredSubmission: false, requiredApproval: false })] })));
   });
   it('records a signed dispute against the named party and exact proposal', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);

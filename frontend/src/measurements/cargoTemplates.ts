@@ -25,20 +25,19 @@ export function basisFor(category: string, unit: QuantityUnit): string {
   if (unit === "tonnes") return "Net metric tonnes";
   return category === "Container" ? "Physical container count" : category === "Vehicle" ? "Physical vehicle count" : "Physical item count";
 }
-export function cargoLine(category = "Bulk", direction = "import"): CargoLineInput {
+export function cargoLine(category = "Bulk"): CargoLineInput {
   const unit = unitsFor(category)[0];
-  return { description: "", category, direction, unit, basis: basisFor(category, unit), containerSize: "", loadStatus: "", manifestQuantity: null, baselineReference: "" };
+  return { description: "", category, direction: "import", unit, basis: basisFor(category, unit), containerSize: "", loadStatus: "", manifestQuantity: null, baselineReference: "" };
 }
 export function templateLines(type: CargoTemplateType): CargoLineInput[] {
-  if (type === "Containers") return ["import", "export"].flatMap(direction =>
-    ["20", "40", "45"].flatMap(containerSize => ["laden", "empty"].map(loadStatus => ({
-      ...cargoLine("Container", direction), containerSize, loadStatus,
+  if (type === "Containers") return ["20", "40", "45"].flatMap(containerSize =>
+    ["laden", "empty"].map(loadStatus => ({
+      ...cargoLine("Container"), containerSize, loadStatus,
       description: `${containerSize} ft ${loadStatus} containers`,
-    }))),
+    })),
   );
-  if (type === "Vehicles") return ["import", "export"].flatMap(direction =>
-    ["Cars", "Buses", "Trucks", "Mafi Trailer / HDV", "Motorcycles", "Other vehicles"].map(description => ({ ...cargoLine("Vehicle", direction), description })),
-  );
+  if (type === "Vehicles") return ["Cars", "Buses", "Trucks", "Mafi Trailer / HDV", "Motorcycles", "Other vehicles"]
+    .map(description => ({ ...cargoLine("Vehicle"), description }));
   return [cargoLine(categoryFor(type))];
 }
 export function defaultMethod(type: CargoTemplateType): string {

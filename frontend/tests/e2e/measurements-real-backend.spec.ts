@@ -93,6 +93,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   const callId: string = (await createdCall.json()).call.id;
   await page.goto(`/app/measurements/new?callId=${encodeURIComponent(callId)}`);
   await page.getByLabel("Plan title", { exact: true }).fill(title);
+  await page.getByLabel("Scheduled start").fill(new Date(Date.now() + 3_600_000).toISOString().slice(0, 16));
   await page.getByLabel("Terminal / berth", { exact: true }).fill("Synthetic terminal");
   await page.getByLabel("Lead surveyor", { exact: true }).fill("Test Surveyor");
   await page.getByLabel("Measurement method", { exact: true }).fill("Physical tally");
@@ -106,26 +107,26 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await page.getByLabel("Manifest quantity 1").fill("100");
   await page.getByLabel("Manifest / baseline reference 1", { exact: true }).fill("SYNTHETIC-MANIFEST-100");
   await page.getByLabel("Party name 1", { exact: true }).fill("Test Ship Agent");
-  await page.getByLabel("Role 1", { exact: true }).fill("Agent");
+  await page.getByRole("combobox", { name: "Role 1", exact: true }).selectOption("Agent");
   await page.getByLabel("Representative 1", { exact: true }).fill("Agent Representative");
   await page.getByRole("button", { name: "Add stakeholder", exact: true }).click();
   await page.getByLabel("Party name 2", { exact: true }).fill("Test Terminal");
-  await page.getByLabel("Role 2", { exact: true }).fill("Terminal operator");
+  await page.getByRole("combobox", { name: "Role 2", exact: true }).selectOption("Terminal operator");
   await page.getByLabel("Representative 2", { exact: true }).fill("Terminal Representative");
   await page.getByRole("button", { name: "Create measurement plan", exact: true }).click();
   await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
   const planPath = new URL(page.url()).pathname;
   const planId = planPath.split("/").at(-1)!;
 
-  await assertMeasurementWorkspace(page, "Plan");
-  const returnsTab = page.getByRole("tab", { name: /Stakeholder returns/ });
+  await assertMeasurementWorkspace(page, "Vessel & cargo");
+  const returnsTab = page.getByRole("tab", { name: /Agency readings/ });
   await returnsTab.focus();
   await returnsTab.press("Enter");
   await expect(returnsTab).toBeFocused();
-  await assertMeasurementWorkspace(page, /Stakeholder returns/);
+  await assertMeasurementWorkspace(page, /Agency readings/);
   for (const [index, party] of ["Test Ship Agent", "Test Terminal"].entries()) {
     await page.getByRole("button", { name: "Record return", exact: true }).click();
-    await page.getByRole("combobox", { name: "Reporting stakeholder", exact: true }).selectOption({ label: `${party} · ${index ? "Terminal operator" : "Agent"}` });
+    await page.getByRole("combobox", { name: "Reporting agency", exact: true }).selectOption({ label: `${party} · ${index ? "Terminal operator" : "Agent"}` });
     await page.getByLabel("Source document reference", { exact: true }).fill(`SYNTHETIC-RETURN-${index + 1}`);
     await page.getByLabel(`Reported quantity · ${cargoLabel}`, { exact: true }).fill(index ? "110" : "108");
     if (!index) {

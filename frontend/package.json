@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "e2e": "npm run e2e:integration",
-    "e2e:mocked": "PLAYWRIGHT_MOCKED_API=1 playwright test tests/e2e/auth.spec.ts",
+    "e2e:mocked": "PLAYWRIGHT_MOCKED_API=1 playwright test tests/e2e/auth.spec.ts tests/e2e/measurement-ui.spec.ts",
     "e2e:integration": "PLAYWRIGHT_REAL_BACKEND=1 playwright test"
   },
   "dependencies": {

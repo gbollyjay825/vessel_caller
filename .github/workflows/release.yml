@@ -51,7 +51,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
@@ -75,12 +75,12 @@ jobs:
             echo "GitHub did not verify the release tag signature." >&2
             exit 1
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: pip
           cache-dependency-path: backend/requirements/*.txt
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -115,7 +115,7 @@ jobs:
           format: spdx-json
           output-file: artifacts/vessel-caller-${{ env.RELEASE_TAG }}.sbom.spdx.json
       - name: Attest archive
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: artifacts/vessel-caller-${{ env.RELEASE_TAG }}.tar.gz
       - name: Publish GitHub release

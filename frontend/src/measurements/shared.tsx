@@ -31,7 +31,7 @@ export function ActionForm({ submit, onSubmit, children, onCancel, disabled = fa
   return <form className="measurement-form" onSubmit={event => void handle(event)}><fieldset disabled={pending}>{children}</fieldset><ErrorMessage error={error} /><div className="measurement-actions">{onCancel && <button className="btn btn-secondary" type="button" disabled={pending} onClick={onCancel}>Cancel</button>}<button className="btn btn-primary" type="submit" disabled={pending || disabled}>{pending ? "Saving…" : submit}</button></div></form>;
 }
 
-export function EvidencePicker({ plan, value, onChange, onBusyChange }: { plan: MeasurementPlan; value: string[]; onChange: (ids: string[]) => void; onBusyChange: (busy: boolean) => void }) {
+export function EvidencePicker({ plan, value, onChange, onBusyChange, optional = false }: { plan: MeasurementPlan; value: string[]; onChange: (ids: string[]) => void; onBusyChange: (busy: boolean) => void; optional?: boolean }) {
   const [added, setAdded] = useState<Evidence[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -47,7 +47,7 @@ export function EvidencePicker({ plan, value, onChange, onBusyChange }: { plan: 
       }
     } catch (failure) { setError(failure); } finally { setUploading(false); onBusyChange(false); }
   };
-  return <div className="measurement-evidence-picker"><div className="measurement-section-head"><div><h3>Supporting evidence</h3><p>Select received documents, or upload a signed sheet or photo. PDF, JPEG, PNG or WebP, up to 15 MB each.</p></div></div>
+  return <div className="measurement-evidence-picker"><div className="measurement-section-head"><div><h3>Supporting evidence{optional ? " (optional)" : ""}</h3><p>Select received documents, or upload a signed sheet or photo. PDF, JPEG, PNG or WebP, up to 15 MB each.</p></div></div>
     {evidence.length > 0 && <div className="measurement-evidence-options">{evidence.map(item => <label key={item.id} className="measurement-check"><input type="checkbox" disabled={uploading} checked={value.includes(item.id)} onChange={event => onChange(event.target.checked ? [...value, item.id] : value.filter(id => id !== item.id))} /><Icon name="fileText" size={16} /><span>{item.fileName}</span></label>)}</div>}
     <label className="measurement-upload" htmlFor={inputId}><Icon name={uploading ? "spinner" : "plus"} size={18} />{uploading ? "Uploading evidence…" : "Upload evidence"}</label><input id={inputId} className="measurement-file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" multiple disabled={uploading} onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void upload(files); }} />
     <ErrorMessage error={error} />

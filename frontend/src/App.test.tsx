@@ -52,6 +52,7 @@ vi.mock("./screens/PasswordRecovery", () => ({
   ResetPassword: () => <div>Reset password screen</div>,
 }));
 vi.mock("./screens/Settings", () => ({ Settings: () => <div>Settings screen</div> }));
+vi.mock("./screens/VoyageReadings", () => ({ VoyageReadings: () => <div>Voyage readings screen</div> }));
 vi.mock("./screens/UserManagement", () => ({ UserManagement: () => <div>User management screen</div> }));
 vi.mock("./screens/VesselCalls", () => ({
   VesselCalls: () => <div>Vessel calls screen</div>,
@@ -103,6 +104,7 @@ describe("App route contract", () => {
     ["/app", "Dashboard screen", "authenticated"],
     ["/app/vessel-calls", "Vessel calls screen", "authenticated"],
     ["/app/vessel-calls/call-1", "Vessel call detail screen", "authenticated"],
+    ["/app/measurements/voyages/call-1/readings", "Voyage readings screen", "measurements.view"],
     ["/app/inspections", "Inspections screen", "authenticated"],
     ["/app/inspections/new", "New inspection screen", "inspections.manage"],
     ["/app/invoices", "Invoices screen", "authenticated"],

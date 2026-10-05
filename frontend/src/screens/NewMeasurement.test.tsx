@@ -172,7 +172,7 @@ describe('new voyage agency action orchestration', () => {
     const error = failure(); mocked.create.mockRejectedValueOnce(error); setup();
     await rejectsAction(error.message);
     expect(screen.getByTestId('saved-plan')).toHaveTextContent('unsaved');
-    await rejectsAction('The save could not be confirmed. Check the voyage log before starting another sheet.');
+    await rejectsAction('The save could not be confirmed. Check Voyages before starting another sheet.');
     expect(mocked.create).toHaveBeenCalledOnce(); expect(mocked.createLink).not.toHaveBeenCalled(); expect(mocked.navigate).not.toHaveBeenCalled();
   });
 

@@ -58,7 +58,7 @@ export function ReturnForm({ plan, onSave, onCancel, initialParticipantId, colle
     return { ...current, [participantId]: { ...agencyDraft, lines: agencyDraft.lines.map(line => line.lineId === lineId ? { ...line, ...patch } : line) } };
   });
 
-  return <ActionForm submit={previous ? "Save revised return" : collectionOnly ? "Submit reading" : "Record stakeholder return"} onCancel={onCancel} disabled={!selectedAgency || scopeChanged || !draft.evidenceIds.length || uploading} onSubmit={() => onSave({ ...draft, participantId, observedAt: new Date(draft.observedAt).toISOString() })}>
+  return <ActionForm submit={previous ? "Save revised return" : collectionOnly ? "Submit reading" : "Record stakeholder return"} onCancel={onCancel} disabled={!selectedAgency || scopeChanged || uploading} onSubmit={() => onSave({ ...draft, participantId, observedAt: new Date(draft.observedAt).toISOString() })}>
     <div className="measurement-section-head"><div><h3>Agency measurement entry</h3><p>{collectionOnly ? "Enter this agency’s measured vessel load. Each agency keeps its own report." : "Record the selected agency’s independent measurement. The owner’s declaration is shown separately for comparison; NPA reconciliation follows the agency readings."}</p></div></div>
     <div className="measurement-form-grid">
       {!fixedAgency && <FormField label="Reporting agency"><select required disabled={uploading} value={participantId} onChange={event => setParticipantId(event.target.value)}>{plan.participants.map(party => <option key={party.id} value={party.id}>{party.name} · {party.role}</option>)}</select></FormField>}
@@ -97,8 +97,8 @@ export function ReturnForm({ plan, onSave, onCancel, initialParticipantId, colle
       </table>
     </div>
     <FormField label="Return notes (optional)"><textarea value={draft.notes} onChange={event => updateDraft({ notes: event.target.value })} /></FormField>
-    <EvidencePicker plan={plan} value={draft.evidenceIds} onChange={evidenceIds => updateDraft({ evidenceIds })} onBusyChange={setUploading} />
-    {!draft.evidenceIds.length && <p className="measurement-help">At least one source file is required.</p>}
+    <EvidencePicker optional plan={plan} value={draft.evidenceIds} onChange={evidenceIds => updateDraft({ evidenceIds })} onBusyChange={setUploading} />
+    <p className="measurement-help">You can submit this reading without an attachment.</p>
   </ActionForm>;
 }
 

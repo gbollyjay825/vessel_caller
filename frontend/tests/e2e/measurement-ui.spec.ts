@@ -10,7 +10,7 @@ import type { AppState, AuthSession, VesselCall } from "../../src/types";
 
 test.skip(process.env.PLAYWRIGHT_REAL_BACKEND === "1", "These presentation checks use an isolated mocked API.");
 
-async function installMeasurementApi(page: Page, initialPlan = measurementFixture(), options: { admin?: boolean; seedAgencies?: boolean } = {}) {
+async function installMeasurementApi(page: Page, initialPlan = measurementFixture(), options: { admin?: boolean; seedAgencies?: boolean; additionalPlans?: MeasurementPlan[] } = {}) {
   let plan: MeasurementPlan = structuredClone(initialPlan);
   const requests = {
     plans: [] as PlanInput[],
@@ -45,7 +45,7 @@ async function installMeasurementApi(page: Page, initialPlan = measurementFixtur
     if (path === "/api/auth/me") return json(session);
     if (path === "/api/auth/csrf") return json({ csrfToken: "mock-csrf" });
     if (path === "/api/state") return json(url.searchParams.has("rev") ? { changed: false, rev: 1 } : state);
-    if (path === "/api/measurement-plans" && request.method() === "GET") return json({ plans: [plan] });
+    if (path === "/api/measurement-plans" && request.method() === "GET") return json({ plans: [plan, ...options.additionalPlans ?? []] });
     if (path === "/api/measurement-plans" && request.method() === "POST") {
       const input = request.postDataJSON() as PlanInput;
       requests.plans.push(structuredClone(input));
@@ -123,7 +123,7 @@ async function createPlan(page: Page, agencies = ["Harbour Agency"], action: "re
   for (const name of agencies) await expect(page.getByRole("checkbox", { name: `Select agency ${name}`, exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/measurements$/);
-  await expect(page.getByRole("heading", { name: "Voyage log", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Voyages", exact: true })).toBeVisible();
 }
 
 async function fitsViewport(page: Page) {
@@ -133,7 +133,7 @@ async function fitsViewport(page: Page) {
 
 const includeCargo = (page: Page, item: number) => page.getByRole("checkbox", { name: new RegExp(`^Include cargo item ${item} ·`) });
 
-test("same-page readings submit evidence and reuse one voyage with the latest version for the next agency", async ({ page }) => {
+test("same-page readings support optional evidence and reuse one voyage with the latest version for the next agency", async ({ page }) => {
   const api = await installMeasurementApi(page);
   const pdf = Buffer.from("%PDF-1.4\n% Synthetic agency evidence\n%%EOF\n");
   const evidenceName = "synthetic-agency-tally.pdf";
@@ -158,28 +158,85 @@ test("same-page readings submit evidence and reuse one voyage with the latest ve
     await expect(dialog.getByLabel("Source document reference", { exact: true })).toHaveValue("");
     await dialog.getByLabel("Source document reference", { exact: true }).fill(`AGENCY-READING-${index + 1}`);
     await dialog.getByLabel("Reported quantity · Wheat", { exact: true }).fill(index ? "108.25" : "107.125");
-    await expect(dialog.getByRole("button", { name: "Submit reading", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("heading", { name: "Supporting evidence (optional)", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Submit reading", exact: true })).toBeEnabled();
     if (index === 0) {
       await dialog.locator('input[type="file"]').setInputFiles({ name: evidenceName, mimeType: "application/pdf", buffer: pdf });
       await expect(dialog.getByLabel(evidenceName, { exact: true })).toBeChecked();
     } else {
       await expect(dialog.getByLabel(evidenceName, { exact: true })).not.toBeChecked();
-      await dialog.getByLabel(evidenceName, { exact: true }).check();
     }
     await dialog.getByRole("button", { name: "Submit reading", exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(agency.getByText("Submitted", { exact: true })).toBeVisible();
     await expect(page).toHaveURL(/\/app\/measurements\/new\?callId=call-1$/);
     expect(api.requests.plans).toHaveLength(1);
-    expect(api.requests.submissions[index]).toMatchObject({ participantId: `created-party-${index}`, version: index + 1, sourceReference: `AGENCY-READING-${index + 1}`, evidenceIds: ["uploaded-evidence"], lines: [{ lineId: "created-line-0", quantity: index ? "108.25" : "107.125", status: "reported", note: "" }] });
+    expect(api.requests.submissions[index]).toMatchObject({ participantId: `created-party-${index}`, version: index + 1, sourceReference: `AGENCY-READING-${index + 1}`, evidenceIds: index ? [] : ["uploaded-evidence"], lines: [{ lineId: "created-line-0", quantity: index ? "108.25" : "107.125", status: "reported", note: "" }] });
   }
   expect(api.plan().version).toBe(3);
   expect(api.plan().submissions.map(reading => reading.lines[0].quantity)).toEqual(["107.125", "108.25"]);
+  expect(api.plan().submissions.map(reading => reading.evidenceIds)).toEqual([["uploaded-evidence"], []]);
   expect(api.requests.uploads).toEqual(["application/pdf"]);
   expect(api.plan().evidence).toEqual([expect.objectContaining({ id: "uploaded-evidence", fileName: evidenceName, contentType: "application/pdf", size: pdf.byteLength, checksum: `sha256:${createHash("sha256").update(pdf).digest("hex")}` })]);
-  await page.getByRole("button", { name: "Finish", exact: true }).click();
-  await expect(page).toHaveURL(/\/app\/measurements$/);
-  await expect(page.getByText("2 / 2 agency readings", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "View readings", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/measurements\/voyages\/call-1\/readings$/);
+  await expect(page.getByRole("heading", { name: "Readings", exact: true })).toBeVisible();
+  const report = page.getByRole("table", { name: "Owner declaration and agency readings for this voyage", exact: true });
+  await expect(report.getByRole("columnheader", { name: /^Owner declaration/ })).toBeVisible();
+  await expect(report.getByRole("columnheader", { name: /^Harbour Agency/ })).toBeVisible();
+  await expect(report.getByRole("columnheader", { name: /^Port Terminal/ })).toBeVisible();
+  const wheat = report.getByRole("row", { name: /^Wheat/ });
+  await expect(wheat.getByText("100", { exact: true })).toBeVisible();
+  await expect(wheat.getByText("107.125", { exact: true })).toBeVisible();
+  await expect(wheat.getByText("108.25", { exact: true })).toBeVisible();
+  expect(api.requests.unexpected).toEqual([]);
+});
+
+test("voyage readings compare all its sheets without mixing another voyage or confusing NIL with missing readings", async ({ page }) => {
+  const first = measurementFixture();
+  first.title = "Import declaration A";
+  first.lines[0].manifestQuantity = "100";
+  first.lines.push({ ...first.lines[0], id: "tank-line", description: "Unused cargo tank", category: "Liquid", unit: "m3", basis: "Volume in cubic metres", manifestQuantity: "0", baselineReference: "OWNER-NIL-TANK" });
+  first.submissions[0].lines = [{ lineId: "line-1", quantity: "0", status: "reported", note: "" }, { lineId: "tank-line", quantity: null, status: "not-applicable", note: "No liquid cargo carried" }];
+  const second: MeasurementPlan = { ...structuredClone(first), id: "second-sheet", title: "Import declaration B", scope: "Rice parcel", lines: [{ ...first.lines[0], id: "rice-line", description: "Rice", manifestQuantity: null, baselineReference: "" }], submissions: [] };
+  const other: MeasurementPlan = { ...structuredClone(first), id: "other-voyage-sheet", callId: "call-2", callReference: "CALL-002", vesselName: "MV Horizon", title: "Other voyage declaration", lines: [{ ...first.lines[0], id: "other-line", description: "Other voyage cargo", manifestQuantity: "98765" }], submissions: [] };
+  const api = await installMeasurementApi(page, first, { additionalPlans: [second, other] });
+  await page.goto("/app/measurements");
+  const voyage = page.getByRole("row", { name: "MV Atlas · CALL-001", exact: true });
+  await expect(voyage).toHaveCount(1);
+  await expect(voyage.getByText("1 of 4 received", { exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Voyages and agency readings", exact: true }).getByRole("columnheader")).toHaveCount(5);
+  await expect(page.getByRole("columnheader", { name: /Final NPA|Difference/ })).toHaveCount(0);
+  await fitsViewport(page);
+  await voyage.getByRole("link", { name: "Readings", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/measurements\/voyages\/call-1\/readings$/);
+  await expect(page.getByRole("heading", { name: "Readings", exact: true })).toBeVisible();
+  const report = page.getByRole("table", { name: "Owner declaration and agency readings for this voyage", exact: true });
+  await expect(report.getByRole("columnheader", { name: /^Owner declaration/ })).toBeVisible();
+  await expect(report.getByRole("columnheader", { name: /^Harbour Agent/ })).toBeVisible();
+  await expect(report.getByRole("columnheader", { name: /^Terminal One/ })).toBeVisible();
+  await expect(report.getByText(first.title, { exact: true })).toBeVisible();
+  await expect(report.getByText(second.title, { exact: true })).toBeVisible();
+  const wheat = report.getByRole("row", { name: /^Wheat\s/ });
+  await expect(wheat.getByText("100", { exact: true })).toBeVisible();
+  await expect(wheat.getByText("NIL (0)", { exact: true })).toBeVisible();
+  await expect(wheat.getByText("Awaiting", { exact: true })).toBeVisible();
+  const rice = report.getByRole("row", { name: /^Rice\s/ });
+  await expect(rice.getByText("Unknown", { exact: true })).toBeVisible();
+  await expect(rice.getByText("Awaiting", { exact: true })).toHaveCount(2);
+  const tank = report.getByRole("row", { name: /^Unused cargo tank/ });
+  await expect(tank.getByText("NIL (0)", { exact: true })).toBeVisible();
+  await expect(tank.getByText("N/A", { exact: true })).toBeVisible();
+  await expect(tank.getByText("No liquid cargo carried", { exact: true })).toBeVisible();
+  await expect(page.getByText("Other voyage cargo", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("98765", { exact: true })).toHaveCount(0);
+  const scroll = page.getByRole("region", { name: "Voyage readings table", exact: true });
+  await expect(scroll).toHaveCSS("overflow-x", "auto");
+  await fitsViewport(page);
+  if (page.viewportSize()!.width < 600) {
+    const size = await scroll.evaluate(element => ({ content: element.scrollWidth, viewport: element.clientWidth }));
+    expect(size.content).toBeGreaterThan(size.viewport);
+  }
   expect(api.requests.unexpected).toEqual([]);
 });
 
@@ -407,7 +464,7 @@ test("admin creates agencies inline without losing the declaration and protects 
   expect(api.requests.plans).toHaveLength(1);
   await page.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/measurements$/);
-  await expect(page.getByRole("heading", { name: "Voyage log", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Voyages", exact: true })).toBeVisible();
   await expect(page.getByRole("tablist", { name: "Measurement workspaces", exact: true })).toHaveCount(0);
   expect(api.requests.plans[0]).toMatchObject({ callId: "call-3", lines: [expect.objectContaining({ manifestQuantity: "500", baselineReference: "OWNER-VOYAGE-003", direction: "import" })], participants: [expect.objectContaining({ name: "Reusable Marine Agency", representative: "Regular Agent" }), expect.objectContaining({ name: "Voyage Survey Agency", representative: "Voyage Surveyor" })] });
   await page.goto("/app/settings/agencies");

@@ -34,7 +34,9 @@ describe('measurement workflow', () => {
   });
   it('exposes an actionable plan worklist and search', async () => {
     renderScreen(<Measurements />);
-    expect(await screen.findByRole('link', { name: /Discharge survey/ })).toHaveAttribute('href', '/app/measurements/plan-1');
+    expect(await screen.findByRole('link', { name: 'Readings' })).toHaveAttribute('href', '/app/measurements/voyages/call-1/readings');
+    expect(screen.getByRole('heading', { name: 'Voyages', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Search vessels or voyages'), 'unknown');
     expect(screen.getByText('No voyages found')).toBeInTheDocument();
   });

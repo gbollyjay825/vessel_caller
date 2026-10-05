@@ -29,25 +29,27 @@ describe('measurement entry controls', () => {
     expect(screen.getByLabelText('Cargo description 2')).toHaveValue('');
     expect(screen.getByLabelText('Container size 1')).toHaveValue('40');
   });
-  it('records zero as a real reported quantity and requires source evidence', async () => {
+  it('submits a staff return without attachments while preserving explicit zero', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<ReturnForm plan={measurementFixture()} onSave={onSave} onCancel={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Record stakeholder return' })).toBeDisabled();
+    expect(screen.getByRole('heading', { name: 'Supporting evidence (optional)' })).toBeInTheDocument();
+    expect(screen.getByText('You can submit this reading without an attachment.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Record stakeholder return' }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Source document reference')).toBeRequired();
     await userEvent.type(screen.getByLabelText('Source document reference'), 'TERM-001');
     await userEvent.type(screen.getByLabelText('Reported quantity · Wheat'), '0');
-    await userEvent.click(screen.getByLabelText('signed-survey.pdf'));
     await userEvent.click(screen.getByRole('button', { name: 'Record stakeholder return' }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ participantId: 'party-2', lines: [{ lineId: 'line-1', status: 'reported', quantity: '0', note: '' }], evidenceIds: ['file-1'] })));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ participantId: 'party-2', lines: [{ lineId: 'line-1', status: 'reported', quantity: '0', note: '' }], evidenceIds: [] })));
   });
-  it('keeps a direct agency reading fixed to its selected participant', async () => {
+  it('submits a direct agency reading without attachments, fixed to its selected participant', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<ReturnForm plan={measurementFixture()} initialParticipantId="party-2" fixedAgency collectionOnly onSave={onSave} onCancel={vi.fn()} />);
     expect(screen.queryByLabelText('Reporting agency')).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Source document reference'), 'TERMINAL-READING');
     await userEvent.type(screen.getByLabelText('Reported quantity · Wheat'), '100');
-    await userEvent.click(screen.getByLabelText('signed-survey.pdf'));
     await userEvent.click(screen.getByRole('button', { name: 'Submit reading' }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ participantId: 'party-2' })));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ participantId: 'party-2', evidenceIds: [] })));
   });
   it('fails closed when the selected direct agency no longer exists', () => {
     render(<ReturnForm plan={measurementFixture()} initialParticipantId="deleted-party" fixedAgency collectionOnly onSave={vi.fn()} onCancel={vi.fn()} />);
@@ -148,6 +150,9 @@ describe('measurement entry controls', () => {
   it('records a signed dispute against the named party and exact proposal', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<ApprovalForm plan={measurementFixture()} reconciliation={reconciliationFixture()} onSave={onSave} onCancel={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'Supporting evidence' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Supporting evidence (optional)' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Record paper acknowledgement' })).toBeDisabled();
     await userEvent.selectOptions(screen.getByLabelText('Acknowledging stakeholder'), 'party-2');
     expect(screen.getByLabelText('Signing representative')).toHaveValue('Tunde');
     await userEvent.clear(screen.getByLabelText('Signing representative'));
@@ -313,16 +318,21 @@ describe('measurement entry controls', () => {
     expect(within(sheet).queryByText('+0.001')).not.toBeInTheDocument();
   });
 
-  it('keeps evidence uploads attached to the selected agency until they finish', async () => {
+  it('waits for optional uploads and includes the uploaded evidence in the selected agency submission', async () => {
     const plan = measurementFixture(); let finish: (item: Evidence) => void = () => {};
     vi.mocked(measurementApi.upload).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    render(<ReturnForm plan={plan} onSave={vi.fn()} onCancel={vi.fn()} />);
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<ReturnForm plan={plan} onSave={onSave} onCancel={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText('Source document reference'), 'UPLOADED-REF');
+    await userEvent.type(screen.getByLabelText('Reported quantity · Wheat'), '120');
     await userEvent.upload(screen.getByLabelText('Upload evidence'), new File(['source'], 'terminal.pdf', { type: 'application/pdf' }));
     expect(screen.getByLabelText('Reporting agency')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Record stakeholder return' })).toBeDisabled();
     finish({ ...plan.evidence[0], id: 'file-terminal', fileName: 'terminal.pdf' });
     await waitFor(() => expect(screen.getByLabelText('Reporting agency')).toBeEnabled());
     expect(screen.getByLabelText('terminal.pdf')).toBeChecked();
+    await userEvent.click(screen.getByRole('button', { name: 'Record stakeholder return' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ participantId: 'party-2', evidenceIds: ['file-terminal'], sourceReference: 'UPLOADED-REF' })));
     await userEvent.selectOptions(screen.getByLabelText('Reporting agency'), 'party-1');
     expect(screen.getByLabelText('terminal.pdf')).not.toBeChecked();
   });

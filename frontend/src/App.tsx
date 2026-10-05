@@ -18,6 +18,7 @@ import { Inspections, NewInspection } from "./screens/Inspections";
 import { InvitationAccept } from "./screens/InvitationAccept";
 import { Invoices } from "./screens/Invoices";
 import { Measurements, MeasurementDetail, NewMeasurement } from "./screens/Measurements";
+import { VoyageReadings } from "./screens/VoyageReadings";
 import { AgencyDirectory } from "./measurements/AgencyDirectoryScreen";
 import { AgencyReadingPage } from "./measurements/AgencyReadingPage";
 import { Landing } from "./screens/LandingFull";
@@ -48,6 +49,7 @@ function WorkspaceRoutes() {
       <Route path="/app/vessel-calls/:id"><VesselCallDetail /></Route>
       <Route path="/app/vessel-calls"><VesselCalls /></Route>
       <Route path="/app/measurements/new"><SecureScreen permission="measurements.manage"><NewMeasurement /></SecureScreen></Route>
+      <Route path="/app/measurements/voyages/:callId/readings"><SecureScreen permission="measurements.view"><VoyageReadings /></SecureScreen></Route>
       <Route path="/app/measurements/:id"><SecureScreen permission="measurements.view"><MeasurementDetail /></SecureScreen></Route>
       <Route path="/app/measurements"><SecureScreen permission="measurements.view"><Measurements /></SecureScreen></Route>
       <Route path="/app/inspections/new">

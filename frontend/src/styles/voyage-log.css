@@ -1,51 +1,23 @@
-.voyage-log-head { display: flex; justify-content: space-between; align-items: start; gap: 18px; margin: 8px 0 22px; }
-.voyage-log-head p { font-size: 13px; color: var(--slate); line-height: 1.6; margin-top: 5px; max-width: 630px; }
-.measurement-workspace .voyage-vessel { padding: 0; margin-bottom: 20px; overflow: hidden; }
-.voyage-vessel-head { display: flex; align-items: center; gap: 13px; background: #f7f9fc; padding: 20px 24px; border-bottom: 1px solid var(--hairline); }
-.voyage-vessel-head p { margin-top: 4px; color: var(--slate); font-size: 12px; }
-.voyage-vessel-head > span { margin-left: auto; color: var(--slate); font-size: 12px; }
-.voyage-vessel-icon { width: 42px; height: 42px; border: 1px solid #dce8f1; background: #edf4fa; color: var(--accent); border-radius: 9px; display: grid; place-items: center; }
-.voyage-record { padding: 22px 24px; border-bottom: 1px solid var(--hairline); }
-.voyage-record:last-child { border-bottom: 0; }
-.voyage-record-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 16px; }
-.voyage-reference { font-size: 14px; color: var(--ink); text-decoration: none; font-weight: 650; }
-.voyage-reference:hover,.voyage-tally-title a:hover { color: var(--accent); }
-.voyage-record-head p { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--slate); margin-top: 6px; }
-.voyage-tally { border: 1px solid var(--hairline); border-radius: 8px; padding: 16px; margin-top: 12px; }
-.voyage-tally-title { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
-.voyage-tally-title a { text-decoration: none; font-size: 13px; color: var(--ink); font-weight: 600; }
-.voyage-tally-status { display: flex; flex-wrap: wrap; gap: 8px 24px; color: var(--slate); font-size: 11px; margin: 12px 0; }
-.voyage-tally-status span { display: inline-flex; align-items: center; gap: 6px; }
-.voyage-cargo-scroll { overflow-x: auto; }
-.voyage-cargo-table { border-collapse: collapse; width: 100%; font-size: 12px; }
-.voyage-cargo-table th,.voyage-cargo-table td { padding: 12px 10px; border-top: 1px solid var(--hairline); text-align: left; vertical-align: top; font-variant-numeric: tabular-nums; }
-.voyage-cargo-table thead th { color: var(--slate); font-size: 10px; font-weight: 550; background: #fbfcfd; }
-.voyage-cargo-table tbody th { font-weight: 550; }
-.voyage-cargo-table td { white-space: nowrap; }
-.voyage-cargo-table small { display: block; color: var(--slate); font-size: 10px; margin-top: 4px; font-weight: 400; }
-.voyage-tally-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 14px; }
-.voyage-tally-footer .link-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
-.voyage-tally-footer > span { color: var(--slate); font-size: 11px; }
-.voyage-not-started { display: flex; gap: 14px; align-items: center; justify-content: space-between; font-size: 12px; color: var(--slate); background: #fafbfc; border-radius: 6px; padding: 16px; }
-.voyage-not-started .btn { font-size: 12px; }
-.voyage-empty { padding: 38px 24px; text-align: center; color: var(--slate); }
-.voyage-empty svg { color: var(--accent); margin-bottom: 12px; }
-.voyage-empty p { font-size: 13px; margin: 8px 0 18px; }
-.voyage-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
-@media (max-width: 800px) {
-  .voyage-log-head { flex-direction: column; }
-  .voyage-vessel-head,.voyage-record { padding: 18px; }
-  .voyage-vessel-head > span { font-size: 10px; }
-  .voyage-tally { padding: 12px; }
-  .voyage-tally-title { align-items: start; }
-  .voyage-cargo-table thead { display: none; }
-  .voyage-cargo-table tbody { display: block; }
-  .voyage-cargo-table tr { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--hairline); padding: 10px 0; gap: 10px 16px; }
-  .voyage-cargo-table th,.voyage-cargo-table td { display: block; padding: 0; border: 0; }
-  .voyage-cargo-table th { grid-column: 1 / -1; }
-  .voyage-cargo-table td::before { display: block; font-size: 10px; color: var(--slate); margin-bottom: 4px; }
-  .voyage-cargo-table td:nth-child(2)::before { content: 'Owner declared'; }
-  .voyage-cargo-table td:nth-child(3)::before { content: 'Final NPA tally'; }
-  .voyage-cargo-table td:nth-child(4)::before { content: 'Difference'; }
-  .voyage-not-started { align-items: start; flex-direction: column; }
-}
+.voyage-log {min-width:0}
+.voyage-log-head {display:flex;justify-content:space-between;align-items:center;gap:16px;margin:4px 0 14px}
+.voyage-log-head p {font-size:12px;color:var(--muted);line-height:1.5;margin:0;max-width:580px}
+.voyage-log-head .measurement-filter {flex-shrink:0}
+.voyage-list-scroll {overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.voyage-list-table {width:100%;min-width:720px;border-collapse:collapse;font-size:13px;text-align:left}
+.voyage-list-table th,.voyage-list-table td {padding:14px 16px;vertical-align:middle;border-bottom:1px solid var(--border)}
+.voyage-list-table thead th {background:#f7f9fc;color:var(--muted);font-size:11px;font-weight:600;white-space:nowrap}
+.voyage-list-table tbody th {font-weight:600;min-width:150px}
+.voyage-list-table tbody tr:last-child>* {border-bottom:0}
+.voyage-list-table strong {font-weight:500;font-variant-numeric:tabular-nums}
+.voyage-list-table small {display:block;color:var(--muted);font-size:11px;line-height:1.5;margin-top:4px}
+.voyage-list-table .voyage-state.complete {color:#26744e;font-weight:600}
+.voyage-list-table .voyage-state.cancelled {color:var(--muted)}
+.voyage-row-actions {display:flex;gap:10px;align-items:center;flex-wrap:wrap;min-width:140px}
+.voyage-row-actions .btn {font-size:12px;padding:8px 12px;white-space:nowrap;min-height:36px}
+.voyage-row-actions .link-btn {font-size:12px;white-space:nowrap}
+.voyage-log-note {font-size:11px;color:var(--muted);line-height:1.5;margin:10px 2px 0}
+.voyage-empty {padding:24px 0;color:var(--muted)}
+.voyage-empty h2 {font-size:16px;color:var(--text)}
+.voyage-empty p {font-size:13px;margin:6px 0 12px}
+.voyage-sr-only {position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+@media(max-width:700px){.voyage-log-head{align-items:flex-start;flex-direction:column;gap:10px}.voyage-list-table th,.voyage-list-table td{padding:12px}.voyage-list-table tbody th{position:sticky;left:0;background:var(--surface);z-index:1;min-width:125px;max-width:180px}.voyage-row-actions{align-items:flex-start;flex-direction:column;gap:8px}}

@@ -336,6 +336,9 @@ export function VesselCallDetail() {
           </p>
         </div>
         <div className="flex gap-2 wrap">
+          <button className="btn btn-secondary btn-sm" type="button" onClick={() => navigate("/app/measurements/voyages/" + encodeURIComponent(call.id) + "/readings")}>
+            <Icon name="fileText" size={16} /> Readings
+          </button>
           <button className="btn btn-secondary btn-sm" type="button" onClick={() => navigate("/app/measurements?callId=" + encodeURIComponent(call.id))}>
             <Icon name="clipboard" size={16} /> Measurements
           </button>

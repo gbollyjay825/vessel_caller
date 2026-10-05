@@ -1,0 +1,23 @@
+.voyage-log {min-width:0}
+.voyage-log-head {display:flex;justify-content:space-between;align-items:center;gap:16px;margin:4px 0 14px}
+.voyage-log-head p {font-size:12px;color:var(--muted);line-height:1.5;margin:0;max-width:580px}
+.voyage-log-head .measurement-filter {flex-shrink:0}
+.voyage-list-scroll {overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.voyage-list-table {width:100%;min-width:720px;border-collapse:collapse;font-size:13px;text-align:left}
+.voyage-list-table th,.voyage-list-table td {padding:14px 16px;vertical-align:middle;border-bottom:1px solid var(--border)}
+.voyage-list-table thead th {background:#f7f9fc;color:var(--muted);font-size:11px;font-weight:600;white-space:nowrap}
+.voyage-list-table tbody th {font-weight:600;min-width:150px}
+.voyage-list-table tbody tr:last-child>* {border-bottom:0}
+.voyage-list-table strong {font-weight:500;font-variant-numeric:tabular-nums}
+.voyage-list-table small {display:block;color:var(--muted);font-size:11px;line-height:1.5;margin-top:4px}
+.voyage-list-table .voyage-state.complete {color:#26744e;font-weight:600}
+.voyage-list-table .voyage-state.cancelled {color:var(--muted)}
+.voyage-row-actions {display:flex;gap:10px;align-items:center;flex-wrap:wrap;min-width:140px}
+.voyage-row-actions .btn {font-size:12px;padding:8px 12px;white-space:nowrap;min-height:36px}
+.voyage-row-actions .link-btn {font-size:12px;white-space:nowrap}
+.voyage-log-note {font-size:11px;color:var(--muted);line-height:1.5;margin:10px 2px 0}
+.voyage-empty {padding:24px 0;color:var(--muted)}
+.voyage-empty h2 {font-size:16px;color:var(--text)}
+.voyage-empty p {font-size:13px;margin:6px 0 12px}
+.voyage-sr-only {position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+@media(max-width:700px){.voyage-log-head{align-items:flex-start;flex-direction:column;gap:10px}.voyage-list-table th,.voyage-list-table td{padding:12px}.voyage-list-table tbody th{position:sticky;left:0;background:var(--surface);z-index:1;min-width:125px;max-width:180px}.voyage-row-actions{align-items:flex-start;flex-direction:column;gap:8px}}

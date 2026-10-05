@@ -43,9 +43,9 @@ export function cargoInputLabel(line: CargoLine, lines: CargoLine[]): string {
   const scope = cargoScopeLabel(line);
   const repeatedScope = sameDescription.filter(item => cargoScopeLabel(item) === scope).length > 1;
   const label = [line.description, scope].filter(Boolean).join(" · ");
-  return repeatedScope ? `${label} · line ${lines.findIndex(item => item.id === line.id) + 1}` : label;
+  return repeatedScope ? `${label} · item ${lines.findIndex(item => item.id === line.id) + 1}` : label;
 }
 export function cargoLabelForId(lines: CargoLine[], lineId: string): string {
   const line = lines.find(item => item.id === lineId);
-  return line ? cargoInputLabel(line, lines) : "Cargo line";
+  return line ? cargoInputLabel(line, lines) : "Cargo item";
 }

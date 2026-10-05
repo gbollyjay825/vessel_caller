@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "../app/store";
 import { useAuth } from "../auth/AuthContext";
@@ -8,46 +8,159 @@ import { Link, useNavigate, useParams, useSearchParams } from "../lib/navigation
 import { ApiError, api } from "../lib/api";
 import { measurementApi } from "../measurements/api";
 import { PlanForm } from "../measurements/PlanForm";
+import { useAgencyDirectory } from "../measurements/agencyDirectory";
+import { VoyageLog } from "../measurements/VoyageLog";
+import { AgencyCollection } from "../measurements/AgencyCollection";
+import type { CreatedAgencyLink } from "../measurements/AgencyCollection";
+import { AgencyLinkPanel } from "../measurements/AgencyLinkPanel";
+import { AgencyReadingDialog } from "../measurements/AgencyReadingDialog";
+import { ComparisonGrid } from "../measurements/VoyageComparison";
+export { ComparisonGrid } from "../measurements/VoyageComparison";
 import { ApprovalForm, AssessmentForm, ProposalForm, ReturnForm } from "../measurements/WorkflowForms";
 import { ActionForm, ErrorMessage, EvidenceLink, FormField, MeasurementBadge, Section } from "../measurements/shared";
 import { cargoLabelForId, cargoScopeLabel, dateLabel, finalizationIssues, latestReconciliation, latestReturns, localDateTime, quantity, reconciliationStale } from "../measurements/helpers";
-import type { Assessment, MeasurementPlan, PlanMutation, Reconciliation } from "../measurements/types";
+import type { Assessment, MeasurementPlan, ParticipantInput, PlanInput, PlanMutation, Reconciliation } from "../measurements/types";
 import "../styles/measurements.css";
 
 export function Measurements() {
   const { org, can } = useAuth();
+  const store = useStore();
   const [params] = useSearchParams();
   const callId = params.get("callId") ?? undefined;
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("active");
+  const [filter, setFilter] = useState("all");
   const plansQuery = useQuery({ queryKey: ["measurement-plans", org?.id, callId], queryFn: () => measurementApi.list(callId) });
-  const plans = plansQuery.data?.plans ?? [];
-  const rows = plans.filter(plan => {
-    const statusMatches = filter === "all" || (filter === "active" ? ["scheduled", "in-progress"].includes(plan.status) : plan.status === filter);
-    return statusMatches && `${plan.title} ${plan.vesselName} ${plan.callReference}`.toLowerCase().includes(search.toLowerCase());
-  }).sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
-  return <div className="content-inner measurement-workspace"><div className="page-head"><div><h1>Measurements</h1><p className="desc">Plan cargo surveys, consolidate stakeholder returns and retain the final agreement.</p></div>{can("measurements.manage") && <Link className="btn btn-primary" to={`/app/measurements/new${callId ? `?callId=${encodeURIComponent(callId)}` : ""}`}><Icon name="plus" size={17} /> Plan measurement</Link>}</div>
-    <div className="measurement-metrics"><div><span>Scheduled</span><strong>{plans.filter(plan => plan.status === "scheduled").length}</strong></div><div><span>In progress</span><strong>{plans.filter(plan => plan.status === "in-progress").length}</strong></div><div><span>Reconciled</span><strong>{plans.filter(plan => plan.status === "reconciled").length}</strong></div></div>
-    <div className="filter-bar"><div className="search-input"><Icon name="search" size={17} /><input aria-label="Search measurement plans" placeholder="Search vessel or measurement…" value={search} onChange={event => setSearch(event.target.value)} /></div><label className="measurement-filter">Show <select aria-label="Measurement status" value={filter} onChange={event => setFilter(event.target.value)}><option value="active">Active plans</option><option value="all">All plans</option><option value="reconciled">Reconciled</option><option value="cancelled">Cancelled</option></select></label>{callId && <Link className="link-btn" to="/app/measurements">Show all vessel calls</Link>}</div>
-    <ErrorMessage error={plansQuery.error} />{plansQuery.isPending ? <div className="measurement-loading" role="status">Loading measurement plans…</div> : rows.length ? <div className="measurement-plan-list">{rows.map(plan => { const submitted = latestReturns(plan).size; return <Link key={plan.id} to={`/app/measurements/${plan.id}`} className="card measurement-plan-card"><div className="measurement-plan-icon"><Icon name="ruler" size={24} /></div><div className="measurement-plan-content"><div className="measurement-section-head"><h2>{plan.title}</h2><MeasurementBadge status={plan.status} /></div><p>{plan.vesselName} <span>· {plan.callReference}</span></p><div className="measurement-plan-meta"><span><Icon name="calendar" size={14} />{dateLabel(plan.scheduledAt)}</span><span><Icon name="mapPin" size={14} />{plan.location}</span><span><Icon name="users" size={14} />{submitted}/{plan.participants.length} returns</span><span>{plan.lines.length} cargo {plan.lines.length === 1 ? "line" : "lines"}</span></div></div><Icon name="chevronRight" size={18} /></Link>; })}</div> : !plansQuery.error && <div className="card"><EmptyState icon="ruler" title="No measurement plans found" body="Create a measurement plan to collect stakeholder figures and reconcile the result." /></div>}
+  const plans = (plansQuery.data?.plans ?? []).filter(plan => !callId || plan.callId === callId);
+  const calls = (store.calls ?? []).filter(call => !callId || call.id === callId);
+  return <div className="content-inner measurement-workspace">
+    <div className="page-head"><div><h1>Voyages</h1><p className="desc">Choose a voyage to open its Readings report.</p></div><div className="measurement-inline-actions">{can("settings.view") && <Link className="btn btn-secondary" to="/app/settings/agencies"><Icon name="users" size={16} /> Agencies</Link>}{can("measurements.manage") && <Link className="btn btn-primary" to={`/app/measurements/new${callId ? `?callId=${encodeURIComponent(callId)}` : ""}`}><Icon name="plus" size={17} /> Set up voyage</Link>}</div></div>
+    <div className="filter-bar"><div className="search-input"><Icon name="search" size={17} /><input aria-label="Search vessels or voyages" placeholder="Search vessel or voyage reference…" value={search} onChange={event => setSearch(event.target.value)} /></div><label className="measurement-filter">Readings <select aria-label="Readings status" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All voyages</option><option value="awaiting">Readings pending</option><option value="complete">Readings complete</option><option value="cancelled">Cancelled voyages</option></select></label>{callId && <Link className="link-btn" to="/app/measurements">Show all voyages</Link>}</div>
+    <ErrorMessage error={plansQuery.error} />
+    {plansQuery.isPending ? <div className="measurement-loading" role="status">Loading voyages…</div> : !plansQuery.error && <VoyageLog key={org?.id} calls={calls} plans={plans} canManage={can("measurements.manage")} search={search} status={filter} />}
   </div>;
 }
 
 export function NewMeasurement() {
+  const { org } = useAuth();
+  return <NewVoyageEntry key={org?.id ?? "loading"} />;
+}
+
+function NewVoyageEntry() {
   const store = useStore();
+  const { org, can } = useAuth();
+  const directory = useAgencyDirectory(org?.id);
   const navigate = useNavigate();
   const client = useQueryClient();
   const [params] = useSearchParams();
-  return <div className="content-inner measurement-workspace"><Link className="measurement-back" to="/app/measurements"><Icon name="chevronLeft" size={16} /> Measurements</Link><div className="page-head"><div><h1>Plan a measurement</h1><p className="desc">Set the schedule, cargo basis and stakeholders before recording returns.</p></div></div><div className="card measurement-form-card"><PlanForm calls={store.calls} callId={params.get("callId") ?? undefined} onCancel={() => navigate("/app/measurements")} onSave={async input => { const { plan } = await measurementApi.create(input); await client.invalidateQueries({ queryKey: ["measurement-plans"] }); store.toast("Measurement plan created"); navigate(`/app/measurements/${plan.id}`); }} /></div></div>;
+  const [savedPlan, setSavedPlan] = useState<MeasurementPlan>();
+  const saved = useRef<MeasurementPlan>();
+  const saving = useRef<Promise<MeasurementPlan> | null>(null);
+  const uncertainSave = useRef(false);
+  const participantIds = useRef(new Map<string, string>());
+  const [createdLinks, setCreatedLinks] = useState<Record<string, CreatedAgencyLink>>({});
+  const [reading, setReading] = useState<{ participantId: string; version: number; plan: MeasurementPlan } | null>(null);
+  const [uiPreview, setUiPreview] = useState(false);
+  const current = useQuery({ queryKey: ["measurement-plan", org?.id, savedPlan?.id], queryFn: () => measurementApi.detail(savedPlan!.id), enabled: Boolean(savedPlan), refetchInterval: 30_000 });
+  const plan = current.data?.plan ?? savedPlan;
+  const editable = can("measurements.manage") && plan?.status !== "cancelled" && !(plan && latestReconciliation(plan, "final") && !latestReconciliation(plan, "draft"));
+  const retain = (value: MeasurementPlan) => {
+    saved.current = value;
+    setSavedPlan(value);
+    client.setQueryData(["measurement-plan", org?.id, value.id], { plan: value });
+    void client.invalidateQueries({ queryKey: ["measurement-plans"] });
+  };
+  const ensureSaved = (input: PlanInput): Promise<MeasurementPlan> => {
+    if (!editable) return Promise.reject(new Error("This voyage is no longer open for readings."));
+    if (saved.current) return Promise.resolve(plan ?? saved.current);
+    if (saving.current) return saving.current;
+    if (uncertainSave.current) return Promise.reject(new Error("The save could not be confirmed. Check Voyages before starting another sheet."));
+    saving.current = measurementApi.create(input).then(result => {
+      retain(result.plan);
+      return result.plan;
+    }).catch(error => {
+      // A network failure or server timeout may occur after creation. Do not
+      // repeat a non-idempotent POST without checking the saved voyage log.
+      uncertainSave.current = !(error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408);
+      throw error;
+    }).finally(() => { saving.current = null; });
+    return saving.current;
+  };
+  const createLink = async (agencyId: string, value: MeasurementPlan, participantId: string) => {
+    const capability = await measurementApi.agencyLinks(value.id).catch(() => { throw new Error("Secure agency links are not enabled on this server yet."); });
+    setUiPreview(Boolean(capability.uiPreview));
+    const created = await measurementApi.createAgencyLink(value.id, participantId, 7);
+    setCreatedLinks(previous => ({ ...previous, [agencyId]: created }));
+    return created;
+  };
+  const actOnAgency = async (agencyId: string, action: "reading" | "link", input: PlanInput, source: ParticipantInput) => {
+    let participantId = participantIds.current.get(agencyId);
+    const matches = input.participants.filter(party => party.name === source.name && party.role === source.role && party.representative === source.representative);
+    if (matches.length !== 1) throw new Error("This agency could not be identified. Review agency setup before continuing.");
+    const value = await ensureSaved(input);
+    const parties = value.participants.filter(party => party.name.trim() === source.name.trim() && party.role.trim() === source.role.trim() && party.representative.trim() === source.representative.trim());
+    if (parties.length !== 1 || (participantId && parties[0].id !== participantId)) throw new Error("The agency setup changed. Open this voyage from Voyages to review it before continuing.");
+    if (!participantId) {
+      participantId = parties[0].id;
+      participantIds.current.set(agencyId, participantId);
+    }
+    if (action === "reading") { setReading({ participantId, version: value.version, plan: value }); return; }
+    const existing = createdLinks[agencyId];
+    if (existing && !existing.link.revokedAt && !existing.link.submittedAt && new Date(existing.link.expiresAt).getTime() > Date.now()) return;
+    await createLink(agencyId, value, participantId);
+  };
+  return <div className="content-inner measurement-workspace"><Link className="measurement-back" to="/app/measurements"><Icon name="chevronLeft" size={16} /> Measurements</Link><div className="page-head"><div><h1>Vessel load reporting</h1><p className="desc">Set up the voyage, record the owner’s declaration, then collect each agency’s reading.</p></div>{plan && <Link className="btn btn-secondary" to={`/app/measurements/voyages/${encodeURIComponent(plan.callId)}/readings`}><Icon name="fileText" size={16} /> View readings</Link>}</div>{uiPreview && <p className="measurement-help" role="status">UI preview · agency links and receipts use local demo records.</p>}<div className="card measurement-form-card"><ErrorMessage error={directory.error ? new Error(directory.error) : null} /><PlanForm calls={store.calls} canRegisterVessel={store.can("registerCall")} agencyCatalog={directory.agencies} canManageAgencies={can("manageSettings")} onCreateAgency={can("manageSettings") ? async input => { const agency = directory.saveAgency({ ...input, active: true }); if (!agency) throw new Error("Agency could not be saved. Check agency setup and try again."); return agency; } : undefined} callId={params.get("callId") ?? undefined} savedPlan={plan} onCancel={() => navigate("/app/measurements")} onSave={ensureSaved} onAgencyAction={actOnAgency} onFinish={() => navigate("/app/measurements")} renderAgencyAction={agencyId => {
+    const link = createdLinks[agencyId];
+    const participantId = participantIds.current.get(agencyId);
+    const agency = plan?.participants.find(party => party.id === participantId);
+    if (!link || !agency || !plan || !editable) return null;
+    return <AgencyLinkPanel agencyName={agency.name} link={link} onReplace={() => createLink(agencyId, plan, agency.id)} onRevoke={async () => {
+      await measurementApi.revokeAgencyLink(plan.id, link.link.id);
+      setCreatedLinks(previous => { const next = { ...previous }; delete next[agencyId]; return next; });
+    }} />;
+  }} /></div>{reading && plan && editable && <AgencyReadingDialog key={reading.participantId} plan={reading.plan} participantId={reading.participantId} onClose={() => setReading(null)} onSave={async input => {
+    try {
+      if (input.participantId !== reading.participantId || plan.version !== reading.version || !plan.participants.some(party => party.id === reading.participantId)) throw new Error("This voyage changed. Close the reading and reopen it to use the latest record.");
+      const result = await measurementApi.submit(plan.id, reading.version, input);
+      retain(result.plan); setReading(null); store.toast("Agency reading submitted");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) await current.refetch();
+      throw error;
+    }
+  }} />}</div>;
 }
 
 export function MeasurementDetail() {
   const { id = "" } = useParams<{ id: string }>();
   const { org } = useAuth();
+  const [params] = useSearchParams();
   const result = useQuery({ queryKey: ["measurement-plan", org?.id, id], queryFn: () => measurementApi.detail(id), refetchInterval: 30_000 });
   if (result.isPending) return <div className="measurement-loading" role="status">Loading measurement…</div>;
   if (result.error || !result.data) return <div className="content-inner"><Link to="/app/measurements">Back to measurements</Link><ErrorMessage error={result.error} /></div>;
-  return <MeasurementWorkspace key={id} plan={result.data.plan} />;
+  return params.get("workspace") === "reconciliation" ? <MeasurementWorkspace key={id} plan={result.data.plan} /> : <CollectionWorkspace key={id} plan={result.data.plan} />;
+}
+
+function CollectionWorkspace({ plan }: { plan: MeasurementPlan }) {
+  const { can, org } = useAuth();
+  const { toast } = useStore();
+  const client = useQueryClient();
+  const links = useQuery({ queryKey: ["agency-links", org?.id, plan.id], queryFn: () => measurementApi.agencyLinks(plan.id), enabled: can("measurements.manage"), retry: false });
+  const linksReady = Boolean(links.data);
+  return <>{links.data?.uiPreview && <div className="content-inner"><div className="measurement-notice" role="status">UI preview: links, submissions and PDF receipts use demo records in this local browser session.</div></div>}<AgencyCollection plan={plan} canManage={can("measurements.manage")} links={links.data?.links} onCreateLink={linksReady ? async (participantId, days) => { const created = await measurementApi.createAgencyLink(plan.id, participantId, days); await client.invalidateQueries({ queryKey: ["agency-links", org?.id, plan.id] }); return created; } : undefined} onRevokeLink={linksReady ? async id => { await measurementApi.revokeAgencyLink(plan.id, id); await client.invalidateQueries({ queryKey: ["agency-links", org?.id, plan.id] }); } : undefined} onDownloadSubmission={linksReady ? async id => {
+    const response = await fetch(measurementApi.submissionDocumentUrl(plan.id, id), { credentials: "include", headers: { Accept: "application/pdf" } });
+    if (!response.ok || !response.headers.get("Content-Type")?.startsWith("application/pdf")) throw new Error("The agency PDF could not be downloaded. Try again.");
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `agency-reading-${id}.pdf`; document.body.append(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } : undefined} onSubmit={async (input, version) => {
+    try {
+      const result = await measurementApi.submit(plan.id, version, input);
+      client.setQueryData(["measurement-plan", org?.id, plan.id], { plan: result.plan });
+      void client.invalidateQueries({ queryKey: ["measurement-plans"] });
+      toast("Agency reading submitted");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) await client.invalidateQueries({ queryKey: ["measurement-plan", org?.id, plan.id] });
+      throw error;
+    }
+  }} />{can("measurements.manage") && links.error && <div className="content-inner"><p className="measurement-help">Secure agency links are not enabled on this server yet.</p></div>}</>;
 }
 
 type WorkspaceTab = "overview" | "returns" | "reconciliation" | "billing" | "history";
@@ -83,12 +196,12 @@ function MeasurementWorkspace({ plan }: { plan: MeasurementPlan }) {
   };
   const openAction = (next: ActiveAction) => { setActionVersion(plan.version); setAction(next); };
   const close = () => setAction(null);
-  const tabs: [WorkspaceTab, string][] = [["overview", "Plan"], ["returns", "Stakeholder returns"], ["reconciliation", "Reconciliation"], ["billing", "Disparity billing"], ["history", "Documents & history"]];
+  const tabs: [WorkspaceTab, string][] = [["overview", "Vessel baseline"], ["returns", "Agency readings"], ["reconciliation", "Reconciliation"], ["billing", "Disparity billing"], ["history", "Documents & history"]];
   const progress = draft ? 2 : final ? 3 : returns.size ? 1 : 0;
   return <div className="content-inner measurement-workspace"><Link className="measurement-back" to="/app/measurements"><Icon name="chevronLeft" size={16} /> Measurements</Link><div className="page-head"><div><div className="measurement-title"><h1>{plan.title}</h1><MeasurementBadge status={plan.status} /></div><p className="desc"><Link to={`/app/vessel-calls/${plan.callId}`}>{plan.vesselName} · {plan.callReference}</Link> <span> / {plan.scope}</span></p></div><div className="measurement-inline-actions">{canManage && <button className="btn btn-secondary" onClick={() => openAction("schedule")}><Icon name="calendar" size={16} /> Edit schedule</button>}{final && <a className="btn btn-secondary" target="_blank" rel="noopener noreferrer" href={measurementApi.documentUrl(plan.id, final.id)}><Icon name="download" size={16} /> Final sheet v{final.revision}</a>}</div></div>
-    <ol className="measurement-progress" aria-label="Measurement progress">{["Plan measurement", "Collect returns", "Reconcile & agree", "Final result & billing"].map((label, index) => <li key={label} className={index <= progress ? "reached" : ""}><span>{index < progress ? <Icon name="check" size={14} /> : index + 1}</span>{label}</li>)}</ol>
+    <ol className="measurement-progress" aria-label="Measurement progress">{["Owner’s baseline", "Independent agency readings", "NPA reconciliation", "Final tally & billing"].map((label, index) => <li key={label} className={index <= progress ? "reached" : ""}><span>{index < progress ? <Icon name="check" size={14} /> : index + 1}</span>{label}</li>)}</ol>
     <div className="measurement-tabs" role="tablist" aria-label="Measurement workspaces">{tabs.map(([key, label]) => <button key={key} id={`measurement-tab-${key}`} role="tab" type="button" aria-selected={tab === key} aria-controls="measurement-panel" onClick={() => { setTab(key); setAction(null); }}>{label}{key === "returns" && <span>{returns.size}/{plan.participants.length}</span>}</button>)}</div>
-    {action && <Section key={`${action}-${actionVersion}`} title={{ return: "Record received return", proposal: "Propose reconciled quantities", approval: "Record stakeholder acknowledgement", assess: "Assess disparity", finalize: "Finalize reconciliation", issue: "Issue disparity invoice", schedule: "Update measurement schedule", cancel: "Cancel measurement plan" }[action]} action={<button type="button" className="icon-btn" aria-label="Close action" onClick={close}><Icon name="x" size={18} /></button>}>
+    {action && <Section key={`${action}-${actionVersion}`} title={{ return: "Record agency measurement", proposal: "Propose reconciled quantities", approval: "Record stakeholder acknowledgement", assess: "Assess disparity", finalize: "Finalize reconciliation", issue: "Issue disparity invoice", schedule: "Update measurement schedule", cancel: "Cancel measurement plan" }[action]} action={<button type="button" className="icon-btn" aria-label="Close action" onClick={close}><Icon name="x" size={18} /></button>}>
       {actionVersion !== plan.version && <div className="measurement-notice warning" role="alert">This plan changed while the action was open. Close the action, review the current record and reopen it before saving.</div>}
       {action === "return" && <ReturnForm plan={plan} onCancel={close} onSave={input => save(measurementApi.submit(plan.id, actionVersion, input), "Stakeholder return recorded")} />}
       {action === "proposal" && <ProposalForm plan={plan} onCancel={close} onSave={input => save(measurementApi.propose(plan.id, actionVersion, input), "Reconciliation proposal saved")} />}
@@ -99,10 +212,10 @@ function MeasurementWorkspace({ plan }: { plan: MeasurementPlan }) {
       {(action === "schedule" || action === "cancel") && <ScheduleForm key={action} plan={plan} cancellation={action === "cancel"} onCancel={close} onSave={input => save(measurementApi.update(plan.id, { ...input, version: actionVersion }), action === "cancel" ? "Measurement plan cancelled" : "Schedule updated")} />}
     </Section>}
     <div id="measurement-panel" role="tabpanel" aria-labelledby={`measurement-tab-${tab}`}>
-      {tab === "overview" && <><Section title="Measurement brief" description="The scope and quantity basis shared by every stakeholder return."><dl className="measurement-facts">{[["Scheduled start", dateLabel(plan.scheduledAt)], ["Scheduled end", dateLabel(plan.endsAt)], ["Terminal / berth", plan.location], ["Lead surveyor", plan.leadSurveyor], ["Method", plan.method], ["Operation stage", plan.stage], ["Cargo scope", plan.scope]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>)}</dl>{plan.notes && <p className="measurement-notes">{plan.notes}</p>}</Section><Section title="Cargo scope"><div className="measurement-table-wrap"><table className="measurement-table"><thead><tr><th>Cargo line</th><th>Direction / category</th><th>Unit & basis</th><th>Manifest</th><th>Baseline reference</th></tr></thead><tbody>{plan.lines.map(line => <tr key={line.id}><th>{line.description}{line.containerSize && <small>{line.containerSize} ft · {line.loadStatus}</small>}</th><td>{line.direction} · {line.category}</td><td>{line.unit}<small>{line.basis}</small></td><td>{quantity(line.manifestQuantity)}</td><td>{line.baselineReference || "Not provided"}</td></tr>)}</tbody></table></div></Section><Section title="Participating stakeholders" action={canManage && (!final || draft) ? <button className="btn btn-primary" onClick={() => { setTab("returns"); openAction("return"); }}>Record return</button> : undefined}><div className="measurement-party-grid">{plan.participants.map(party => <div key={party.id} className="measurement-party"><div><h3>{party.name}</h3><p>{party.role} · {party.representative}</p><small>{party.requiredSubmission ? "Return required" : "Return optional"} · {party.requiredApproval ? "Agreement required" : "Agreement optional"}</small></div><MeasurementBadge status={returns.has(party.id) ? "received" : "awaiting"} /></div>)}</div></Section>{canManage && !final && <button className="link-btn measurement-danger" onClick={() => openAction("cancel")}>Cancel measurement plan</button>}</>}
-      {tab === "returns" && <><Section title="Stakeholder comparison" description="Each column is a separate observation of the same cargo scope. Values are never added across parties." action={canManage && (!final || draft) ? <button className="btn btn-primary" onClick={() => openAction("return")}><Icon name="plus" size={16} /> Record return</button> : undefined}><ComparisonGrid plan={plan} reconciliation={latest} />{final && !draft && <div className="measurement-notice">The final result is locked. Start an amendment from Reconciliation before recording revised returns.</div>}</Section><Section title="Received returns" description="Every revision and its source documents remain available in Documents & history.">{plan.participants.map(party => { const submission = returns.get(party.id); return <div key={party.id} className="measurement-return"><div><h3>{party.name}<span>{party.role}</span></h3><p>{submission ? `${submission.sourceReference} · Observed ${dateLabel(submission.observedAt)}` : "No return received"}</p>{submission && <small>Recorded by {submission.recordedBy.name} · {dateLabel(submission.recordedAt)}</small>}</div><MeasurementBadge status={submission ? `revision ${submission.revision}` : "awaiting"} /></div>; })}</Section></>}
-      {tab === "reconciliation" && <><Section title={draft ? `Reconciliation proposal v${draft.revision}` : final ? `Final reconciliation v${final.revision}` : "Reconcile stakeholder figures"} description={draft ? `Prepared by ${draft.createdBy.name} · ${dateLabel(draft.createdAt)}` : final ? `Finalized by ${final.finalizedBy?.name ?? "Admin"} · ${dateLabel(final.finalizedAt)}` : "Review the returns and record a justified quantity for every cargo line."} action={canManage ? <button className="btn btn-secondary" disabled={Boolean(missingReturns.length)} onClick={() => openAction("proposal")}>{final && !draft ? "Start amendment" : draft ? "Create revised proposal" : "Propose reconciliation"}</button> : undefined}>
-        <GateIssues issues={missingReturns.map(party => `${party.name}: required return missing.`)} />{latest ? <><p className="measurement-notes">{latest.reason}</p><ComparisonGrid plan={plan} reconciliation={draft ?? final ?? latest} />{(draft ?? final ?? latest).lines.map(line => <p className="measurement-decision" key={line.lineId}><strong>{cargoLabelForId(plan.lines, line.lineId)}:</strong> {line.reason}</p>)}</> : <ComparisonGrid plan={plan} />}
+      {tab === "overview" && <><Section title="Vessel & voyage" description="The vessel and cargo scope shared by all participating agencies."><dl className="measurement-facts">{[["Vessel", plan.vesselName], ["Rotation / call reference", plan.callReference], ["Cargo types", [...new Set(plan.lines.map(line => line.category === "Liquid" ? "Tanker / liquid" : line.category))].join(", ")], ["Cargo scope", plan.scope]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>)}</dl></Section><Section title="Owner’s baseline declaration" description="Cargo quantities supplied in the owner’s declaration. Each agency’s measured quantities are recorded separately."><div className="measurement-table-wrap"><table className="measurement-table"><thead><tr><th>Cargo item</th><th>Direction / category</th><th>Unit & basis</th><th>Owner declaration</th><th>Declaration reference</th></tr></thead><tbody>{plan.lines.map(line => <tr key={line.id}><th>{line.description}{line.containerSize && <small>{line.containerSize} ft · {line.loadStatus}</small>}</th><td>{line.direction} · {line.category}</td><td>{line.unit}<small>{line.basis}</small></td><td>{quantity(line.manifestQuantity)}</td><td>{line.baselineReference || "Not provided"}</td></tr>)}</tbody></table></div></Section><Section title="Participating agencies" description="Each named agency supplies an independent measurement before NPA reconciles the readings against the owner’s declaration." action={canManage && (!final || draft) ? <button className="btn btn-primary" onClick={() => { setTab("returns"); openAction("return"); }}>Record return</button> : undefined}><div className="measurement-party-grid">{plan.participants.map(party => <div key={party.id} className="measurement-party"><div><h3>{party.name}</h3><p>{party.role} · {party.representative}</p><small>{party.requiredSubmission ? "Return required" : "Return optional"} · {party.requiredApproval ? "Agreement required" : "Agreement optional"}</small></div><MeasurementBadge status={returns.has(party.id) ? "received" : "awaiting"} /></div>)}</div></Section><Section title="Independent measurement arrangements" description="The schedule and method for agencies to measure the shared cargo scope."><dl className="measurement-facts">{[["Scheduled start", dateLabel(plan.scheduledAt)], ["Scheduled end", dateLabel(plan.endsAt)], ["Terminal / berth", plan.location], ["Lead surveyor", plan.leadSurveyor], ["Method", plan.method], ["Operation stage", plan.stage]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>)}</dl>{plan.notes && <p className="measurement-notes">{plan.notes}</p>}</Section>{canManage && !final && <button className="link-btn measurement-danger" onClick={() => openAction("cancel")}>Cancel measurement plan</button>}</>}
+      {tab === "returns" && <><Section title="Independent agency readings" description="The owner’s declaration is the baseline. Each agency supplies its own measured quantities in a separate column; NPA then records the reconciled tally." action={canManage && (!final || draft) ? <button className="btn btn-primary" onClick={() => openAction("return")}><Icon name="plus" size={16} /> Record return</button> : undefined}><ComparisonGrid plan={plan} reconciliation={latest} />{final && !draft && <div className="measurement-notice">The final result is locked. Start an amendment from Reconciliation before recording revised returns.</div>}</Section><Section title="Agency submission status" description="Each reading retains its reporting agency, the signed-in user who entered it and its supporting documents.">{plan.participants.map(party => { const submission = returns.get(party.id); return <div key={party.id} className="measurement-return"><div><h3>{party.name}<span>{party.role}</span></h3><p>{submission ? `${submission.sourceReference} · Observed ${dateLabel(submission.observedAt)}` : "No return received"}</p>{submission && <small>Recorded by {submission.recordedBy.name} · {dateLabel(submission.recordedAt)}</small>}</div><MeasurementBadge status={submission ? `revision ${submission.revision}` : "awaiting"} /></div>; })}</Section></>}
+      {tab === "reconciliation" && <><Section title={draft ? `Reconciliation proposal v${draft.revision}` : final ? `Final reconciliation v${final.revision}` : "NPA reconciliation"} description={draft ? `Prepared by ${draft.createdBy.name} · ${dateLabel(draft.createdAt)}` : final ? `Finalized by ${final.finalizedBy?.name ?? "Admin"} · ${dateLabel(final.finalizedAt)}` : "After the required independent agency readings are received, compare them with the owner’s declaration and record a justified NPA reconciled tally for every cargo item."} action={canManage ? <button className="btn btn-secondary" disabled={!returns.size || Boolean(missingReturns.length)} onClick={() => openAction("proposal")}>{final && !draft ? "Start amendment" : draft ? "Create revised proposal" : "Propose reconciliation"}</button> : undefined}>
+        <GateIssues issues={[...(!returns.size ? ["Record at least one agency measurement before NPA reconciliation."] : []), ...missingReturns.map(party => `${party.name}: required return missing.`)]} />{latest ? <><p className="measurement-notes">{latest.reason}</p><ComparisonGrid plan={plan} reconciliation={draft ?? final ?? latest} />{(draft ?? final ?? latest).lines.map(line => <p className="measurement-decision" key={line.lineId}><strong>{cargoLabelForId(plan.lines, line.lineId)}:</strong> {line.reason}</p>)}</> : <ComparisonGrid plan={plan} />}
       </Section>{(draft ?? final) && <Section title="Agreements & final approval" description="Signed-paper acknowledgements are tied to this exact reconciliation version." action={draft && canManage ? <button className="btn btn-secondary" disabled={reconciliationStale(plan, draft)} onClick={() => openAction("approval")}>Record acknowledgement</button> : undefined}><Acknowledgements plan={plan} reconciliation={(draft ?? final)!} />{draft && <><GateIssues issues={finalizeIssues} />{can("measurements.approve") && <div className="measurement-actions"><button className="btn btn-primary" disabled={Boolean(finalizeIssues.length) || cancelled} onClick={() => openAction("finalize")}><Icon name="check" size={17} /> Review & finalize v{draft.revision}</button></div>}</>}</Section>}</>}
       {tab === "billing" && <><Section title="Disparity assessment" description="Finance chooses an explicit billing policy and verifies previous charges before issuing an additional invoice." action={can("measurements.bill") ? <button className="btn btn-primary" disabled={!billingReady} onClick={() => openAction("assess")}><Icon name="gauge" size={16} /> Assess disparity</button> : undefined}>{!billingReady && <div className="measurement-notice">{draft ? "A new reconciliation proposal is unresolved. Finalize it before assessing or issuing further charges." : "A final approved reconciliation is required before disparity can be assessed."}</div>}{latestAssessment ? <AssessmentView plan={plan} assessment={latestAssessment} canIssue={can("measurements.bill") && billingReady} onIssue={() => openAction("issue")} /> : <EmptyState icon="receipt" title="No disparity assessment yet" body="The approved result is assessed separately. Reconciliation alone does not create an invoice." />}</Section></>}
       {tab === "history" && <><Section title="Supporting documents" description="Private source files retained with the measurement record.">{plan.evidence.length ? plan.evidence.map(evidence => <EvidenceLink key={evidence.id} planId={plan.id} evidence={evidence} />) : <p className="measurement-help">No evidence files uploaded yet.</p>}</Section><Section title="Reconciliation versions">{[...plan.reconciliations].sort((a, b) => b.revision - a.revision).map(recon => <details className="measurement-history" key={recon.id}><summary><strong>Version {recon.revision}</strong><MeasurementBadge status={recon.status} /><span>{dateLabel(recon.createdAt)}</span></summary><p>{recon.reason}</p><p className="measurement-help">Prepared by {recon.createdBy.name}{recon.finalizedBy ? ` · Finalized by ${recon.finalizedBy.name} on ${dateLabel(recon.finalizedAt)}` : ""}</p><ComparisonGrid plan={plan} reconciliation={recon} snapshot /><Acknowledgements plan={plan} reconciliation={recon} /><a href={measurementApi.documentUrl(plan.id, recon.id)} className="link-btn" target="_blank" rel="noopener noreferrer">Download version {recon.revision} sheet</a></details>)}{!plan.reconciliations.length && <p className="measurement-help">No reconciliation versions yet.</p>}</Section><Section title="Submission history">{[...plan.submissions].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).map(submission => <details className="measurement-history" key={submission.id}><summary><strong>{plan.participants.find(party => party.id === submission.participantId)?.name}</strong><span>Revision {submission.revision}</span><span>{dateLabel(submission.recordedAt)}</span></summary><p>Source: {submission.sourceReference} · Recorded by {submission.recordedBy.name}</p>{submission.reason && <p>Revision reason: {submission.reason}</p>}{submission.notes && <p>{submission.notes}</p>}<ul>{submission.lines.map(line => <li key={line.lineId}>{cargoLabelForId(plan.lines, line.lineId)}: {line.status === "not-applicable" ? "Not applicable" : quantity(line.quantity)}{line.note && ` · ${line.note}`}</li>)}</ul>{submission.evidenceIds.map(id => { const evidence = plan.evidence.find(item => item.id === id); return evidence ? <EvidenceLink key={id} planId={plan.id} evidence={evidence} /> : null; })}</details>)}{!plan.submissions.length && <p className="measurement-help">No returns recorded yet.</p>}</Section><Section title="Assessment history">{[...plan.assessments].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(assessment => <details className="measurement-history" key={assessment.id}><summary><strong>USD {quantity(assessment.total)}</strong><MeasurementBadge status={assessment.superseded ? "superseded" : assessment.status} /><span>{dateLabel(assessment.createdAt)}</span></summary><AssessmentView plan={plan} assessment={assessment} canIssue={false} onIssue={() => {}} /></details>)}</Section></>}
@@ -113,10 +226,7 @@ function MeasurementWorkspace({ plan }: { plan: MeasurementPlan }) {
 function GateIssues({ issues }: { issues: string[] }) {
   return issues.length ? <div className="measurement-notice warning"><ul>{issues.map(issue => <li key={issue}>{issue}</li>)}</ul></div> : null;
 }
-export function ComparisonGrid({ plan, reconciliation, snapshot = false }: { plan: MeasurementPlan; reconciliation?: Reconciliation; snapshot?: boolean }) {
-  const returns = latestReturns(snapshot && reconciliation ? { ...plan, submissions: plan.submissions.filter(s => reconciliation.submissionIds.includes(s.id)) } : plan);
-  return <div className="measurement-table-wrap" tabIndex={0} role="region" aria-label="Stakeholder quantities comparison"><table className="measurement-table comparison"><thead><tr><th>Cargo line / unit</th><th>Manifest</th>{plan.participants.map(party => <th key={party.id}>{party.name}<small>{party.role}</small></th>)}{reconciliation && <><th className="measurement-selected">{reconciliation.status === "final" ? "Final" : "Proposed"} v{reconciliation.revision}</th><th>Variance</th></>}</tr></thead><tbody>{plan.lines.map(line => { const result = reconciliation?.lines.find(item => item.lineId === line.id); return <tr key={line.id}><th>{line.description}<small>{line.unit} · {line.direction}{line.containerSize ? ` · ${line.containerSize} ft · ${line.loadStatus}` : ""} · {line.basis}</small></th><td>{quantity(line.manifestQuantity)}</td>{plan.participants.map(party => { const entry = returns.get(party.id)?.lines.find(item => item.lineId === line.id); return <td key={party.id} className={!entry ? "measurement-missing" : undefined}>{!entry ? "Missing" : entry.status === "not-applicable" ? "N/A" : quantity(entry.quantity)}</td>; })}{reconciliation && <><td className="measurement-selected">{quantity(result?.quantity)}</td><td>{result?.variance == null ? "Unknown" : `${Number(result.variance) > 0 ? "+" : ""}${quantity(result.variance)}`}</td></>}</tr>; })}</tbody></table></div>;
-}
+
 function Acknowledgements({ plan, reconciliation }: { plan: MeasurementPlan; reconciliation: Reconciliation }) {
   const approvals = new Map(reconciliation.approvals.map(approval => [approval.participantId, approval]));
   return <div>{plan.participants.map(party => { const approval = approvals.get(party.id); return <div className="measurement-return" key={party.id}><div><h3>{party.name}</h3><p>{approval ? `${approval.representative} · ${approval.reference}` : party.requiredApproval ? "Required agreement pending" : "Optional agreement"}</p>{approval && <small>Paper acknowledgement recorded by {approval.recordedBy.name} · {dateLabel(approval.recordedAt)}</small>}</div><MeasurementBadge status={approval?.decision ?? "awaiting"} /></div>; })}</div>;
@@ -126,7 +236,7 @@ function AssessmentView({ plan, assessment, canIssue, onIssue }: { plan: Measure
   return <><div className="measurement-assessment-heading"><div><MeasurementBadge status={assessment.superseded ? "superseded" : assessment.status} /><h3>{assessment.payer}</h3><p>{assessment.policy === "manifest-disparity" ? "Excess over manifest" : "Adjustment above previously billed quantity"} · Final v{recon?.revision ?? "—"} · {assessment.tariffReference}</p></div><div className="measurement-assessment-total"><span>Additional charge · USD</span><strong>{quantity(assessment.total)}</strong></div></div><AssessmentTable assessment={assessment} /><p className="measurement-help">Opening position: {assessment.openingChargesReference} · {assessment.reason}</p>{assessment.status === "held" && <div className="measurement-notice warning">This assessment is held for credit or adjustment review. No invoice can be issued. Review the line amounts and prior charges.</div>}{assessment.status === "no-charge" && <div className="measurement-notice">No additional charge is due. This assessment is retained with the final result.</div>}<div className="measurement-actions">{assessment.invoiceId ? <><Link className="btn btn-secondary" to={`/app/invoices?focus=${encodeURIComponent(assessment.invoiceId)}`}>View invoice</Link><a className="btn btn-secondary" href={api.invoicePdfUrl(assessment.invoiceId)} target="_blank" rel="noopener noreferrer"><Icon name="download" size={16} /> Invoice PDF</a></> : canIssue && !assessment.superseded && assessment.status === "ready" && <button className="btn btn-primary" onClick={onIssue}>Review & issue invoice</button>}</div></>;
 }
 function AssessmentTable({ assessment }: { assessment: Assessment }) {
-  return <div className="measurement-table-wrap"><table className="measurement-table"><thead><tr><th>Cargo line</th><th>Baseline</th><th>Final</th><th>Variance</th><th>Tolerance</th><th>Chargeable</th><th>USD rate</th><th>Entitlement</th><th>Opening</th><th>Prior invoiced</th><th>Net USD</th></tr></thead><tbody>{assessment.lines.map(line => <tr key={line.lineId}><th>{line.description}<small>{[line.unit, cargoScopeLabel(line), line.basis].filter(Boolean).join(" · ")}</small></th><td>{quantity(line.baselineQuantity)}</td><td>{quantity(line.finalQuantity)}</td><td>{quantity(line.variance)}</td><td>{quantity(line.tolerance)}<small>{line.toleranceMode}</small></td><td>{quantity(line.chargeableQuantity)}</td><td>{quantity(line.rate)}</td><td>{quantity(line.entitlement)}</td><td>{quantity(line.openingBilledAmount)}</td><td>{quantity(line.priorInvoicedAmount)}</td><td><strong>{quantity(line.amount)}</strong></td></tr>)}</tbody></table></div>;
+  return <div className="measurement-table-wrap"><table className="measurement-table"><thead><tr><th>Cargo item</th><th>Baseline</th><th>Final</th><th>Variance</th><th>Tolerance</th><th>Chargeable</th><th>USD rate</th><th>Entitlement</th><th>Opening</th><th>Prior invoiced</th><th>Net USD</th></tr></thead><tbody>{assessment.lines.map(line => <tr key={line.lineId}><th>{line.description}<small>{[line.unit, cargoScopeLabel(line), line.basis].filter(Boolean).join(" · ")}</small></th><td>{quantity(line.baselineQuantity)}</td><td>{quantity(line.finalQuantity)}</td><td>{quantity(line.variance)}</td><td>{quantity(line.tolerance)}<small>{line.toleranceMode}</small></td><td>{quantity(line.chargeableQuantity)}</td><td>{quantity(line.rate)}</td><td>{quantity(line.entitlement)}</td><td>{quantity(line.openingBilledAmount)}</td><td>{quantity(line.priorInvoicedAmount)}</td><td><strong>{quantity(line.amount)}</strong></td></tr>)}</tbody></table></div>;
 }
 function ScheduleForm({ plan, cancellation, onSave, onCancel }: { plan: MeasurementPlan; cancellation: boolean; onSave: (input: { title?: string; scheduledAt?: string; endsAt?: string | null; location?: string; leadSurveyor?: string; notes?: string; status?: "cancelled"; reason?: string }) => Promise<unknown>; onCancel: () => void }) {
   const [details, setDetails] = useState({ title: plan.title, scheduledAt: localDateTime(plan.scheduledAt), endsAt: plan.endsAt ? localDateTime(plan.endsAt) : "", location: plan.location, leadSurveyor: plan.leadSurveyor, notes: plan.notes });

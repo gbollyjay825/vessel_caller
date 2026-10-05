@@ -13,7 +13,7 @@ const externalBackend = Boolean(process.env.PLAYWRIGHT_BACKEND_URL);
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  testIgnore: realBackend ? /auth\.spec\.ts/ : /real-backend\.spec\.ts/,
+  testIgnore: realBackend ? /(auth|measurement-ui)\.spec\.ts/ : /real-backend\.spec\.ts/,
   fullyParallel: !realBackend,
   workers: realBackend ? 1 : undefined,
   forbidOnly: Boolean(process.env.CI),

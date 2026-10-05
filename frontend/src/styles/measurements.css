@@ -111,6 +111,29 @@
 .measurement-decision { font-size: 12px; color: var(--slate); line-height: 1.6; margin: 10px 0; }
 .measurement-danger { color: var(--danger); }
 .measurement-loading { padding: 50px; text-align: center; color: var(--slate-soft); font-size: 14px; }
+.measurement-voyage-sheet caption { text-align: left; padding: 14px 16px; color: var(--slate); font-size: 12px; line-height: 1.6; background: #fff; border-bottom: 1px solid var(--hairline); }
+.measurement-voyage-sheet thead th { vertical-align: bottom; }
+.measurement-voyage-sheet .measurement-cargo-group th { position: static; background: #eef3f8; color: #35516a; padding: 10px 15px; font-size: 11px; font-weight: 650; letter-spacing: .02em; }
+.measurement-declaration { background: #f6f9fd; }
+.measurement-tally-status { display: inline-flex; border-radius: 5px; padding: 5px 8px; line-height: 1.4; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.measurement-tally-status.tallies,.measurement-reading-state.tallies { background: #e5f4ec; color: #17644e; }
+.measurement-tally-status.above,.measurement-tally-status.below { color: #805324; background: #fff2db; }
+.measurement-reading-state.above,.measurement-reading-state.below { color: #805324; }
+.measurement-tally-status.unknown { color: #596776; background: #f0f2f5; }
+.measurement-entry-identity { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin: 18px 0; }
+.measurement-entry-identity > div { background: #f7f9fc; padding: 14px 16px; border: 1px solid var(--hairline); border-radius: 7px; }
+.measurement-entry-identity dt { font-size: 11px; color: var(--slate); margin-bottom: 6px; }
+.measurement-entry-identity dd { margin: 0; font-size: 14px; font-weight: 600; }
+.measurement-entry-identity small { display: block; font-size: 11px; color: var(--slate); font-weight: 400; margin-top: 5px; }
+.measurement-entry-sheet { min-width: 960px; }
+.measurement-entry-sheet td { min-width: 110px; }
+.measurement-entry-sheet td:last-child { min-width: 160px; }
+.measurement-entry-sheet .measurement-field { margin: 0; }
+.measurement-cell-field .measurement-field > span { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.measurement-entry-sheet .measurement-field input,.measurement-entry-sheet .measurement-field select { min-height: 39px; padding: 9px 10px; }
+.measurement-difference { font-weight: 600; color: #805324; }
+.measurement-proposal-readings { min-width: 620px; background: white; }
+.measurement-proposal-readings small { display: block; font-size: 10px; color: var(--slate); margin-top: 5px; line-height: 1.6; }
 @media (max-width: 800px) {
   .measurement-workspace h1 { font-size: 22px; }
   .measurement-workspace .page-head { align-items: flex-start; flex-direction: column; }
@@ -132,4 +155,15 @@
   .measurement-assessment-heading { flex-direction: column; }
   .measurement-assessment-total { text-align: left; }
   .measurement-editor-row { padding: 14px; }
+  .measurement-entry-identity { grid-template-columns: 1fr; }
+  .measurement-voyage-sheet caption { padding: 12px; }
+  .measurement-entry-sheet { min-width: 0; display: block; }
+  .measurement-entry-sheet thead { display: none; }
+  .measurement-entry-sheet tbody { display: grid; gap: 14px; }
+  .measurement-entry-sheet tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden; }
+  .measurement-entry-sheet th[scope="row"] { grid-column: 1 / -1; position: static; min-width: 0; background: #f5f8fc; }
+  .measurement-entry-sheet td { display: block; min-width: 0; padding: 12px; border: 0; }
+  .measurement-entry-sheet td::before { content: attr(data-label); display: block; margin-bottom: 7px; color: var(--slate); font-size: 11px; font-weight: 600; }
+  .measurement-entry-sheet td:last-child { grid-column: 1 / -1; min-width: 0; }
+  .measurement-entry-sheet tr:hover td { background: white; }
 }

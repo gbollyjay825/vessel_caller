@@ -1,0 +1,7 @@
+.agency-reading-dialog { width: min(1120px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 28px; border: 1px solid var(--hairline); border-radius: 16px; color: var(--ink); background: var(--surface, #fff); box-shadow: 0 20px 70px #182c4933; }
+.agency-reading-dialog::backdrop { background: #14273c66; }
+.agency-reading-dialog-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+.agency-reading-dialog-head h2 { margin: 0; font-size: 22px; }
+.agency-reading-dialog-head p { margin: 6px 0 0; color: var(--slate); }
+.agency-reading-dialog .measurement-entry-identity { margin: 0; }
+@media (max-width: 640px) { .agency-reading-dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); padding: 18px; border-radius: 12px; } }

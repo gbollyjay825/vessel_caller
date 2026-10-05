@@ -78,11 +78,21 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   page.setDefaultTimeout(20_000);
   const suffix = `${testInfo.project.name}-${Date.now()}`;
   const vesselName = `MV Measurement ${suffix}`;
-  const title = `Discharge tally ${suffix}`;
+  const title = `Containers discharge tally · ${vesselName} · ROT-MEASURE-${suffix}`;
   const cargo = "20 foot laden containers";
   const cargoLabel = `${cargo} · import · 20 ft · laden`;
   const evidenceName = `synthetic-paper-tally-${suffix}.pdf`;
 
+  await signIn(page, "admin@e2e.vesselcalls.test");
+  await page.goto("/app/settings/agencies");
+  for (const [name, role, representative] of [["Test Ship Agent", "Agent", "Agent Representative"], ["Test Terminal", "Terminal operator", "Terminal Representative"]]) {
+    await page.getByLabel("Agency name", { exact: true }).fill(name);
+    await page.getByRole("combobox", { name: "Agency role", exact: true }).selectOption(role);
+    await page.getByLabel("Default representative", { exact: true }).fill(representative);
+    await page.getByRole("button", { name: "Save agency", exact: true }).click();
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  }
+  await signOut(page);
   await signIn(page, "operations@e2e.vesselcalls.test");
   const csrf = await (await page.request.get("/api/auth/csrf")).json();
   const createdCall = await page.request.post("/api/vessel-calls", {
@@ -92,40 +102,46 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   expect(createdCall.status(), await createdCall.text()).toBe(201);
   const callId: string = (await createdCall.json()).call.id;
   await page.goto(`/app/measurements/new?callId=${encodeURIComponent(callId)}`);
-  await page.getByLabel("Plan title", { exact: true }).fill(title);
+  await page.getByText("Voyage details (optional)", { exact: true }).click();
+  await page.getByLabel("Scheduled start").fill(new Date(Date.now() + 3_600_000).toISOString().slice(0, 16));
   await page.getByLabel("Terminal / berth", { exact: true }).fill("Synthetic terminal");
   await page.getByLabel("Lead surveyor", { exact: true }).fill("Test Surveyor");
-  await page.getByLabel("Measurement method", { exact: true }).fill("Physical tally");
-  await page.getByLabel("Operation stage", { exact: true }).fill("Completed discharge tally");
-  await page.getByLabel("Parcel / cargo scope", { exact: true }).fill("Synthetic container parcel");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("radio", { name: "Containers", exact: true }).check();
+  await page.getByLabel("Cargo details for item 1", { exact: true }).click();
   await page.getByLabel("Cargo description 1", { exact: true }).fill(cargo);
-  await page.getByRole("combobox", { name: "Category 1", exact: true }).selectOption("Container");
-  await page.getByRole("combobox", { name: "Container size 1", exact: true }).selectOption("20");
-  await page.getByRole("combobox", { name: "Load status 1", exact: true }).selectOption("laden");
   await page.getByLabel("Quantity basis 1", { exact: true }).fill("Physical container count");
   await page.getByLabel("Manifest quantity 1").fill("100");
   await page.getByLabel("Manifest / baseline reference 1", { exact: true }).fill("SYNTHETIC-MANIFEST-100");
-  await page.getByLabel("Party name 1", { exact: true }).fill("Test Ship Agent");
-  await page.getByLabel("Role 1", { exact: true }).fill("Agent");
-  await page.getByLabel("Representative 1", { exact: true }).fill("Agent Representative");
-  await page.getByRole("button", { name: "Add stakeholder", exact: true }).click();
-  await page.getByLabel("Party name 2", { exact: true }).fill("Test Terminal");
-  await page.getByLabel("Role 2", { exact: true }).fill("Terminal operator");
-  await page.getByLabel("Representative 2", { exact: true }).fill("Terminal Representative");
-  await page.getByRole("button", { name: "Create measurement plan", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Select agency Test Ship Agent", exact: true }).check();
+  await page.getByRole("checkbox", { name: "Select agency Test Terminal", exact: true }).check();
+  await expect(page.getByRole("button", { name: "Finish", exact: true })).toBeDisabled();
+  const createdPlanResponse = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/measurement-plans");
+  await page.getByRole("group", { name: "Agency Test Ship Agent", exact: true }).getByRole("button", { name: "Enter reading", exact: true }).click();
+  const createdPlan = await createdPlanResponse;
+  expect(createdPlan.status(), await createdPlan.text()).toBe(201);
+  const planId: string = (await createdPlan.json()).plan.id;
+  const planPath = `/app/measurements/${planId}`;
+  await expect(page.getByRole("dialog", { name: "Test Ship Agent reading", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/measurements\/new\?callId=/);
+  await page.getByRole("button", { name: "Close reading", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Test Ship Agent reading", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("tablist", { name: "Measurement workspaces", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/measurements$/);
+  await page.goto(`${planPath}?workspace=reconciliation`);
   await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
-  const planPath = new URL(page.url()).pathname;
-  const planId = planPath.split("/").at(-1)!;
 
-  await assertMeasurementWorkspace(page, "Plan");
-  const returnsTab = page.getByRole("tab", { name: /Stakeholder returns/ });
+  await assertMeasurementWorkspace(page, "Vessel baseline");
+  const returnsTab = page.getByRole("tab", { name: /Agency readings/ });
   await returnsTab.focus();
   await returnsTab.press("Enter");
   await expect(returnsTab).toBeFocused();
-  await assertMeasurementWorkspace(page, /Stakeholder returns/);
+  await assertMeasurementWorkspace(page, /Agency readings/);
   for (const [index, party] of ["Test Ship Agent", "Test Terminal"].entries()) {
     await page.getByRole("button", { name: "Record return", exact: true }).click();
-    await page.getByRole("combobox", { name: "Reporting stakeholder", exact: true }).selectOption({ label: `${party} · ${index ? "Terminal operator" : "Agent"}` });
+    await page.getByRole("combobox", { name: "Reporting agency", exact: true }).selectOption({ label: `${party} · ${index ? "Terminal operator" : "Agent"}` });
     await page.getByLabel("Source document reference", { exact: true }).fill(`SYNTHETIC-RETURN-${index + 1}`);
     await page.getByLabel(`Reported quantity · ${cargoLabel}`, { exact: true }).fill(index ? "110" : "108");
     if (!index) {
@@ -136,7 +152,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
     }
     await page.getByRole("button", { name: "Record stakeholder return", exact: true }).click();
     await expect(page.getByText("Stakeholder return recorded", { exact: true }).last()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Record received return", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Record agency measurement", exact: true })).toHaveCount(0);
   }
 
   await page.getByRole("tab", { name: "Reconciliation", exact: true }).click();
@@ -159,7 +175,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await signOut(page);
 
   await signIn(page, "admin@e2e.vesselcalls.test");
-  await page.goto(planPath);
+  await page.goto(`${planPath}?workspace=reconciliation`);
   await page.getByRole("tab", { name: "Reconciliation", exact: true }).click();
   await assertMeasurementWorkspace(page, "Reconciliation");
   await page.getByRole("button", { name: "Review & finalize v1", exact: true }).click();
@@ -169,7 +185,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await signOut(page);
 
   await signIn(page, "finance@e2e.vesselcalls.test");
-  await page.goto(planPath);
+  await page.goto(`${planPath}?workspace=reconciliation`);
   await expect(page.getByRole("button", { name: "Edit schedule", exact: true })).toHaveCount(0);
   await page.getByRole("tab", { name: "Disparity billing", exact: true }).click();
   await assertMeasurementWorkspace(page, "Disparity billing");
@@ -216,7 +232,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   const state = await (await page.request.get("/api/state")).json();
   expect(state.invoices.filter((invoice: { assessmentId: string }) => invoice.assessmentId === issued.invoice.assessmentId)).toHaveLength(1);
   expect(state.calls.find((call: { id: string }) => call.id === callId).status).toBe("pending");
-  await page.goto(planPath);
+  await page.goto(`${planPath}?workspace=reconciliation`);
   await page.getByRole("tab", { name: "Documents & history", exact: true }).click();
   await assertMeasurementWorkspace(page, "Documents & history");
   await page.getByRole("button", { name: "View file", exact: true }).click();

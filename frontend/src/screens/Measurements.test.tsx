@@ -5,25 +5,57 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MeasurementDetail, Measurements, ComparisonGrid } from './Measurements';
 import { assessmentFixture, measurementFixture, reconciliationFixture } from '../measurements/fixtures.test-support';
 import { finalizationIssues } from '../measurements/helpers';
-const mocked = vi.hoisted(() => ({ can: vi.fn(), detail: vi.fn(), list: vi.fn(), propose: vi.fn(), update: vi.fn(), finalize: vi.fn(), assess: vi.fn(), issue: vi.fn(), evidence: vi.fn(), userId: 'admin-1' }));
+const mocked = vi.hoisted(() => ({ can: vi.fn(), detail: vi.fn(), list: vi.fn(), propose: vi.fn(), update: vi.fn(), finalize: vi.fn(), assess: vi.fn(), issue: vi.fn(), evidence: vi.fn(), agencyLinks: vi.fn(), createLink: vi.fn(), revokeLink: vi.fn(), workspace: 'reconciliation', userId: 'admin-1' }));
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ org: { id: 'org-1' }, user: { id: mocked.userId }, can: mocked.can }) }));
 vi.mock('../app/store', () => ({ useStore: () => ({ toast: vi.fn() }) }));
-vi.mock('../lib/navigation', async importOriginal => ({ ...await importOriginal<typeof import('../lib/navigation')>(), useParams: () => ({ id: 'plan-1' }) }));
-vi.mock('../measurements/api', () => ({ measurementApi: { detail: mocked.detail, list: mocked.list, propose: mocked.propose, update: mocked.update, finalize: mocked.finalize, assess: mocked.assess, issue: mocked.issue, evidence: mocked.evidence, documentUrl: () => '/document' } }));
+vi.mock('../lib/navigation', async importOriginal => ({ ...await importOriginal<typeof import('../lib/navigation')>(), useParams: () => ({ id: 'plan-1' }), useSearchParams: () => [new URLSearchParams(mocked.workspace ? `workspace=${mocked.workspace}` : '')] }));
+vi.mock('../measurements/api', () => ({ measurementApi: { detail: mocked.detail, list: mocked.list, propose: mocked.propose, update: mocked.update, finalize: mocked.finalize, assess: mocked.assess, issue: mocked.issue, evidence: mocked.evidence, agencyLinks: mocked.agencyLinks, createAgencyLink: mocked.createLink, revokeAgencyLink: mocked.revokeLink, documentUrl: () => '/document' } }));
 const renderScreen = (element: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{element}</QueryClientProvider>);
 
 describe('measurement workflow', () => {
-  beforeEach(() => { mocked.can.mockReturnValue(true); mocked.userId = 'admin-1'; mocked.detail.mockResolvedValue({ plan: measurementFixture() }); mocked.list.mockResolvedValue({ plans: [measurementFixture()] }); });
+  beforeEach(() => { mocked.can.mockReturnValue(true); mocked.workspace = 'reconciliation'; mocked.userId = 'admin-1'; mocked.detail.mockResolvedValue({ plan: measurementFixture() }); mocked.list.mockResolvedValue({ plans: [measurementFixture()] }); mocked.agencyLinks.mockResolvedValue({ links: [] }); });
+  it('opens at report vessel load with server-supported agency link generation', async () => {
+    mocked.workspace = '';
+    mocked.createLink.mockResolvedValue({ link: { id: 'link-1', participantId: 'party-2', expiresAt: '2099-10-12T12:00:00Z', revokedAt: null, submittedAt: null }, url: 'https://example.test/agency-reading#token=synthetic-demo-token' });
+    renderScreen(<MeasurementDetail />);
+    await screen.findByRole('heading', { name: 'Report vessel load' });
+    expect(screen.queryByRole('tab', { name: 'Reconciliation' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Get link' }));
+    expect(mocked.createLink).toHaveBeenCalledWith('plan-1', 'party-2', 7);
+    expect(screen.getByLabelText('Link for Terminal One')).toHaveValue('https://example.test/agency-reading#token=synthetic-demo-token');
+  });
+  it('does not advertise working links when the backend capability is absent', async () => {
+    mocked.workspace = '';
+    mocked.agencyLinks.mockRejectedValue(new Error('Not available'));
+    renderScreen(<MeasurementDetail />);
+    await screen.findByRole('heading', { name: 'Report vessel load' });
+    expect(await screen.findByText('Secure agency links are not enabled on this server yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Get link' })).not.toBeInTheDocument();
+  });
   it('exposes an actionable plan worklist and search', async () => {
     renderScreen(<Measurements />);
-    expect(await screen.findByRole('link', { name: /Discharge survey/ })).toHaveAttribute('href', '/app/measurements/plan-1');
-    await userEvent.type(screen.getByLabelText('Search measurement plans'), 'unknown');
-    expect(screen.getByText('No measurement plans found')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Readings' })).toHaveAttribute('href', '/app/measurements/voyages/call-1/readings');
+    expect(screen.getByRole('heading', { name: 'Voyages', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Search vessels or voyages'), 'unknown');
+    expect(screen.getByText('No voyages found')).toBeInTheDocument();
   });
   it('shows missing party returns separately from reported quantities', () => {
     render(<ComparisonGrid plan={measurementFixture()} />);
     expect(screen.getByText('19,508')).toBeInTheDocument();
     expect(screen.getByText('Missing')).toBeInTheDocument();
+  });
+  it('places the owner baseline and agencies before independent measurement arrangements', async () => {
+    renderScreen(<MeasurementDetail />);
+    await screen.findByRole('heading', { name: 'Discharge survey' });
+    expect(screen.getByRole('tab', { name: 'Vessel baseline' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent)).toEqual([
+      'Vessel & voyage', 'Owner’s baseline declaration', 'Participating agencies', 'Independent measurement arrangements',
+    ]);
+    expect(screen.getByText(/Each named agency supplies an independent measurement before NPA reconciles/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: /Agency readings/ }));
+    expect(screen.getByRole('heading', { name: 'Independent agency readings' })).toBeInTheDocument();
+    expect(screen.getByText(/The owner’s declaration is the baseline/)).toBeInTheDocument();
   });
   it('gates proposal on missing required returns and assessment on final approval', async () => {
     renderScreen(<MeasurementDetail />);
@@ -33,6 +65,17 @@ describe('measurement workflow', () => {
     expect(screen.getByText('Terminal One: required return missing.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'Disparity billing' }));
     expect(screen.getByRole('button', { name: 'Assess disparity' })).toBeDisabled();
+  });
+  it('requires an agency reading before reconciliation even when all returns are optional', async () => {
+    const plan = measurementFixture();
+    plan.participants = plan.participants.map(party => ({ ...party, requiredSubmission: false }));
+    plan.submissions = [];
+    mocked.detail.mockResolvedValue({ plan });
+    renderScreen(<MeasurementDetail />);
+    await screen.findByRole('heading', { name: 'Discharge survey' });
+    await userEvent.click(screen.getByRole('tab', { name: 'Reconciliation' }));
+    expect(screen.getByRole('button', { name: 'Propose reconciliation' })).toBeDisabled();
+    expect(screen.getByText('Record at least one agency measurement before NPA reconciliation.')).toBeInTheDocument();
   });
   it('requires an independent Admin and fresh submission snapshot', () => {
     const plan = measurementFixture(); const recon = reconciliationFixture();

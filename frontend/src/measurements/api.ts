@@ -1,6 +1,7 @@
 import { ApiError, request } from "../lib/api";
 import type { Invoice } from "../types";
 import type { ApprovalInput, AssessmentInput, Evidence, MeasurementPlan, PlanInput, PlanMutation, ReconciliationInput, SubmissionInput } from "./types";
+import type { AgencyLinkInfo, CreatedAgencyLink } from "./AgencyCollection";
 
 const root = "/api/measurement-plans";
 const path = (id: string) => `${root}/${encodeURIComponent(id)}`;
@@ -11,6 +12,10 @@ export const measurementApi = {
   create: (body: PlanInput) => post<PlanMutation>(root, body),
   update: (id: string, body: Partial<PlanInput> & { version: number; status?: "cancelled"; reason?: string }) => request<PlanMutation>(path(id), { method: "PATCH", body: JSON.stringify(body) }),
   submit: (id: string, version: number, body: SubmissionInput) => post<PlanMutation>(`${path(id)}/submissions`, { ...body, version }),
+  agencyLinks: (id: string) => request<{ links: AgencyLinkInfo[]; uiPreview?: boolean }>(`${path(id)}/agency-links`),
+  createAgencyLink: (id: string, participantId: string, expiryDays: number) => post<CreatedAgencyLink>(`${path(id)}/participants/${encodeURIComponent(participantId)}/agency-links`, { expiryDays }),
+  revokeAgencyLink: (id: string, linkId: string) => post<{ links: AgencyLinkInfo[] }>(`${path(id)}/agency-links/${encodeURIComponent(linkId)}/revoke`, {}),
+  submissionDocumentUrl: (id: string, submissionId: string) => `${(import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "")}${path(id)}/submissions/${encodeURIComponent(submissionId)}/receipt`,
   propose: (id: string, version: number, body: ReconciliationInput) => post<PlanMutation>(`${path(id)}/reconciliations`, { ...body, version }),
   acknowledge: (id: string, rid: string, version: number, body: ApprovalInput) => post<PlanMutation>(`${path(id)}/reconciliations/${encodeURIComponent(rid)}/approvals`, { ...body, version }),
   finalize: (id: string, rid: string, version: number) => post<PlanMutation>(`${path(id)}/reconciliations/${encodeURIComponent(rid)}/finalize`, { version }),

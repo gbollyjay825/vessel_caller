@@ -1,0 +1,31 @@
+.collection-count {font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:7px 11px}
+.agency-collection .collection-baseline {padding:0;margin-bottom:16px;overflow:hidden}
+.collection-baseline summary {display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer}
+.collection-baseline summary span:first-of-type {display:flex;flex-direction:column;gap:3px;flex:1}
+.collection-baseline summary span:last-child {font-size:12px;color:var(--primary)}
+.collection-baseline small,.collection-baseline dt {color:var(--muted);font-size:12px}
+.collection-baseline dl {display:flex;gap:24px;padding:0 16px}.collection-baseline dd {margin:4px 0}
+.agency-collection .measurement-section {padding:16px;margin-bottom:16px}
+.agency-collection .measurement-section-head {margin-bottom:12px}
+.collection-agency-grid {display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.collection-agency-card {border:1px solid var(--border);border-radius:10px;padding:14px 16px;min-width:0}
+.collection-agency-head {display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.collection-agency-head h3 {margin:0 0 4px;font-size:15px}.collection-agency-head p {margin:0;font-size:12px;color:var(--muted)}
+.collection-agency-status {border-radius:20px;font-size:11px;padding:5px 8px;white-space:nowrap;background:#f3f5f8;color:var(--muted)}
+.collection-agency-status.submitted {background:#eaf5ef;color:#26744e}
+.collection-no-reading {color:var(--muted);font-size:12px;margin:9px 0 0}
+.collection-agency-actions {display:flex;align-items:center;gap:8px;flex-wrap:nowrap;margin-top:12px}
+.collection-agency-actions .btn {min-width:110px;justify-content:center}
+.agency-link-panel {padding:12px;margin-top:12px;border:1px solid var(--border);border-radius:8px;background:#f5f8fc;min-width:0}
+.agency-link-copy {display:flex;align-items:flex-end;gap:8px;min-width:0}
+.agency-link-copy .measurement-field {flex:1;min-width:0;margin:0;gap:5px}
+.agency-link-copy input {font-size:12px;min-width:0;width:100%;text-overflow:ellipsis}
+.agency-link-copy .btn {flex:none;min-width:68px;justify-content:center}
+.agency-link-message {font-size:11px;color:var(--muted);line-height:1.5;margin:7px 0 0}
+.agency-link-options {margin-top:10px;font-size:12px}
+.agency-link-options summary {cursor:pointer;color:var(--muted);font-weight:500}
+.agency-link-options>div {display:flex;align-items:center;gap:16px;margin-top:10px}
+.agency-link-options p {font-size:11px;line-height:1.5;color:var(--muted);margin:8px 0 0}
+.collection-link-status {display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:10px;color:var(--muted);font-size:12px}
+.collection-reading-table {overflow:auto;margin:10px 0}.collection-reading-table .measurement-table {min-width:0;font-size:12px}
+@media(max-width:600px){.agency-collection .measurement-section{padding:12px}.collection-baseline summary{padding:12px;flex-wrap:wrap}.collection-baseline summary span:last-child{width:100%}.collection-agency-card{padding:12px}.collection-agency-head{flex-wrap:wrap;gap:8px}.collection-agency-actions .btn{flex:1;min-width:0}.agency-link-panel{padding:10px}.agency-link-copy{gap:6px}}

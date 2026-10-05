@@ -18,6 +18,9 @@ import { Inspections, NewInspection } from "./screens/Inspections";
 import { InvitationAccept } from "./screens/InvitationAccept";
 import { Invoices } from "./screens/Invoices";
 import { Measurements, MeasurementDetail, NewMeasurement } from "./screens/Measurements";
+import { VoyageReadings } from "./screens/VoyageReadings";
+import { AgencyDirectory } from "./measurements/AgencyDirectoryScreen";
+import { AgencyReadingPage } from "./measurements/AgencyReadingPage";
 import { Landing } from "./screens/LandingFull";
 import { ForgotPassword, ResetPassword } from "./screens/PasswordRecovery";
 import { Settings } from "./screens/Settings";
@@ -46,6 +49,7 @@ function WorkspaceRoutes() {
       <Route path="/app/vessel-calls/:id"><VesselCallDetail /></Route>
       <Route path="/app/vessel-calls"><VesselCalls /></Route>
       <Route path="/app/measurements/new"><SecureScreen permission="measurements.manage"><NewMeasurement /></SecureScreen></Route>
+      <Route path="/app/measurements/voyages/:callId/readings"><SecureScreen permission="measurements.view"><VoyageReadings /></SecureScreen></Route>
       <Route path="/app/measurements/:id"><SecureScreen permission="measurements.view"><MeasurementDetail /></SecureScreen></Route>
       <Route path="/app/measurements"><SecureScreen permission="measurements.view"><Measurements /></SecureScreen></Route>
       <Route path="/app/inspections/new">
@@ -58,6 +62,9 @@ function WorkspaceRoutes() {
       </Route>
       <Route path="/app/users">
         <SecureScreen permission="users.view"><UserManagement /></SecureScreen>
+      </Route>
+      <Route path="/app/settings/agencies">
+        <SecureScreen permission="settings.view"><AgencyDirectory /></SecureScreen>
       </Route>
       <Route path="/app/settings">
         <SecureScreen permission="settings.view"><Settings /></SecureScreen>
@@ -148,6 +155,7 @@ export default function App() {
           <Route path="/forgot-password"><ForgotPassword /></Route>
           <Route path="/reset-password"><ResetPassword /></Route>
           <Route path="/accept-invitation"><InvitationAccept /></Route>
+          <Route path="/agency-reading"><AgencyReadingPage /></Route>
           <Route path="/capture"><Capture /></Route>
           <Route path="/system"><SystemWorkspace /></Route>
           <Route path="/system/*"><SystemWorkspace /></Route>

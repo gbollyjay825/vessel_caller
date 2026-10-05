@@ -10,6 +10,7 @@ import { measurementApi } from "../measurements/api";
 import { PlanForm } from "../measurements/PlanForm";
 import { useAgencyDirectory } from "../measurements/agencyDirectory";
 import { VoyageLog } from "../measurements/VoyageLog";
+import { AgencyCollection } from "../measurements/AgencyCollection";
 import { ComparisonGrid } from "../measurements/VoyageComparison";
 export { ComparisonGrid } from "../measurements/VoyageComparison";
 import { ApprovalForm, AssessmentForm, ProposalForm, ReturnForm } from "../measurements/WorkflowForms";
@@ -53,16 +54,41 @@ export function NewMeasurement() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const [params] = useSearchParams();
-  return <div className="content-inner measurement-workspace"><Link className="measurement-back" to="/app/measurements"><Icon name="chevronLeft" size={16} /> Measurements</Link><div className="page-head"><div><h1>Start a voyage declaration</h1><p className="desc">Choose the vessel and this voyage, record what is arriving, then select the agencies that will measure independently.</p></div></div><div className="card measurement-form-card"><ErrorMessage error={directory.error ? new Error(directory.error) : null} /><PlanForm key={org?.id} calls={store.calls} agencyCatalog={directory.agencies} canManageAgencies={can("manageSettings")} callId={params.get("callId") ?? undefined} onCancel={() => navigate("/app/measurements")} onSave={async input => { const { plan } = await measurementApi.create(input); await client.invalidateQueries({ queryKey: ["measurement-plans"] }); store.toast("Voyage sheet created"); navigate(`/app/measurements/${plan.id}`); }} /></div></div>;
+  return <div className="content-inner measurement-workspace"><Link className="measurement-back" to="/app/measurements"><Icon name="chevronLeft" size={16} /> Measurements</Link><div className="page-head"><div><h1>Setup vessel and declaration</h1><p className="desc">Choose the voyage, enter the owner’s declaration and add its agencies. Then collect each agency’s reading.</p></div></div><div className="card measurement-form-card"><ErrorMessage error={directory.error ? new Error(directory.error) : null} /><PlanForm key={org?.id} calls={store.calls} canRegisterVessel={store.can("registerCall")} agencyCatalog={directory.agencies} canManageAgencies={can("manageSettings")} onCreateAgency={can("manageSettings") ? async input => { const saved = directory.saveAgency({ ...input, active: true }); if (!saved) throw new Error("Agency could not be saved. Check agency setup and try again."); return saved; } : undefined} callId={params.get("callId") ?? undefined} onCancel={() => navigate("/app/measurements")} onSave={async input => { const { plan } = await measurementApi.create(input); await client.invalidateQueries({ queryKey: ["measurement-plans"] }); store.toast("Voyage sheet created"); navigate(`/app/measurements/${plan.id}`); }} /></div></div>;
 }
 
 export function MeasurementDetail() {
   const { id = "" } = useParams<{ id: string }>();
   const { org } = useAuth();
+  const [params] = useSearchParams();
   const result = useQuery({ queryKey: ["measurement-plan", org?.id, id], queryFn: () => measurementApi.detail(id), refetchInterval: 30_000 });
   if (result.isPending) return <div className="measurement-loading" role="status">Loading measurement…</div>;
   if (result.error || !result.data) return <div className="content-inner"><Link to="/app/measurements">Back to measurements</Link><ErrorMessage error={result.error} /></div>;
-  return <MeasurementWorkspace key={id} plan={result.data.plan} />;
+  return params.get("workspace") === "reconciliation" ? <MeasurementWorkspace key={id} plan={result.data.plan} /> : <CollectionWorkspace key={id} plan={result.data.plan} />;
+}
+
+function CollectionWorkspace({ plan }: { plan: MeasurementPlan }) {
+  const { can, org } = useAuth();
+  const { toast } = useStore();
+  const client = useQueryClient();
+  const links = useQuery({ queryKey: ["agency-links", org?.id, plan.id], queryFn: () => measurementApi.agencyLinks(plan.id), enabled: can("measurements.manage"), retry: false });
+  const linksReady = Boolean(links.data);
+  return <>{links.data?.uiPreview && <div className="content-inner"><div className="measurement-notice" role="status">UI preview: links, submissions and PDF receipts use demo records in this local browser session.</div></div>}<AgencyCollection plan={plan} canManage={can("measurements.manage")} links={links.data?.links} onCreateLink={linksReady ? async (participantId, days) => { const created = await measurementApi.createAgencyLink(plan.id, participantId, days); await client.invalidateQueries({ queryKey: ["agency-links", org?.id, plan.id] }); return created; } : undefined} onRevokeLink={linksReady ? async id => { await measurementApi.revokeAgencyLink(plan.id, id); await client.invalidateQueries({ queryKey: ["agency-links", org?.id, plan.id] }); } : undefined} onDownloadSubmission={linksReady ? async id => {
+    const response = await fetch(measurementApi.submissionDocumentUrl(plan.id, id), { credentials: "include", headers: { Accept: "application/pdf" } });
+    if (!response.ok || !response.headers.get("Content-Type")?.startsWith("application/pdf")) throw new Error("The agency PDF could not be downloaded. Try again.");
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = `agency-reading-${id}.pdf`; document.body.append(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } : undefined} onSubmit={async (input, version) => {
+    try {
+      const result = await measurementApi.submit(plan.id, version, input);
+      client.setQueryData(["measurement-plan", org?.id, plan.id], { plan: result.plan });
+      void client.invalidateQueries({ queryKey: ["measurement-plans"] });
+      toast("Agency reading submitted");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) await client.invalidateQueries({ queryKey: ["measurement-plan", org?.id, plan.id] });
+      throw error;
+    }
+  }} />{can("measurements.manage") && links.error && <div className="content-inner"><p className="measurement-help">Secure agency links are not enabled on this server yet.</p></div>}</>;
 }
 
 type WorkspaceTab = "overview" | "returns" | "reconciliation" | "billing" | "history";

@@ -15,9 +15,11 @@ describe("organization-scoped browser agency directory", () => {
   it("normalizes a profile, persists it and rehydrates without seeded agencies", () => {
     const first = renderHook(() => useAgencyDirectory("org-1"));
     expect(first.result.current.agencies).toEqual([]);
-    act(() => first.result.current.saveAgency({ ...entry, name: "  Port   Agency  " }));
+    let saved: AgencyProfile | null = null;
+    act(() => { saved = first.result.current.saveAgency({ ...entry, name: "  Port   Agency  " }); });
     expect(first.result.current.error).toBeNull();
     const agency = first.result.current.agencies[0];
+    expect(saved).toEqual(agency);
     expect(agency).toMatchObject(entry);
     expect(agency.id).toBeTruthy();
     first.unmount();
@@ -89,7 +91,9 @@ describe("organization-scoped browser agency directory", () => {
     act(() => result.current.saveAgency(entry));
     const before = window.localStorage.getItem(key());
     vi.spyOn(window.localStorage, "setItem").mockImplementation(() => { throw new DOMException("Quota", "QuotaExceededError"); });
-    act(() => result.current.saveAgency({ ...entry, name: "Unsaved agency" }));
+    let saved: AgencyProfile | null = null;
+    act(() => { saved = result.current.saveAgency({ ...entry, name: "Unsaved agency" }); });
+    expect(saved).toBeNull();
     expect(result.current.error).toMatch(/have not been saved/);
     expect(result.current.agencies.map(item => item.name)).toEqual([entry.name]);
     expect(window.localStorage.getItem(key())).toBe(before);

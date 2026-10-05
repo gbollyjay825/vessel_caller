@@ -1,88 +1,47 @@
-# Entering a voyage measurement sheet
+# Import voyage declarations and agency readings
 
-The measurement screens follow the cargo rows and agency columns in the NPA
-voyage reconciliation sheets. The owner's baseline declaration, independent
-agency observations and the reconciled result remain distinct records.
+This iteration stops at collecting independent agency reports. The owner’s declaration belongs to a specific voyage; it is separate from every agency’s measurement. The vessel-grouped voyage log retains earlier trips and their individual records.
 
-Before starting a voyage, an administrator can open **Settings → Agency setup**
-to maintain the reusable agency list. For this UI-only preview, the directory is
-saved in this browser and scoped to the current organization. It is not synced
-between users or browsers. Agencies can be edited, archived and reactivated;
-existing voyage sheets retain the agency details copied when they were created.
+## Linear input flow
 
-The creation form has four steps:
+1. **Setup vessel.** Select the vessel and its recorded voyage. Users permitted to register calls can open **Register vessel / voyage** in a separate tab. Optional berth, schedule and survey lead details stay collapsed. The lead defaults to “To be assigned.” Changing an edited voyage requires confirmation before clearing its declaration.
+2. **Owner declaration.** Choose the cargo type, enter the owner’s reference and copy quantities into the paper’s matching categories. Container presets use 20, 40 and 45 ft, each laden/empty. Vehicle presets include Cars, Buses, Trucks and Mafi Trailer / HDV. Tanker items identify the cargo/product, including petroleum, chemicals or gas. Mixed cargo preserves separate items and units. Blank is unknown; 0 is an explicit NIL declaration.
+3. **Agencies.** Select reusable directory entries or create an agency inline. Confirm its attending representative, then **Create voyage sheet**. There is no separate review/scheduling step. A compact review disclosure is optional.
+4. **Report vessel load.** Each selected agency has its own card, submission status and quantities. Staff can open the chosen agency’s reading form. Owner quantities remain in a separate declaration disclosure. The default screen has no reconciliation or disparity billing actions.
 
-1. **Vessel & voyage.** Select a vessel, then the specific voyage from its recorded
-   vessel calls. Check the voyage reference, ETA and berth. A vessel with several
-   voyages requires an explicit choice. Each owner's declaration belongs to that
-   voyage. Changing voyages clears the declaration and measurement arrangements
-   after confirmation when they have been edited.
-2. **Record the owner's baseline declaration.** Choose the cargo type and copy
-   the owner-provided quantities into the matching cargo rows.
-   Containers use six import categories: 20, 40 and 45 ft, separated into
-   laden/empty. Include only applicable categories. Vehicle presets
-   include the paper categories Cars, Buses, Trucks and Mafi Trailer / HDV.
-   Tanker rows identify the product carried, such as petroleum, chemicals or gas.
-   Mixed cargo keeps separate rows and units for each category.
-   Enter a shared vessel declaration reference once; a row-specific
-   reference overrides it. Blank is unknown; 0 is an explicit NIL declaration.
-   Container details can be expanded when the preset needs editing. Changing
-   an edited cargo template requires an explicit replacement choice.
-3. **Select agencies.** Choose from the saved directory and confirm the
-   representative for this voyage. Admin users can open agency setup without
-   losing the form. This selects the sources of later independent measurements;
-   it does not enter their readings.
-4. **Review & arrange.** Review the vessel, voyage, owner declaration and selected
-   agencies. Set the schedule, berth, survey lead and measurement method.
-   New declarations use import/discharge throughout. Additional planning details
-   are available in a disclosure instead of interrupting declaration entry.
+Agency setup remains at **Settings → Agency setup**. It is browser-local and organization-scoped, not a shared backend directory. Saved agency snapshots on existing voyage sheets retain the names and representatives copied at creation. The vessel selector groups existing calls by name and flag; it does not create a persistent vessel registry.
 
-After creating the voyage sheet:
+## No-login agency form: frontend prepared for review
 
-5. **Record each independent agency reading.** Select its reporting agency, enter the source
-   reference and all included cargo rows, and attach evidence. Use 0 for NIL.
-   An N/A reading needs a reason. Unsaved drafts and selected evidence remain
-   separate for each agency while the form is open; they are not stored after
-   closing the form. Mobile entry uses labelled cargo cards.
-6. **Review NPA reconciliation.** After the required agency readings are received,
-   the sheet shows the owner's baseline declaration, each
-   agency reading, the proposed/final tally and the difference in that row's
-   unit. Agency readings are not averaged or overwritten. Saved versions use
-   their original declaration and return snapshots. NPA can follow its review
-   process using the existing proposal, acknowledgement and independent Admin
-   finalization actions.
-7. **Continue to disparity billing.** Existing assessment and invoicing rules
-   apply to the stored final reconciliation. Count, tonnes and m3 are never
-   combined into one cargo total.
+When a server supports agency links, staff can generate an agency-specific link with an expiry, copy it and revoke unused links. This UI does not send messages. The public `/agency-reading` route sits outside the staff login flow. It removes the token fragment before its first network request and exchanges it through a separate guest adapter. Only a non-secret context ID stays in the address.
 
-## Voyage log
+The agency is fixed to the form. It enters its representative, observation time, source reference and every applicable quantity. Explicit NIL is 0; blank is unknown and cannot be submitted; N/A requires an explanation. Owner quantities are omitted from guest entry to preserve independent measurements.
 
-The measurements worklist opens on a vessel-grouped voyage log. Each recorded
-voyage shows its own cargo sheets, owner declaration, progress of agency readings,
-final NPA tally and difference for each cargo item. Plans join strictly by vessel
-call ID. Unmatched historical plans remain visible separately. Saved final
-versions retain their original declaration snapshots, including unknown values,
-and mixed units are never added together. Historical export records remain
-visible and retain their existing entry and reconciliation behavior.
+After submission, the form shows the submitted record, **Download your PDF** and completed peer quantities from this same measurement sheet. Peer readings are hidden until the agency submits. Peer summaries omit representatives, source references, notes and evidence. The PDF action is restricted to the agency’s own report. A lost submission response first refreshes the same context; an identical retry preserves its request ID. A different context never silently replaces it.
 
-## Current access boundary
+These frontend protections are not security enforcement. The backend endpoints, token validation, guest session authorization, idempotent publication, durable report storage and PDF generation are not implemented in this UI-only change. The review server uses isolated in-memory demo records and labels the interaction as a preview. No real agency access is granted. On existing servers that lack the link endpoints, link and PDF controls are hidden and the public route reports the feature unavailable.
 
-This change updates the frontend only. Admin and Operations users with the
-existing measurement permission can record a return for any listed party in
-their organization. The reporting agency identifies the source; the server
-records the actual signed-in user separately. Participant roles do not grant
-application permissions.
+## Prepared endpoint contract
 
-Agency-linked accounts, a shared agency directory, collaboration between separate
-organization tenants, and NPA-only reconciliation permissions require a later
-backend change. Vessel grouping uses the name and flag on existing call records;
-a persistent vessel registry with stable vessel IDs also requires backend work.
-This UI does not enforce or claim those capabilities.
+The staff adapter expects:
 
-## Release impact
+- `GET /api/measurement-plans/{planId}/agency-links`
+- `POST /api/measurement-plans/{planId}/participants/{participantId}/agency-links` with `expiryDays`, returning link metadata and its URL once
+- `POST /api/measurement-plans/{planId}/agency-links/{linkId}/revoke`
+- `GET /api/measurement-plans/{planId}/submissions/{submissionId}/receipt`
 
-There are no API, schema, migration, permission or billing-rule changes.
-Validation covers form payloads, draft isolation, exact decimal comparisons,
-saved snapshots, browser/mobile layout and the existing frontend tests.
-Rollback a regression through the normal signed release process; no data or
-schema rollback is introduced by this change.
+The guest adapter expects:
+
+- `GET /api/agency-portal/csrf` → `csrfToken`
+- `POST /api/agency-portal/exchange` with `token` → `contextId`
+- `GET /api/agency-portal/context?contextId=...` → `context`
+- `POST /api/agency-portal/submission` with context ID, input fingerprint, request ID and guest readings → confirmed `context`
+- `GET /api/agency-portal/receipt?contextId=...` → `application/pdf`
+
+The server must derive the organization, plan, agency and external actor from the grant and session, validate revocation/expiry/plan state at publication, and return only authorized completed peer quantities after the agency’s own publication. It must bind the guest session to the requested context, preserve idempotent receipts, avoid recording an external submission as the staff link issuer, and freeze receipt data. These are future backend requirements, not implemented capabilities.
+
+## Existing records and verification
+
+Historical reconciliation records remain accessible through a secondary link; the previous workspace uses `?workspace=reconciliation`. Existing reconciliation, assessment and billing behavior is retained for regression coverage. Count, tonnes and m3 are never added into a cargo total.
+
+Validation covers the linear setup, inline agency failures, selected agency and version handling, cancellation/permission changes, token removal, ambiguous submission retries, own PDF download, post-submission peer visibility and mobile layouts. Browser guest journeys use API mocks. Existing real-backend regression tests do not establish a working secure-link backend. No schema, permission, billing, infrastructure or staging changes are included.

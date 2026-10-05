@@ -19,6 +19,7 @@ import { InvitationAccept } from "./screens/InvitationAccept";
 import { Invoices } from "./screens/Invoices";
 import { Measurements, MeasurementDetail, NewMeasurement } from "./screens/Measurements";
 import { AgencyDirectory } from "./measurements/AgencyDirectoryScreen";
+import { AgencyReadingPage } from "./measurements/AgencyReadingPage";
 import { Landing } from "./screens/LandingFull";
 import { ForgotPassword, ResetPassword } from "./screens/PasswordRecovery";
 import { Settings } from "./screens/Settings";
@@ -152,6 +153,7 @@ export default function App() {
           <Route path="/forgot-password"><ForgotPassword /></Route>
           <Route path="/reset-password"><ResetPassword /></Route>
           <Route path="/accept-invitation"><InvitationAccept /></Route>
+          <Route path="/agency-reading"><AgencyReadingPage /></Route>
           <Route path="/capture"><Capture /></Route>
           <Route path="/system"><SystemWorkspace /></Route>
           <Route path="/system/*"><SystemWorkspace /></Route>

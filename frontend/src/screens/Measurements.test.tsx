@@ -5,15 +5,34 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MeasurementDetail, Measurements, ComparisonGrid } from './Measurements';
 import { assessmentFixture, measurementFixture, reconciliationFixture } from '../measurements/fixtures.test-support';
 import { finalizationIssues } from '../measurements/helpers';
-const mocked = vi.hoisted(() => ({ can: vi.fn(), detail: vi.fn(), list: vi.fn(), propose: vi.fn(), update: vi.fn(), finalize: vi.fn(), assess: vi.fn(), issue: vi.fn(), evidence: vi.fn(), userId: 'admin-1' }));
+const mocked = vi.hoisted(() => ({ can: vi.fn(), detail: vi.fn(), list: vi.fn(), propose: vi.fn(), update: vi.fn(), finalize: vi.fn(), assess: vi.fn(), issue: vi.fn(), evidence: vi.fn(), agencyLinks: vi.fn(), createLink: vi.fn(), revokeLink: vi.fn(), workspace: 'reconciliation', userId: 'admin-1' }));
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ org: { id: 'org-1' }, user: { id: mocked.userId }, can: mocked.can }) }));
 vi.mock('../app/store', () => ({ useStore: () => ({ toast: vi.fn() }) }));
-vi.mock('../lib/navigation', async importOriginal => ({ ...await importOriginal<typeof import('../lib/navigation')>(), useParams: () => ({ id: 'plan-1' }) }));
-vi.mock('../measurements/api', () => ({ measurementApi: { detail: mocked.detail, list: mocked.list, propose: mocked.propose, update: mocked.update, finalize: mocked.finalize, assess: mocked.assess, issue: mocked.issue, evidence: mocked.evidence, documentUrl: () => '/document' } }));
+vi.mock('../lib/navigation', async importOriginal => ({ ...await importOriginal<typeof import('../lib/navigation')>(), useParams: () => ({ id: 'plan-1' }), useSearchParams: () => [new URLSearchParams(mocked.workspace ? `workspace=${mocked.workspace}` : '')] }));
+vi.mock('../measurements/api', () => ({ measurementApi: { detail: mocked.detail, list: mocked.list, propose: mocked.propose, update: mocked.update, finalize: mocked.finalize, assess: mocked.assess, issue: mocked.issue, evidence: mocked.evidence, agencyLinks: mocked.agencyLinks, createAgencyLink: mocked.createLink, revokeAgencyLink: mocked.revokeLink, documentUrl: () => '/document' } }));
 const renderScreen = (element: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{element}</QueryClientProvider>);
 
 describe('measurement workflow', () => {
-  beforeEach(() => { mocked.can.mockReturnValue(true); mocked.userId = 'admin-1'; mocked.detail.mockResolvedValue({ plan: measurementFixture() }); mocked.list.mockResolvedValue({ plans: [measurementFixture()] }); });
+  beforeEach(() => { mocked.can.mockReturnValue(true); mocked.workspace = 'reconciliation'; mocked.userId = 'admin-1'; mocked.detail.mockResolvedValue({ plan: measurementFixture() }); mocked.list.mockResolvedValue({ plans: [measurementFixture()] }); mocked.agencyLinks.mockResolvedValue({ links: [] }); });
+  it('opens at report vessel load with server-supported agency link generation', async () => {
+    mocked.workspace = '';
+    mocked.createLink.mockResolvedValue({ link: { id: 'link-1', participantId: 'party-2', expiresAt: '2099-10-12T12:00:00Z', revokedAt: null, submittedAt: null }, url: 'https://example.test/agency-reading#token=synthetic-demo-token' });
+    renderScreen(<MeasurementDetail />);
+    await screen.findByRole('heading', { name: 'Report vessel load' });
+    expect(screen.queryByRole('tab', { name: 'Reconciliation' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByText('Send agency a link', { exact: true }));
+    await userEvent.click(screen.getByRole('button', { name: 'Generate secure link' }));
+    expect(mocked.createLink).toHaveBeenCalledWith('plan-1', 'party-2', 7);
+    expect(screen.getByLabelText('Link for Terminal One')).toHaveValue('https://example.test/agency-reading#token=synthetic-demo-token');
+  });
+  it('does not advertise working links when the backend capability is absent', async () => {
+    mocked.workspace = '';
+    mocked.agencyLinks.mockRejectedValue(new Error('Not available'));
+    renderScreen(<MeasurementDetail />);
+    await screen.findByRole('heading', { name: 'Report vessel load' });
+    expect(await screen.findByText('Secure agency links are not enabled on this server yet.')).toBeInTheDocument();
+    expect(screen.queryByText('Send agency a link', { exact: true })).not.toBeInTheDocument();
+  });
   it('exposes an actionable plan worklist and search', async () => {
     renderScreen(<Measurements />);
     expect(await screen.findByRole('link', { name: /Discharge survey/ })).toHaveAttribute('href', '/app/measurements/plan-1');

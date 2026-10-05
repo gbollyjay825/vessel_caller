@@ -54,7 +54,7 @@ function readDirectory(orgId?: string): DirectoryState {
 
 export function useAgencyDirectory(orgId?: string): {
   agencies: AgencyProfile[];
-  saveAgency: (input: AgencyInput) => void;
+  saveAgency: (input: AgencyInput) => AgencyProfile | null;
   archiveAgency: (id: string) => void;
   error: string | null;
 } {
@@ -74,24 +74,30 @@ export function useAgencyDirectory(orgId?: string): {
 
   const mutate = useCallback((change: (agencies: AgencyProfile[]) => AgencyProfile[]) => {
     const latest = readDirectory(orgId);
-    if (!latest.key || latest.error) { setState(latest); return; }
+    if (!latest.key || latest.error) { setState(latest); return null; }
     let agencies: AgencyProfile[];
     try { agencies = change(latest.agencies); }
-    catch (error) { setState({ ...latest, error: error instanceof Error ? error.message : "Unable to update the agency directory." }); return; }
+    catch (error) { setState({ ...latest, error: error instanceof Error ? error.message : "Unable to update the agency directory." }); return null; }
     try { window.localStorage.setItem(latest.key, JSON.stringify({ version: 1, organizationId: orgId, agencies })); }
-    catch { setState({ ...latest, error: "This browser could not save the agency directory. Your changes have not been saved." }); return; }
+    catch { setState({ ...latest, error: "This browser could not save the agency directory. Your changes have not been saved." }); return null; }
     setState({ key: latest.key, agencies, error: null });
     window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: latest.key }));
+    return agencies;
   }, [orgId]);
 
-  const saveAgency = useCallback((input: AgencyInput) => mutate(agencies => {
+  const saveAgency = useCallback((input: AgencyInput) => {
+    let saved: AgencyProfile | null = null;
+    const result = mutate(agencies => {
     const candidate = { id: input.id ?? crypto.randomUUID(), name: clean(input.name), role: clean(input.role), representative: clean(input.representative), active: input.active };
     if (!isProfile(candidate)) throw new Error("Enter an agency name and role within the field limits.");
     if (input.id !== undefined && !agencies.some(item => item.id === input.id)) throw new Error("This agency no longer exists. Refresh the directory before editing.");
     if (agencies.some(item => item.id !== candidate.id && identity(item) === identity(candidate))) throw new Error("An agency with this name and role already exists. Edit or reactivate its existing entry.");
     if (!input.id && agencies.length >= MAX_AGENCIES) throw new Error("This browser directory can store up to 500 agencies.");
+    saved = candidate;
     return input.id ? agencies.map(item => item.id === input.id ? candidate : item) : [...agencies, candidate];
-  }), [mutate]);
+    });
+    return result ? saved : null;
+  }, [mutate]);
   const archiveAgency = useCallback((id: string) => mutate(agencies => {
     if (!agencies.some(item => item.id === id)) throw new Error("This agency no longer exists. Refresh the directory before editing.");
     return agencies.map(item => item.id === id ? { ...item, active: false } : item);

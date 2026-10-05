@@ -10,9 +10,9 @@ const vessel: VesselCall = { id: "call-1", vesselName: "MV Atlas", reference: "C
 const calls: VesselCall[] = [vessel, { ...vessel, id: "call-2", vesselName: " MV ATLAS ", reference: "CALL-002", berth: "Berth 8" }, { ...vessel, id: "call-3", vesselName: "MV Horizon", reference: "CALL-003" }, { ...vessel, id: "cancelled", vesselName: "Cancelled vessel", status: "cancelled" }];
 const agency: AgencyProfile = { id: "agency-1", name: "Harbour Agency", role: "Agent", representative: "Ada Agent", active: true };
 const catalog: AgencyProfile[] = [agency, { id: "agency-2", name: "Port Terminal", role: "Terminal operator", representative: "Grace Terminal", active: true }, { ...agency, id: "archived", name: "Archived agency", active: false }];
-function setup({ callId = vessel.id, agencyCatalog = catalog, canManageAgencies = true }: { callId?: string; agencyCatalog?: AgencyProfile[]; canManageAgencies?: boolean } = {}) {
+function setup({ callId = vessel.id, agencyCatalog = catalog, canManageAgencies = true, onCreateAgency }: { callId?: string; agencyCatalog?: AgencyProfile[]; canManageAgencies?: boolean; onCreateAgency?: (input: Pick<AgencyProfile, "name" | "role" | "representative">) => Promise<AgencyProfile> } = {}) {
   const onSave = vi.fn<(input: PlanInput) => Promise<void>>().mockResolvedValue(undefined), onCancel = vi.fn();
-  const props = { calls, callId, agencyCatalog, canManageAgencies, onSave, onCancel };
+  const props = { calls, callId, agencyCatalog, canManageAgencies, onCreateAgency, onSave, onCancel };
   const view = render(<PlanForm {...props} />);
   return { ...view, props, onSave, onCancel, user: userEvent.setup() };
 }
@@ -24,8 +24,6 @@ const choose = (name: string) => screen.getByRole("radio", { name });
 async function finish(user: User) {
   await next(user);
   await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
-  await next(user);
-  await user.type(screen.getByLabelText("Lead surveyor"), "Grace Surveyor");
   await user.click(screen.getByRole("button", { name: "Create voyage sheet" }));
 }
 
@@ -33,6 +31,9 @@ describe("voyage declaration wizard", () => {
   it("groups reusable vessels but submits a distinct voyage, showing one step at a time", async () => {
     const { user } = setup({ callId: "" });
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Vessel & voyage");
+    expect(within(screen.getByRole("list", { name: "Plan setup steps" })).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByText("Step 1 of 3")).toBeInTheDocument();
+    expect(screen.queryByText(/reconciliation|invoice/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Manifest quantity 1")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(within(screen.getByRole("combobox", { name: "Vessel" })).getAllByRole("option")).toHaveLength(3);
@@ -50,6 +51,24 @@ describe("voyage declaration wizard", () => {
     expect(screen.queryByText(/Export/)).not.toBeInTheDocument();
   });
 
+  it("offers vessel registration only with permission and preserves the form in its own tab", async () => {
+    const { user, rerender, props } = setup();
+    expect(screen.queryByRole("link", { name: "Register vessel / voyage" })).not.toBeInTheDocument();
+    rerender(<PlanForm {...props} canRegisterVessel />);
+    const registration = screen.getByRole("link", { name: "Register vessel / voyage" });
+    expect(registration).toHaveAttribute("href", "/app/vessel-calls?register");
+    expect(registration).toHaveAttribute("target", "_blank");
+    expect(registration).toHaveAttribute("rel", "noopener noreferrer");
+    await next(user);
+    expect(screen.queryByRole("link", { name: "Register vessel / voyage" })).not.toBeInTheDocument();
+    await previous(user);
+    rerender(<PlanForm {...props} calls={[]} canRegisterVessel />);
+    expect(screen.getByText(/No active vessel voyages are available/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Register vessel / voyage" })).toBeVisible();
+    rerender(<PlanForm {...props} calls={[]} canRegisterVessel={false} />);
+    expect(screen.queryByRole("link", { name: "Register vessel / voyage" })).not.toBeInTheDocument();
+  });
+
   it("validates the current step and preserves owner values through Previous without creating agency readings", async () => {
     const { user, onSave } = setup();
     await next(user); await next(user);
@@ -60,8 +79,8 @@ describe("voyage declaration wizard", () => {
     expect(screen.getByLabelText("Manifest / baseline reference 1")).toBeInvalid();
     await user.type(screen.getByLabelText("Vessel declaration reference"), "OWN-001");
     await next(user);
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Select agencies");
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Agencies");
+    expect(screen.getByRole("button", { name: "Create voyage sheet" })).toBeDisabled();
     await previous(user);
     expect(screen.getByLabelText("Manifest quantity 1")).toHaveValue(0);
     expect(screen.getByLabelText("Vessel declaration reference")).toHaveValue("OWN-001");
@@ -74,11 +93,13 @@ describe("voyage declaration wizard", () => {
   it("offers six container categories and keeps 45ft NIL and unknown distinct", async () => {
     const { user, onSave } = setup();
     await next(user); await user.click(choose("Containers"));
+    expect(screen.getByText("1 container category selected")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox", { name: /^Include cargo item/ })).toHaveLength(6);
     expect(screen.getByLabelText("Manifest quantity 1")).toBeVisible();
     expect(screen.getByLabelText("Cargo description 1")).not.toBeVisible();
     expect(screen.getByRole("columnheader", { name: "Container size / load status" })).toBeInTheDocument();
     for (const item of [1, 5, 6]) await user.click(includeItem(item));
+    expect(screen.getByText("2 container categories selected")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Manifest quantity 6"), "0");
     await user.type(screen.getByLabelText("Manifest / baseline reference 6"), "MANIFEST-NIL");
     expect(screen.getByLabelText("Manifest / baseline reference 5")).not.toBeRequired();
@@ -150,7 +171,6 @@ describe("voyage declaration wizard", () => {
     expect(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" })).toBeChecked();
     expect(screen.getByText(/This agency is no longer active/)).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Select agency Port Terminal" }));
-    await next(user); await user.type(screen.getByLabelText("Lead surveyor"), "Grace");
     await user.click(screen.getByRole("button", { name: "Create voyage sheet" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     const plan = onSave.mock.calls[0][0];
@@ -164,18 +184,18 @@ describe("voyage declaration wizard", () => {
 
   it("requires explicit clearance when changing voyages and retains selected agencies", async () => {
     const { user, onSave } = setup();
+    await user.click(screen.getByText("Voyage details (optional)", { selector: "summary" }));
+    await user.clear(screen.getByLabelText(/Scheduled start/));
+    await user.type(screen.getByLabelText(/Scheduled start/), "2026-12-10T10:00");
+    await user.clear(screen.getByLabelText("Lead surveyor"));
+    await user.type(screen.getByLabelText("Lead surveyor"), "Old voyage lead");
+    await user.type(screen.getByLabelText("Scheduled end (optional)"), "2026-12-10T12:00");
+    await user.type(screen.getByLabelText("Voyage notes (optional)"), "Old voyage notes");
     await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Old voyage wheat");
     await user.type(screen.getByLabelText("Manifest quantity 1"), "19");
     await user.type(screen.getByLabelText("Vessel declaration reference"), "OLD-REF");
     await next(user); await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
-    await next(user);
-    await user.clear(screen.getByLabelText(/Scheduled start/));
-    await user.type(screen.getByLabelText(/Scheduled start/), "2026-12-10T10:00");
-    await user.type(screen.getByLabelText("Lead surveyor"), "Old voyage lead");
-    await user.click(screen.getByText("Additional planning details", { selector: "summary" }));
-    await user.type(screen.getByLabelText("Scheduled end (optional)"), "2026-12-10T12:00");
-    await user.type(screen.getByLabelText("Planning notes (optional)"), "Old voyage notes");
-    await previous(user); await previous(user); await previous(user);
+    await previous(user); await previous(user);
     await user.selectOptions(screen.getByLabelText("Voyage"), "call-2");
     expect(screen.getByLabelText("Voyage")).toHaveValue("call-1");
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
@@ -184,6 +204,11 @@ describe("voyage declaration wizard", () => {
     expect(screen.getByLabelText("Manifest quantity 1")).toHaveValue(19);
     await previous(user); await user.selectOptions(screen.getByLabelText("Voyage"), "call-2");
     await user.click(screen.getByRole("button", { name: "Clear declaration and change voyage" }));
+    expect(screen.getByLabelText("Terminal / berth")).toHaveValue("Berth 8");
+    expect(screen.getByLabelText(/Scheduled start/)).not.toHaveValue("2026-12-10T10:00");
+    expect(screen.getByLabelText("Scheduled end (optional)")).toHaveValue("");
+    expect(screen.getByLabelText("Voyage notes (optional)")).toHaveValue("");
+    expect(screen.getByLabelText("Lead surveyor")).toHaveValue("To be assigned");
     await next(user);
     expect(screen.getByLabelText("Cargo description 1")).toHaveValue("");
     expect(screen.getByLabelText("Manifest quantity 1")).toHaveValue(null);
@@ -191,49 +216,36 @@ describe("voyage declaration wizard", () => {
     await user.type(screen.getByLabelText("Cargo description 1"), "New voyage rice");
     await next(user);
     expect(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" })).toBeChecked();
-    await next(user);
-    expect(screen.getByLabelText("Terminal / berth")).toHaveValue("Berth 8");
-    expect(screen.getByLabelText(/Scheduled start/)).not.toHaveValue("2026-12-10T10:00");
-    expect(screen.getByLabelText("Scheduled end (optional)")).toHaveValue("");
-    expect(screen.getByLabelText("Planning notes (optional)")).toHaveValue("");
-    expect(screen.getByLabelText("Lead surveyor")).toHaveValue("");
-    await user.type(screen.getByLabelText("Lead surveyor"), "Survey Lead");
     await user.click(screen.getByRole("button", { name: "Create voyage sheet" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
-    expect(onSave.mock.calls[0][0]).toMatchObject({ callId: "call-2", lines: [{ description: "New voyage rice", manifestQuantity: null, baselineReference: "" }] });
+    expect(onSave.mock.calls[0][0]).toMatchObject({ callId: "call-2", leadSurveyor: "To be assigned", lines: [{ description: "New voyage rice", manifestQuantity: null, baselineReference: "" }] });
   });
 
-  it("confirms and resets arrangement-only edits before changing an unknown container declaration to another voyage", async () => {
+  it("confirms and resets voyage-detail edits even with untouched unknown container quantities", async () => {
     const { user } = setup();
     await next(user); await user.click(choose("Containers"));
     expect(screen.getByLabelText("Manifest quantity 1")).toHaveValue(null);
-    await next(user); await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" })); await next(user);
+    await next(user); await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
+    await previous(user); await previous(user);
+    await user.click(screen.getByText("Voyage details (optional)", { selector: "summary" }));
     await user.clear(screen.getByLabelText(/Scheduled start/));
     await user.type(screen.getByLabelText(/Scheduled start/), "2026-12-15T09:00");
+    await user.clear(screen.getByLabelText("Lead surveyor"));
     await user.type(screen.getByLabelText("Lead surveyor"), "Previous voyage lead");
-    await user.clear(screen.getByLabelText("Measurement method"));
-    await user.type(screen.getByLabelText("Measurement method"), "Previous voyage method");
-    await user.click(screen.getByText("Additional planning details", { selector: "summary" }));
     await user.type(screen.getByLabelText("Scheduled end (optional)"), "2026-12-15T11:00");
-    await user.type(screen.getByLabelText("Planning notes (optional)"), "Previous voyage arrangements");
-    await previous(user); await previous(user); await previous(user);
+    await user.type(screen.getByLabelText("Voyage notes (optional)"), "Previous voyage arrangements");
     await user.selectOptions(screen.getByLabelText("Voyage"), "call-2");
     expect(screen.getByLabelText("Voyage")).toHaveValue("call-1");
-    expect(screen.getByRole("alert")).toHaveTextContent("Measurement arrangements are reset");
+    expect(screen.getByRole("alert")).toHaveTextContent("Voyage details are reset");
     await user.click(screen.getByRole("button", { name: "Keep current voyage" }));
-    await next(user); await next(user); await next(user);
     expect(screen.getByLabelText("Lead surveyor")).toHaveValue("Previous voyage lead");
-    await previous(user); await previous(user); await previous(user);
     await user.selectOptions(screen.getByLabelText("Voyage"), "call-2");
     await user.click(screen.getByRole("button", { name: "Clear declaration and change voyage" }));
-    await next(user); await next(user); await next(user);
     expect(screen.getByLabelText(/Scheduled start/)).not.toHaveValue("2026-12-15T09:00");
     expect(screen.getByLabelText("Scheduled end (optional)")).toHaveValue("");
-    expect(screen.getByLabelText("Planning notes (optional)")).toHaveValue("");
-    expect(screen.getByLabelText("Lead surveyor")).toHaveValue("");
-    expect(screen.getByLabelText("Measurement method")).toHaveValue("Physical container tally");
+    expect(screen.getByLabelText("Voyage notes (optional)")).toHaveValue("");
+    expect(screen.getByLabelText("Lead surveyor")).toHaveValue("To be assigned");
     expect(screen.getByLabelText("Terminal / berth")).toHaveValue("Berth 8");
-    expect(screen.getByLabelText("Plan title")).toHaveValue("Containers discharge tally ·  MV ATLAS  · CALL-002");
   });
 
   it("protects cargo edits during template changes and preserves the shared reference", async () => {
@@ -274,7 +286,7 @@ describe("voyage declaration wizard", () => {
     await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat"); await next(user);
     expect(screen.getByText("No agencies in the directory yet")).toBeInTheDocument();
     expect(screen.getByText(/Entries are not shared with other browsers or devices/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create voyage sheet" })).toBeDisabled();
     expect(screen.getByRole("link", { name: /Manage agencies/ })).toHaveAttribute("target", "_blank");
     expect(screen.getByRole("link", { name: /Manage agencies/ })).toHaveAttribute("href", "/app/settings/agencies");
     rerender(<PlanForm {...props} canManageAgencies={false} />);
@@ -286,24 +298,84 @@ describe("voyage declaration wizard", () => {
     expect(screen.getByLabelText("Cargo description 1")).toHaveValue("Wheat");
   });
 
-  it("preserves explicit planning values and exposes save errors without discarding drafts", async () => {
+  it("preserves optional voyage details and uses derived defaults without a separate arrangement step", async () => {
     const { user, onSave } = setup();
     onSave.mockRejectedValueOnce(new Error("The voyage changed; review and try again."));
-    await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat");
-    await next(user); await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" })); await next(user);
+    await user.click(screen.getByText("Voyage details (optional)", { selector: "summary" }));
+    await user.clear(screen.getByLabelText("Lead surveyor"));
     await user.type(screen.getByLabelText("Lead surveyor"), "Lead");
-    await user.clear(screen.getByLabelText("Measurement method")); await user.type(screen.getByLabelText("Measurement method"), "Certified weighbridge");
-    await user.click(screen.getByText("Additional planning details", { selector: "summary" }));
-    await user.clear(screen.getByLabelText("Plan title")); await user.type(screen.getByLabelText("Plan title"), "Agreed voyage survey");
-    await user.clear(screen.getByLabelText("Parcel / cargo scope")); await user.type(screen.getByLabelText("Parcel / cargo scope"), "Parcel A");
-    await user.type(screen.getByLabelText("Planning notes (optional)"), "Use certified instrument");
-    await previous(user); await previous(user); await user.click(choose("Mixed")); await next(user); await next(user);
-    expect(screen.getByLabelText("Measurement method")).toHaveValue("Certified weighbridge");
-    expect(screen.getByLabelText("Plan title")).toHaveValue("Agreed voyage survey");
+    await user.clear(screen.getByLabelText("Terminal / berth"));
+    await user.type(screen.getByLabelText("Terminal / berth"), "Confirmed berth");
+    await user.type(screen.getByLabelText("Voyage notes (optional)"), "Use certified instrument");
+    await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat");
+    await next(user); await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
+    expect(screen.getByText("Step 3 of 3")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/reconciliation|invoice/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Next: report the vessel load/)).toBeInTheDocument();
+    await previous(user); await previous(user);
+    expect(screen.getByLabelText("Lead surveyor")).toHaveValue("Lead");
+    expect(screen.getByLabelText("Terminal / berth")).toHaveValue("Confirmed berth");
+    await next(user); await next(user);
     await user.click(screen.getByRole("button", { name: "Create voyage sheet" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("The voyage changed; review and try again.");
     await user.click(screen.getByRole("button", { name: "Create voyage sheet" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
-    expect(onSave.mock.calls[1][0]).toMatchObject({ title: "Agreed voyage survey", method: "Certified weighbridge", scope: "Parcel A", notes: "Use certified instrument" });
+    expect(onSave.mock.calls[1][0]).toMatchObject({ title: "Bulk discharge tally · MV Atlas · CALL-001", method: "Draft survey", stage: "Discharge", scope: "Wheat", leadSurveyor: "Lead", location: "Confirmed berth", notes: "Use certified instrument" });
+  });
+
+  it("creates an agency inline, keeps failed drafts and preserves the declaration before selecting the saved agency", async () => {
+    const created: AgencyProfile = { id: "new-agency", name: "Independent Checker", role: "Cargo checker", representative: "", active: true };
+    const onCreateAgency = vi.fn().mockRejectedValueOnce(new Error("Could not save agency")).mockResolvedValue(created);
+    const { user, onSave, rerender, props } = setup({ agencyCatalog: [], onCreateAgency });
+    await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat");
+    await user.type(screen.getByLabelText("Manifest quantity 1"), "0");
+    await user.type(screen.getByLabelText("Vessel declaration reference"), "OWNER-NIL");
+    await next(user); await user.click(screen.getByRole("button", { name: "Create agency" }));
+    expect(screen.getByRole("button", { name: "Create voyage sheet" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Agency name"), "Independent Checker");
+    await user.selectOptions(screen.getByLabelText("Agency role"), "custom");
+    expect(screen.getByRole("button", { name: "Save agency" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Other agency role"), "Cargo checker");
+    await user.click(screen.getByRole("button", { name: "Save agency" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save agency");
+    expect(screen.getByLabelText("Agency name")).toHaveValue("Independent Checker");
+    expect(screen.getByLabelText("Other agency role")).toHaveValue("Cargo checker");
+    await user.click(screen.getByRole("button", { name: "Save agency" }));
+    expect(await screen.findByRole("checkbox", { name: "Select agency Independent Checker" })).toBeChecked();
+    expect(screen.queryByText(/no longer active/)).not.toBeInTheDocument();
+    rerender(<PlanForm {...props} agencyCatalog={[created]} />);
+    rerender(<PlanForm {...props} agencyCatalog={[{ ...created, active: false }]} />);
+    expect(screen.getByRole("checkbox", { name: "Select agency Independent Checker" })).toBeChecked();
+    expect(screen.getByText(/no longer active/)).toBeInTheDocument();
+    expect(onCreateAgency).toHaveBeenLastCalledWith({ name: "Independent Checker", role: "Cargo checker", representative: "" });
+    await user.click(screen.getByRole("button", { name: "Create voyage sheet" }));
+    expect(screen.getByLabelText("Representative for Independent Checker")).toBeInvalid();
+    expect(onSave).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Representative for Independent Checker"), "Voyage representative");
+    await previous(user);
+    expect(screen.getByLabelText("Manifest quantity 1")).toHaveValue(0);
+    expect(screen.getByLabelText("Vessel declaration reference")).toHaveValue("OWNER-NIL");
+    await next(user); await user.click(screen.getByRole("button", { name: "Create voyage sheet" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ leadSurveyor: "To be assigned", participants: [{ name: "Independent Checker", role: "Cargo checker", representative: "Voyage representative", requiredSubmission: true, requiredApproval: true }] });
+  });
+
+  it("limits inline agency creation to an enabled admin callback and can cancel creation without losing draft fields", async () => {
+    const onCreateAgency = vi.fn().mockResolvedValue(agency);
+    const { user, rerender, props } = setup({ onCreateAgency, canManageAgencies: false });
+    await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat"); await next(user);
+    expect(screen.queryByRole("button", { name: "Create agency" })).not.toBeInTheDocument();
+    rerender(<PlanForm {...props} canManageAgencies onCreateAgency={undefined} />);
+    expect(screen.queryByRole("button", { name: "Create agency" })).not.toBeInTheDocument();
+    rerender(<PlanForm {...props} canManageAgencies />);
+    await user.click(screen.getByRole("button", { name: "Create agency" }));
+    await user.type(screen.getByLabelText("Agency name"), "Unfinished agency");
+    await user.click(screen.getByRole("button", { name: "Cancel agency" }));
+    expect(onCreateAgency).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Create agency" }));
+    expect(screen.getByLabelText("Agency name")).toHaveValue("Unfinished agency");
+    await previous(user);
+    expect(screen.getByLabelText("Cargo description 1")).toHaveValue("Wheat");
   });
 });

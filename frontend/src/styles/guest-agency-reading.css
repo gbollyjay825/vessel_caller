@@ -1,0 +1,65 @@
+.guest-reading-page { min-height: 100vh; background: #f3f6f8; color: #172b38; padding: 32px 20px 56px; }
+.guest-reading-shell { max-width: 1000px; margin: 0 auto; }
+.guest-reading-brand { display: flex; align-items: center; gap: 9px; color: #416074; font-size: .8rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; margin-bottom: 24px; }
+.guest-reading-page h1 { margin: 0 0 12px; font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.2; letter-spacing: -.035em; }
+.guest-reading-intro { margin: 0 0 24px; max-width: 700px; color: #506777; line-height: 1.65; }
+.guest-reading-page .guest-reading-card { padding: 24px; background: #fff; border: 1px solid #dce5eb; border-radius: 14px; margin: 0 0 20px; }
+.guest-reading-page h2 { margin: 0 0 10px; font-size: 1.15rem; letter-spacing: -.02em; }
+.guest-reading-page h3 { margin: 0 0 7px; font-size: 1rem; }
+.guest-voyage-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 20px 0 0; }
+.guest-voyage-summary div { min-width: 0; overflow-wrap: anywhere; }
+.guest-voyage-summary dt, .guest-report-meta dt { color: #607587; font-size: .78rem; margin: 0 0 6px; }
+.guest-voyage-summary dd, .guest-report-meta dd { margin: 0; font-weight: 600; font-size: .95rem; }
+.guest-agency-identity { display: flex; justify-content: space-between; align-items: start; gap: 16px; padding-bottom: 18px; border-bottom: 1px solid #e5ebef; }
+.guest-agency-identity p { margin: 0; color: #607587; }
+.guest-agency-chip { flex-shrink: 0; padding: 6px 10px; color: #1e6264; background: #e8f5f4; border: 1px solid #cce6e4; border-radius: 6px; font-size: .76rem; font-weight: 700; }
+.guest-reading-form > fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
+.guest-reading-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.guest-reading-field { display: flex; flex-direction: column; gap: 8px; font-size: .88rem; font-weight: 600; min-width: 0; }
+.guest-reading-field small { color: #64798a; font-weight: 400; line-height: 1.45; }
+.guest-reading-field input, .guest-reading-field select, .guest-reading-field textarea { width: 100%; min-width: 0; padding: 11px 12px; background: #fff; color: #172b38; border: 1px solid #c7d5de; border-radius: 7px; font: inherit; font-weight: 400; }
+.guest-reading-field textarea { resize: vertical; min-height: 88px; }
+.guest-reading-field input:focus-visible, .guest-reading-field select:focus-visible, .guest-reading-field textarea:focus-visible, .guest-reading-page button:focus-visible { outline: 3px solid #96c5db; outline-offset: 2px; }
+.guest-reading-field input:disabled { background: #f2f5f7; color: #64798a; }
+.guest-reading-field.full { grid-column: 1 / -1; }
+.guest-reading-help { color: #607587; line-height: 1.6; font-size: .87rem; margin: 0 0 18px; }
+.guest-cargo-entry { padding: 20px 0; border-top: 1px solid #e6ecef; }
+.guest-cargo-entry:first-of-type { padding-top: 8px; border-top: 0; }
+.guest-cargo-entry:last-child { padding-bottom: 0; }
+.guest-cargo-scope { color: #607587; font-size: .82rem; line-height: 1.5; margin: 0 0 15px; }
+.guest-cargo-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(145px, .75fr) minmax(0, 1.3fr); align-items: start; gap: 16px; }
+.guest-quantity-state { color: #64798a; font-size: .78rem; font-weight: 400; }
+.guest-quantity-state.nil { color: #216342; font-weight: 600; }
+.guest-reading-submit { display: flex; justify-content: flex-end; align-items: center; gap: 16px; margin-top: 20px; }
+.guest-reading-submit p { margin: 0; color: #607587; font-size: .84rem; }
+.guest-reading-page .guest-reading-error { padding: 14px 16px; border: 1px solid #efc2bd; border-radius: 8px; background: #fff3f1; color: #963a31; margin: 16px 0; }
+.guest-reading-success { display: flex; gap: 12px; align-items: start; margin: 0 0 20px; padding: 18px 20px; color: #155d42; background: #e9f7ef; border: 1px solid #bce1cc; border-radius: 10px; }
+.guest-reading-success strong { display: block; margin-bottom: 4px; }
+.guest-reading-success p { margin: 0; color: #386f57; line-height: 1.5; }
+.guest-report-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 18px 0; overflow-wrap: anywhere; }
+.guest-report-scroll { overflow-x: auto; border: 1px solid #e0e8ed; border-radius: 8px; }
+.guest-report-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.guest-report-table th, .guest-report-table td { padding: 12px; text-align: left; vertical-align: top; border-bottom: 1px solid #e5ebef; }
+.guest-report-table thead th { background: #f4f7f9; color: #506777; font-size: .76rem; white-space: nowrap; }
+.guest-report-table tbody tr:last-child > * { border-bottom: 0; }
+.guest-report-table small { display: block; color: #607587; font-weight: 400; font-size: .76rem; margin-top: 5px; }
+.guest-report-note { color: #506777; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.guest-report-download { margin-top: 18px; }
+.guest-peer-reports { display: grid; gap: 14px; }
+.guest-peer-report { border: 1px solid #dce5eb; border-radius: 9px; overflow: hidden; }
+.guest-peer-report summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px; cursor: pointer; background: #f7fafb; }
+.guest-peer-report summary small { display: block; color: #607587; margin-top: 4px; }
+.guest-peer-report > div { padding: 0 16px 16px; }
+.guest-reading-empty { padding: 16px; background: #f5f8fa; color: #607587; border-radius: 8px; margin: 0; }
+@media (max-width: 660px) {
+  .guest-reading-page { padding: 22px 14px 36px; }
+  .guest-reading-page .guest-reading-card { padding: 18px; }
+  .guest-voyage-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .guest-reading-fields, .guest-cargo-controls { grid-template-columns: minmax(0, 1fr); }
+  .guest-agency-identity { flex-direction: column; }
+  .guest-report-meta { grid-template-columns: minmax(0, 1fr); }
+  .guest-reading-submit { flex-direction: column; align-items: stretch; }
+  .guest-reading-submit .btn { width: 100%; justify-content: center; }
+  .guest-peer-report summary { align-items: start; flex-direction: column; }
+}
+.guest-preview-notice { padding: 12px 20px; background: #fff4d6; color: #694c0d; border-bottom: 1px solid #ead596; font-size: .875rem; text-align: center; line-height: 1.5; }

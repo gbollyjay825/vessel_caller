@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "../app/store";
 import { useAuth } from "../auth/AuthContext";
@@ -11,12 +11,15 @@ import { PlanForm } from "../measurements/PlanForm";
 import { useAgencyDirectory } from "../measurements/agencyDirectory";
 import { VoyageLog } from "../measurements/VoyageLog";
 import { AgencyCollection } from "../measurements/AgencyCollection";
+import type { CreatedAgencyLink } from "../measurements/AgencyCollection";
+import { AgencyLinkPanel } from "../measurements/AgencyLinkPanel";
+import { AgencyReadingDialog } from "../measurements/AgencyReadingDialog";
 import { ComparisonGrid } from "../measurements/VoyageComparison";
 export { ComparisonGrid } from "../measurements/VoyageComparison";
 import { ApprovalForm, AssessmentForm, ProposalForm, ReturnForm } from "../measurements/WorkflowForms";
 import { ActionForm, ErrorMessage, EvidenceLink, FormField, MeasurementBadge, Section } from "../measurements/shared";
 import { cargoLabelForId, cargoScopeLabel, dateLabel, finalizationIssues, latestReconciliation, latestReturns, localDateTime, quantity, reconciliationStale } from "../measurements/helpers";
-import type { Assessment, MeasurementPlan, PlanMutation, Reconciliation } from "../measurements/types";
+import type { Assessment, MeasurementPlan, ParticipantInput, PlanInput, PlanMutation, Reconciliation } from "../measurements/types";
 import "../styles/measurements.css";
 
 export function Measurements() {
@@ -48,13 +51,92 @@ export function Measurements() {
 }
 
 export function NewMeasurement() {
+  const { org } = useAuth();
+  return <NewVoyageEntry key={org?.id ?? "loading"} />;
+}
+
+function NewVoyageEntry() {
   const store = useStore();
   const { org, can } = useAuth();
   const directory = useAgencyDirectory(org?.id);
   const navigate = useNavigate();
   const client = useQueryClient();
   const [params] = useSearchParams();
-  return <div className="content-inner measurement-workspace"><Link className="measurement-back" to="/app/measurements"><Icon name="chevronLeft" size={16} /> Measurements</Link><div className="page-head"><div><h1>Setup vessel and declaration</h1><p className="desc">Choose the voyage, enter the owner’s declaration and add its agencies. Then collect each agency’s reading.</p></div></div><div className="card measurement-form-card"><ErrorMessage error={directory.error ? new Error(directory.error) : null} /><PlanForm key={org?.id} calls={store.calls} canRegisterVessel={store.can("registerCall")} agencyCatalog={directory.agencies} canManageAgencies={can("manageSettings")} onCreateAgency={can("manageSettings") ? async input => { const saved = directory.saveAgency({ ...input, active: true }); if (!saved) throw new Error("Agency could not be saved. Check agency setup and try again."); return saved; } : undefined} callId={params.get("callId") ?? undefined} onCancel={() => navigate("/app/measurements")} onSave={async input => { const { plan } = await measurementApi.create(input); await client.invalidateQueries({ queryKey: ["measurement-plans"] }); store.toast("Voyage sheet created"); navigate(`/app/measurements/${plan.id}`); }} /></div></div>;
+  const [savedPlan, setSavedPlan] = useState<MeasurementPlan>();
+  const saved = useRef<MeasurementPlan>();
+  const saving = useRef<Promise<MeasurementPlan> | null>(null);
+  const uncertainSave = useRef(false);
+  const participantIds = useRef(new Map<string, string>());
+  const [createdLinks, setCreatedLinks] = useState<Record<string, CreatedAgencyLink>>({});
+  const [reading, setReading] = useState<{ participantId: string; version: number; plan: MeasurementPlan } | null>(null);
+  const [uiPreview, setUiPreview] = useState(false);
+  const current = useQuery({ queryKey: ["measurement-plan", org?.id, savedPlan?.id], queryFn: () => measurementApi.detail(savedPlan!.id), enabled: Boolean(savedPlan), refetchInterval: 30_000 });
+  const plan = current.data?.plan ?? savedPlan;
+  const editable = can("measurements.manage") && plan?.status !== "cancelled" && !(plan && latestReconciliation(plan, "final") && !latestReconciliation(plan, "draft"));
+  const retain = (value: MeasurementPlan) => {
+    saved.current = value;
+    setSavedPlan(value);
+    client.setQueryData(["measurement-plan", org?.id, value.id], { plan: value });
+    void client.invalidateQueries({ queryKey: ["measurement-plans"] });
+  };
+  const ensureSaved = (input: PlanInput): Promise<MeasurementPlan> => {
+    if (!editable) return Promise.reject(new Error("This voyage is no longer open for readings."));
+    if (saved.current) return Promise.resolve(plan ?? saved.current);
+    if (saving.current) return saving.current;
+    if (uncertainSave.current) return Promise.reject(new Error("The save could not be confirmed. Check the voyage log before starting another sheet."));
+    saving.current = measurementApi.create(input).then(result => {
+      retain(result.plan);
+      return result.plan;
+    }).catch(error => {
+      // A network failure or server timeout may occur after creation. Do not
+      // repeat a non-idempotent POST without checking the saved voyage log.
+      uncertainSave.current = !(error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408);
+      throw error;
+    }).finally(() => { saving.current = null; });
+    return saving.current;
+  };
+  const createLink = async (agencyId: string, value: MeasurementPlan, participantId: string) => {
+    const capability = await measurementApi.agencyLinks(value.id).catch(() => { throw new Error("Secure agency links are not enabled on this server yet."); });
+    setUiPreview(Boolean(capability.uiPreview));
+    const created = await measurementApi.createAgencyLink(value.id, participantId, 7);
+    setCreatedLinks(previous => ({ ...previous, [agencyId]: created }));
+    return created;
+  };
+  const actOnAgency = async (agencyId: string, action: "reading" | "link", input: PlanInput, source: ParticipantInput) => {
+    let participantId = participantIds.current.get(agencyId);
+    const matches = input.participants.filter(party => party.name === source.name && party.role === source.role && party.representative === source.representative);
+    if (matches.length !== 1) throw new Error("This agency could not be identified. Review agency setup before continuing.");
+    const value = await ensureSaved(input);
+    const parties = value.participants.filter(party => party.name.trim() === source.name.trim() && party.role.trim() === source.role.trim() && party.representative.trim() === source.representative.trim());
+    if (parties.length !== 1 || (participantId && parties[0].id !== participantId)) throw new Error("The agency setup changed. Open this voyage from the log to review it before continuing.");
+    if (!participantId) {
+      participantId = parties[0].id;
+      participantIds.current.set(agencyId, participantId);
+    }
+    if (action === "reading") { setReading({ participantId, version: value.version, plan: value }); return; }
+    const existing = createdLinks[agencyId];
+    if (existing && !existing.link.revokedAt && !existing.link.submittedAt && new Date(existing.link.expiresAt).getTime() > Date.now()) return;
+    await createLink(agencyId, value, participantId);
+  };
+  return <div className="content-inner measurement-workspace"><Link className="measurement-back" to="/app/measurements"><Icon name="chevronLeft" size={16} /> Measurements</Link><div className="page-head"><div><h1>Vessel load reporting</h1><p className="desc">Set up the voyage, record the owner’s declaration, then collect each agency’s reading.</p></div></div>{uiPreview && <p className="measurement-help" role="status">UI preview · agency links and receipts use local demo records.</p>}<div className="card measurement-form-card"><ErrorMessage error={directory.error ? new Error(directory.error) : null} /><PlanForm calls={store.calls} canRegisterVessel={store.can("registerCall")} agencyCatalog={directory.agencies} canManageAgencies={can("manageSettings")} onCreateAgency={can("manageSettings") ? async input => { const agency = directory.saveAgency({ ...input, active: true }); if (!agency) throw new Error("Agency could not be saved. Check agency setup and try again."); return agency; } : undefined} callId={params.get("callId") ?? undefined} savedPlan={plan} onCancel={() => navigate("/app/measurements")} onSave={ensureSaved} onAgencyAction={actOnAgency} onFinish={() => navigate("/app/measurements")} renderAgencyAction={agencyId => {
+    const link = createdLinks[agencyId];
+    const participantId = participantIds.current.get(agencyId);
+    const agency = plan?.participants.find(party => party.id === participantId);
+    if (!link || !agency || !plan || !editable) return null;
+    return <AgencyLinkPanel agencyName={agency.name} link={link} onReplace={() => createLink(agencyId, plan, agency.id)} onRevoke={async () => {
+      await measurementApi.revokeAgencyLink(plan.id, link.link.id);
+      setCreatedLinks(previous => { const next = { ...previous }; delete next[agencyId]; return next; });
+    }} />;
+  }} /></div>{reading && plan && editable && <AgencyReadingDialog key={reading.participantId} plan={reading.plan} participantId={reading.participantId} onClose={() => setReading(null)} onSave={async input => {
+    try {
+      if (input.participantId !== reading.participantId || plan.version !== reading.version || !plan.participants.some(party => party.id === reading.participantId)) throw new Error("This voyage changed. Close the reading and reopen it to use the latest record.");
+      const result = await measurementApi.submit(plan.id, reading.version, input);
+      retain(result.plan); setReading(null); store.toast("Agency reading submitted");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) await current.refetch();
+      throw error;
+    }
+  }} />}</div>;
 }
 
 export function MeasurementDetail() {

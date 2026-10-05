@@ -35,10 +35,10 @@ function readingDifference(value: string | null | undefined, declaration: string
   return quantityDifference(value, declaration) ?? "Awaiting reading";
 }
 
-export function ReturnForm({ plan, onSave, onCancel, initialParticipantId, collectionOnly = false }: FormProps<SubmissionInput> & { initialParticipantId?: string; collectionOnly?: boolean }) {
+export function ReturnForm({ plan, onSave, onCancel, initialParticipantId, collectionOnly = false, fixedAgency = false }: FormProps<SubmissionInput> & { initialParticipantId?: string; collectionOnly?: boolean; fixedAgency?: boolean }) {
   const { user } = useAuth();
   const returns = latestReturns(plan);
-  const [participantId, setParticipantId] = useState(plan.participants.find(party => party.id === initialParticipantId)?.id ?? plan.participants.find(party => !returns.has(party.id))?.id ?? plan.participants[0]?.id ?? "");
+  const [participantId, setParticipantId] = useState(plan.participants.find(party => party.id === initialParticipantId)?.id ?? (fixedAgency ? "" : plan.participants.find(party => !returns.has(party.id))?.id ?? plan.participants[0]?.id ?? ""));
   // Each agency owns its draft, including evidence and source metadata. Editing
   // a received return always copies its lines rather than mutating history.
   const [drafts, setDrafts] = useState<Record<string, ReturnDraft>>(() => Object.fromEntries(
@@ -48,6 +48,7 @@ export function ReturnForm({ plan, onSave, onCancel, initialParticipantId, colle
   const draft = drafts[participantId] ?? returnDraft(plan, participantId);
   const previous = returns.get(participantId);
   const selectedAgency = plan.participants.find(party => party.id === participantId);
+  const scopeChanged = draft.lines.length !== plan.lines.length || draft.lines.some(entry => !plan.lines.some(line => line.id === entry.lineId));
   const updateDraft = (patch: Partial<ReturnDraft>) => setDrafts(current => ({
     ...current,
     [participantId]: { ...(current[participantId] ?? returnDraft(plan, participantId)), ...patch },
@@ -57,10 +58,10 @@ export function ReturnForm({ plan, onSave, onCancel, initialParticipantId, colle
     return { ...current, [participantId]: { ...agencyDraft, lines: agencyDraft.lines.map(line => line.lineId === lineId ? { ...line, ...patch } : line) } };
   });
 
-  return <ActionForm submit={previous ? "Save revised return" : collectionOnly ? "Submit reading" : "Record stakeholder return"} onCancel={onCancel} disabled={!participantId || !draft.evidenceIds.length || uploading} onSubmit={() => onSave({ ...draft, participantId, observedAt: new Date(draft.observedAt).toISOString() })}>
+  return <ActionForm submit={previous ? "Save revised return" : collectionOnly ? "Submit reading" : "Record stakeholder return"} onCancel={onCancel} disabled={!selectedAgency || scopeChanged || !draft.evidenceIds.length || uploading} onSubmit={() => onSave({ ...draft, participantId, observedAt: new Date(draft.observedAt).toISOString() })}>
     <div className="measurement-section-head"><div><h3>Agency measurement entry</h3><p>{collectionOnly ? "Enter this agency’s measured vessel load. Each agency keeps its own report." : "Record the selected agency’s independent measurement. The owner’s declaration is shown separately for comparison; NPA reconciliation follows the agency readings."}</p></div></div>
     <div className="measurement-form-grid">
-      <FormField label="Reporting agency"><select required disabled={uploading} value={participantId} onChange={event => setParticipantId(event.target.value)}>{plan.participants.map(party => <option key={party.id} value={party.id}>{party.name} · {party.role}</option>)}</select></FormField>
+      {!fixedAgency && <FormField label="Reporting agency"><select required disabled={uploading} value={participantId} onChange={event => setParticipantId(event.target.value)}>{plan.participants.map(party => <option key={party.id} value={party.id}>{party.name} · {party.role}</option>)}</select></FormField>}
       <dl className="measurement-entry-identity">
         <div><dt>Selected agency</dt><dd>{selectedAgency?.name ?? "Choose an agency"}<small>{selectedAgency?.role}</small></dd></div>
         <div><dt>Entered by</dt><dd>{user?.name ?? "Signed-in user"}<small>{user?.role}</small></dd></div>
@@ -79,7 +80,8 @@ export function ReturnForm({ plan, onSave, onCancel, initialParticipantId, colle
         <caption className="hide-sr">{selectedAgency?.name ?? "Agency"} independent measurements against the owner declaration</caption>
         <thead><tr><th scope="col">Cargo scope / type</th><th scope="col">Owner declaration<small>Owner-provided baseline</small></th><th scope="col">Agency’s measured quantity</th><th scope="col">Status</th><th scope="col">Difference vs owner declaration</th><th scope="col">Note</th></tr></thead>
         <tbody>{draft.lines.map(entry => {
-          const cargo = plan.lines.find(line => line.id === entry.lineId)!;
+          const cargo = plan.lines.find(line => line.id === entry.lineId);
+          if (!cargo) return null;
           const label = cargoInputLabel(cargo, plan.lines);
           const notApplicable = entry.status === "not-applicable";
           const unknown = entry.quantity == null || entry.quantity === "";

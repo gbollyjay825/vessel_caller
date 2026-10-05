@@ -20,8 +20,7 @@ describe('measurement workflow', () => {
     renderScreen(<MeasurementDetail />);
     await screen.findByRole('heading', { name: 'Report vessel load' });
     expect(screen.queryByRole('tab', { name: 'Reconciliation' })).not.toBeInTheDocument();
-    await userEvent.click(await screen.findByText('Send agency a link', { exact: true }));
-    await userEvent.click(screen.getByRole('button', { name: 'Generate secure link' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Get link' }));
     expect(mocked.createLink).toHaveBeenCalledWith('plan-1', 'party-2', 7);
     expect(screen.getByLabelText('Link for Terminal One')).toHaveValue('https://example.test/agency-reading#token=synthetic-demo-token');
   });
@@ -31,7 +30,7 @@ describe('measurement workflow', () => {
     renderScreen(<MeasurementDetail />);
     await screen.findByRole('heading', { name: 'Report vessel load' });
     expect(await screen.findByText('Secure agency links are not enabled on this server yet.')).toBeInTheDocument();
-    expect(screen.queryByText('Send agency a link', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Get link' })).not.toBeInTheDocument();
   });
   it('exposes an actionable plan worklist and search', async () => {
     renderScreen(<Measurements />);

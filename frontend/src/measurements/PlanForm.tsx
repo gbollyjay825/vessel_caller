@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { VesselCall } from "../types";
 import { Icon } from "../components/Icon";
 import { ErrorMessage, FormField } from "./shared";
@@ -6,18 +6,18 @@ import { dateLabel, localDateTime } from "./helpers";
 import { AGENCY_ROLES, CARGO_CATEGORIES, CARGO_TYPES, UNIT_LABELS, basisFor, cargoLine, categoryFor, defaultMethod, templateLines, unitsFor, type CargoTemplateType } from "./cargoTemplates";
 import { groupVesselCalls } from "./voyages";
 import type { AgencyProfile } from "./agencyDirectory";
-import type { CargoLineInput, ParticipantInput, PlanInput, QuantityUnit } from "./types";
+import type { CargoLineInput, MeasurementPlan, ParticipantInput, PlanInput, QuantityUnit } from "./types";
 import "../styles/measurement-entry.css";
 
 type CargoRow = { id: number; included: boolean; edited: boolean; line: CargoLineInput };
 type Details = Pick<PlanInput, "title" | "scheduledAt" | "location" | "method" | "stage" | "scope" | "leadSurveyor" | "notes"> & { endsAt: string };
 type VoyageChoice = { vesselKey: string; callId: string };
-type PlanFormProps = { calls: VesselCall[]; callId?: string; agencyCatalog?: AgencyProfile[]; canRegisterVessel?: boolean; canManageAgencies?: boolean; onCreateAgency?: (input: Pick<AgencyProfile, "name" | "role" | "representative">) => Promise<AgencyProfile>; onSave: (value: PlanInput) => Promise<unknown>; onCancel: () => void };
+type PlanFormProps = { calls: VesselCall[]; callId?: string; agencyCatalog?: AgencyProfile[]; canRegisterVessel?: boolean; canManageAgencies?: boolean; onCreateAgency?: (input: Pick<AgencyProfile, "name" | "role" | "representative">) => Promise<AgencyProfile>; onAgencyAction?: (agencyId: string, action: "reading" | "link", input: PlanInput, participant: ParticipantInput) => Promise<unknown>; savedPlan?: MeasurementPlan; renderAgencyAction?: (agencyId: string) => ReactNode; onFinish?: () => void; onSave: (value: PlanInput) => Promise<unknown>; onCancel: () => void };
 const STEPS = ["Vessel & voyage", "Owner declaration", "Agencies"];
 const typeIcons = { Containers: "package", Bulk: "gauge", Tanker: "droplet", "General cargo": "clipboard", Vehicles: "route", Mixed: "compass" };
 const categoryLabel = (category: string) => category === "Liquid" ? "Tanker / liquid cargo" : category;
 
-export function PlanForm({ calls, callId: initialCallId, agencyCatalog = [], canRegisterVessel = false, canManageAgencies = false, onCreateAgency, onSave, onCancel }: PlanFormProps) {
+export function PlanForm({ calls, callId: initialCallId, agencyCatalog = [], canRegisterVessel = false, canManageAgencies = false, onCreateAgency, onAgencyAction, savedPlan, renderAgencyAction, onFinish, onSave, onCancel }: PlanFormProps) {
   const vessels = groupVesselCalls(calls.filter(call => call.status !== "cancelled"));
   const [voyage, setVoyage] = useState<VoyageChoice>(() => ({ vesselKey: vessels.find(vessel => vessel.calls.some(call => call.id === initialCallId))?.key ?? "", callId: initialCallId ?? "" }));
   const [pendingVoyage, setPendingVoyage] = useState<VoyageChoice | null>(null);
@@ -37,9 +37,13 @@ export function PlanForm({ calls, callId: initialCallId, agencyCatalog = [], can
   const [customAgencyRole, setCustomAgencyRole] = useState(false);
   const [createdAgencies, setCreatedAgencies] = useState<AgencyProfile[]>([]);
   const [pending, setPending] = useState(false);
+  const [activeAgencyAction, setActiveAgencyAction] = useState<{ id: string; action: "reading" | "link" } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const nextRowId = useRef(2);
   const heading = useRef<HTMLHeadingElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const setupLocked = Boolean(savedPlan);
+  const stepTitles = onAgencyAction ? ["Vessel & voyage", "Owner declaration", "Agency readings"] : STEPS;
   useEffect(() => { heading.current?.focus(); }, [step]);
   useEffect(() => {
     setCreatedAgencies(current => current.some(agency => agencyCatalog.some(profile => profile.id === agency.id))
@@ -109,31 +113,51 @@ export function PlanForm({ calls, callId: initialCallId, agencyCatalog = [], can
   };
   const updateAgency = (id: string, patch: Partial<ParticipantInput>) => setAgencyDrafts(current => ({ ...current, [id]: { ...current[id], ...patch } }));
   const blocked = pending || agencyCreationOpen || agencyCreationPending || !!pendingVoyage || !!pendingType || (step === 0 && !selectedCall) || (step === 1 && !includedRows.length) || (step === 2 && !participants.length);
+  const validateCurrentFields = () => {
+    const invalid = formRef.current?.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input:invalid, select:invalid, textarea:invalid");
+    if (!invalid) return true;
+    const disclosure = invalid.closest("details");
+    if (disclosure) disclosure.open = true;
+    invalid.reportValidity(); invalid.focus(); return false;
+  };
+  const buildInput = (): PlanInput | null => {
+    if (!selectedCall) { setStep(0); return null; }
+    if (!includedRows.length) { setStep(1); return null; }
+    if (!participants.length) { setStep(2); return null; }
+    if (!validateCurrentFields()) return null;
+    return { ...values, leadSurveyor: values.leadSurveyor.trim() || "To be assigned", callId: selectedCall.id, scheduledAt: new Date(values.scheduledAt).toISOString(), endsAt: values.endsAt ? new Date(values.endsAt).toISOString() : null, lines, participants };
+  };
+  const runAgencyAction = async (agencyId: string, action: "reading" | "link") => {
+    if (blocked || !onAgencyAction) return;
+    const input = buildInput();
+    if (!input) return;
+    setPending(true); setError(null); setActiveAgencyAction({ id: agencyId, action });
+    try { await onAgencyAction(agencyId, action, input, agencyDrafts[agencyId]); }
+    catch (failure) { setError(failure); }
+    finally { setPending(false); setActiveAgencyAction(null); }
+  };
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (blocked) return;
-    const form = event.currentTarget;
-    const invalid = form.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input:invalid, select:invalid, textarea:invalid");
-    if (invalid) { const disclosure = invalid.closest("details"); if (disclosure) disclosure.open = true; invalid.reportValidity(); invalid.focus(); return; }
+    if (blocked || !validateCurrentFields()) return;
     setError(null);
     if (step < 2) { setStep(current => current + 1); return; }
-    if (!selectedCall) { setStep(0); return; }
-    if (!includedRows.length) { setStep(1); return; }
-    if (!participants.length) { setStep(2); return; }
+    if (onAgencyAction) return;
+    const input = buildInput();
+    if (!input) return;
     setPending(true);
-    try { await onSave({ ...values, leadSurveyor: values.leadSurveyor.trim() || "To be assigned", callId: selectedCall.id, scheduledAt: new Date(values.scheduledAt).toISOString(), endsAt: values.endsAt ? new Date(values.endsAt).toISOString() : null, lines, participants }); }
+    try { await onSave(input); }
     catch (failure) { setError(failure); }
     finally { setPending(false); }
   };
 
-  return <form className="measurement-form measurement-entry entry-wizard" noValidate onSubmit={event => void handleSubmit(event)}>
-    <ol className="entry-steps" aria-label="Plan setup steps">{STEPS.map((label, index) => <li key={label} className={index === step ? "current" : index < step ? "complete" : ""} aria-current={index === step ? "step" : undefined}><span>{index < step ? <Icon name="check" size={14} /> : index + 1}</span><strong>{label}</strong></li>)}</ol>
+  return <form ref={formRef} className="measurement-form measurement-entry entry-wizard" noValidate onSubmit={event => void handleSubmit(event)}>
+    <ol className="entry-steps" aria-label="Plan setup steps">{stepTitles.map((label, index) => <li key={label} className={index === step ? "current" : index < step ? "complete" : ""} aria-current={index === step ? "step" : undefined}><span>{index < step ? <Icon name="check" size={14} /> : index + 1}</span><strong>{label}</strong></li>)}</ol>
     <fieldset disabled={pending}>
       <section className="entry-section" aria-labelledby="entry-step-heading">
-        <div className="entry-section-title"><div><p className="entry-step-count">Step {step + 1} of 3</p><h2 ref={heading} tabIndex={-1} id="entry-step-heading">{STEPS[step]}</h2><p>{[
+        <div className="entry-section-title"><div><p className="entry-step-count">Step {step + 1} of 3</p><h2 ref={heading} tabIndex={-1} id="entry-step-heading">{stepTitles[step]}</h2><p>{[
           "Choose the vessel, then the voyage receiving this declaration.",
           "What is arriving on this voyage? Copy the vessel owner's import declaration. Agency readings are collected separately after setup.",
-          "Create or select the agencies that will report this vessel’s load.",
+          onAgencyAction ? "Choose the agencies for this voyage, then enter a reading or get a link." : "Create or select the agencies that will report this vessel’s load.",
         ][step]}</p></div></div>
         {step > 0 && selectedCall && <div className="entry-voyage-context"><Icon name="ship" size={16} /><strong>{selectedCall.vesselName}</strong><span>{selectedCall.reference}</span><span>Import / discharge</span></div>}
         {step === 0 && <>
@@ -180,8 +204,8 @@ export function PlanForm({ calls, callId: initialCallId, agencyCatalog = [], can
         </>}
 
         {step === 2 && <>
-          <p className="measurement-help">The agency directory is saved in this browser for your organisation. Entries are not shared with other browsers or devices.</p>
-          <div className="entry-agency-toolbar"><p>Each agency will report its own reading after this voyage sheet is created.</p><div className="measurement-inline-actions">{canManageAgencies && onCreateAgency && <button type="button" className="btn btn-secondary" disabled={agencyCreationOpen} onClick={() => { setAgencyCreationOpen(true); setAgencyCreationError(null); }}><Icon name="plus" size={15} />Create agency</button>}{canManageAgencies && <a className="link-btn" href="/app/settings/agencies" target="_blank" rel="noopener noreferrer">Manage agencies <Icon name="external" size={14} /></a>}</div></div>
+          <p className="measurement-help">{onAgencyAction ? "Agency directory: saved in this browser only." : "The agency directory is saved in this browser for your organisation. Entries are not shared with other browsers or devices."}</p>
+          <div className="entry-agency-toolbar">{!onAgencyAction && <p>Each agency will report its own reading after this voyage sheet is created.</p>}<div className="measurement-inline-actions">{canManageAgencies && onCreateAgency && <button type="button" className="btn btn-secondary" disabled={agencyCreationOpen || setupLocked} onClick={() => { setAgencyCreationOpen(true); setAgencyCreationError(null); }}><Icon name="plus" size={15} />Create agency</button>}{canManageAgencies && <a className="link-btn" href="/app/settings/agencies" target="_blank" rel="noopener noreferrer">Manage agencies <Icon name="external" size={14} /></a>}</div></div>
           {agencyCreationOpen && <div className="entry-inline-agency" role="group" aria-labelledby="new-agency-heading"><h3 id="new-agency-heading">Create agency</h3><fieldset disabled={agencyCreationPending}><div className="measurement-form-grid">
             <FormField label="Agency name"><input value={newAgency.name} onChange={event => setNewAgency(current => ({ ...current, name: event.target.value }))} /></FormField>
             <FormField label="Agency role"><select value={customAgencyRole ? "custom" : newAgency.role} onChange={event => { const custom = event.target.value === "custom"; setCustomAgencyRole(custom); setNewAgency(current => ({ ...current, role: custom ? "" : event.target.value })); }}>{AGENCY_ROLES.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}<option value="custom">Other role</option></select></FormField>
@@ -189,19 +213,23 @@ export function PlanForm({ calls, callId: initialCallId, agencyCatalog = [], can
             <FormField label="Default representative (optional)"><input value={newAgency.representative} onChange={event => setNewAgency(current => ({ ...current, representative: event.target.value }))} /></FormField>
           </div><p className="measurement-help">The agency is selected for this voyage after it is saved. Name its attending representative before continuing to load reporting.</p></fieldset><ErrorMessage error={agencyCreationError} /><div className="measurement-inline-actions"><button type="button" className="btn btn-secondary" disabled={agencyCreationPending} onClick={() => { setAgencyCreationOpen(false); setAgencyCreationError(null); }}>Cancel agency</button><button type="button" className="btn btn-primary" disabled={agencyCreationPending || !newAgency.name.trim() || !newAgency.role.trim()} onClick={() => void createAgency()}>{agencyCreationPending ? "Saving agency…" : "Save agency"}</button></div></div>}
 
-          {availableAgencies.length ? <div className="entry-agency-catalog">{availableAgencies.map(agency => {
+          {availableAgencies.length ? <div className={`entry-agency-catalog${onAgencyAction ? " direct-actions" : ""}`}>{availableAgencies.map(agency => {
             const selected = selectedAgencyIds.includes(agency.id), draft = agencyDrafts[agency.id];
             const unavailable = !catalog.some(profile => profile.id === agency.id && profile.active);
-            return <div className={`entry-agency-card${selected ? " selected" : ""}`} key={agency.id}><label className="entry-agency-choice"><input type="checkbox" aria-label={`Select agency ${agency.name}`} checked={selected} onChange={event => selectAgency(agency, event.target.checked)} /><span><strong>{agency.name}</strong><small>{agency.role}{agency.representative ? ` · ${agency.representative}` : ""}</small></span></label>{selected && <div className="entry-agency-options">{unavailable && <p className="entry-agency-unavailable" role="status">This agency is no longer active in the directory. Its saved selection is retained for this voyage; deselect it if it will not participate.</p>}<FormField label={`Representative for ${draft.name}`} hint="Change only for this voyage if someone else is attending."><input aria-label={`Representative for ${draft.name}`} required value={draft.representative} onChange={event => updateAgency(agency.id, { representative: event.target.value })} /></FormField></div>}</div>;
+            const savedAgencies = selected && draft ? savedPlan?.participants.filter(party => party.name.trim() === draft.name.trim() && party.role.trim() === draft.role.trim() && party.representative.trim() === draft.representative.trim()) ?? [] : [];
+            const submitted = savedAgencies.length === 1 && savedPlan?.submissions.some(submission => submission.participantId === savedAgencies[0].id);
+            return <div className={`entry-agency-card${selected ? " selected" : ""}`} key={agency.id} role="group" aria-label={`Agency ${agency.name}`}><label className="entry-agency-choice"><input type="checkbox" aria-label={`Select agency ${agency.name}`} disabled={setupLocked} checked={selected} onChange={event => selectAgency(agency, event.target.checked)} /><span><strong>{agency.name}</strong><small>{agency.role}{!onAgencyAction && agency.representative ? ` · ${agency.representative}` : ""}</small>{onAgencyAction && submitted && <small className="entry-agency-submitted" role="status">Submitted</small>}</span></label>{selected && <div className="entry-agency-options">{unavailable && <p className="entry-agency-unavailable" role="status">This agency is no longer active in the directory. Its saved selection is retained for this voyage; deselect it if it will not participate.</p>}<FormField label={`Representative for ${draft.name}`} hint={onAgencyAction ? undefined : "Change only for this voyage if someone else is attending."}><input aria-label={`Representative for ${draft.name}`} required disabled={setupLocked} value={draft.representative} onChange={event => updateAgency(agency.id, { representative: event.target.value })} /></FormField>{onAgencyAction && <div className="entry-agency-direct-actions"><button className="btn btn-primary" type="button" disabled={blocked} onClick={() => void runAgencyAction(agency.id, "reading")}>{activeAgencyAction?.id === agency.id && activeAgencyAction.action === "reading" ? "Opening…" : "Enter reading"}</button><button className="btn btn-secondary" type="button" disabled={blocked} onClick={() => void runAgencyAction(agency.id, "link")}>{activeAgencyAction?.id === agency.id && activeAgencyAction.action === "link" ? "Preparing…" : "Get link"}</button></div>}{renderAgencyAction?.(agency.id)}</div>}</div>;
           })}</div> : <div className="entry-empty-state"><Icon name="users" size={28} /><strong>No agencies in the directory yet</strong><p>{canManageAgencies ? (onCreateAgency ? "Create an agency here or open Settings, then select it for this voyage. This sheet stays open in this tab." : "Add agencies in Settings, then return here to select them. This sheet stays open in this tab.") : "Ask an administrator to add agencies in this browser’s directory, then return to this step. Agencies saved on another device will not appear here."}</p></div>}
-          <p className="measurement-help">{participants.length} {participants.length === 1 ? "agency" : "agencies"} selected. Saved names, roles and representatives are copied into this voyage sheet; directory records stay unchanged.</p>
-          <details className="entry-review-details"><summary>Review declaration and agencies</summary><ul>{lines.map((line, index) => <li key={index}><span>{line.description}</span><strong>{line.manifestQuantity === null ? "Unknown" : Number(line.manifestQuantity) === 0 ? "NIL (0)" : line.manifestQuantity} {UNIT_LABELS[line.unit]}</strong><small>{line.baselineReference || "No reference"}</small></li>)}</ul><ul>{participants.map((party, index) => <li key={index}><span>{party.name}</span><strong>{party.role}</strong><small>{party.representative}</small></li>)}</ul></details>
-          <p className="entry-next-note"><Icon name="info" size={17} />Next: report the vessel load for each selected agency. Each reading is kept separately from the owner’s declaration.</p>
+          {!onAgencyAction && <p className="measurement-help">{participants.length} {participants.length === 1 ? "agency" : "agencies"} selected. Saved names, roles and representatives are copied into this voyage sheet; directory records stay unchanged.</p>}
+          <details className="entry-review-details"><summary>Owner declaration · {lines.length} cargo {lines.length === 1 ? "item" : "items"}</summary><ul>{lines.map((line, index) => <li key={index}><span>{line.description}</span><strong>{line.manifestQuantity === null ? "Unknown" : Number(line.manifestQuantity) === 0 ? "NIL (0)" : line.manifestQuantity} {UNIT_LABELS[line.unit]}</strong><small>{line.baselineReference || "No reference"}</small></li>)}</ul></details>
+          {onAgencyAction && !savedPlan && <p className="measurement-help">Your first reading or link action saves this voyage.</p>}
+          {!onAgencyAction && <p className="entry-next-note"><Icon name="info" size={17} />Next: report the vessel load for each selected agency. Each reading is kept separately from the owner’s declaration.</p>}
+
         </>}
 
       </section>
     </fieldset>
     <ErrorMessage error={error} />
-    <div className="entry-wizard-actions"><button className="link-btn" type="button" disabled={pending || agencyCreationPending} onClick={onCancel}>Cancel</button><div>{step > 0 && <button className="btn btn-secondary" type="button" disabled={pending || agencyCreationPending} onClick={() => { setAgencyCreationOpen(false); setStep(current => current - 1); setError(null); }}>Previous</button>}<button className="btn btn-primary" type="submit" disabled={blocked}>{pending ? "Saving…" : step === 2 ? "Create voyage sheet" : "Continue"}{step < 2 && <Icon name="arrowRight" size={16} />}</button></div></div>
+    <div className="entry-wizard-actions"><button className="link-btn" type="button" disabled={pending || agencyCreationPending} onClick={onCancel}>Cancel</button><div>{step > 0 && !setupLocked && <button className="btn btn-secondary" type="button" disabled={pending || agencyCreationPending} onClick={() => { setAgencyCreationOpen(false); setStep(current => current - 1); setError(null); }}>Previous</button>}{step === 2 && onAgencyAction ? <button className="btn btn-secondary" type="button" disabled={pending || agencyCreationPending || !savedPlan} onClick={onFinish ?? onCancel}>Finish</button> : <button className="btn btn-primary" type="submit" disabled={blocked}>{pending ? "Saving…" : step === 2 ? "Create voyage sheet" : "Continue"}{step < 2 && <Icon name="arrowRight" size={16} />}</button>}</div></div>
   </form>;
 }

@@ -163,7 +163,7 @@
 .entry-agency-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; font-size: 12px; color: var(--slate); margin: 0 0 17px; line-height: 1.6; }
 .entry-agency-toolbar p { max-width: 62ch; }
 .entry-agency-toolbar a { white-space: nowrap; }
-.entry-agency-catalog { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-bottom: 15px; align-items: start; }
+.entry-agency-catalog { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; margin-bottom: 15px; align-items: start; }
 .entry-agency-card { border: 1px solid var(--hairline-strong); border-radius: 8px; overflow: hidden; }
 .entry-agency-card.selected { border-color: #84b6d9; background: #f9fcff; }
 .entry-agency-choice { display: flex; align-items: center; gap: 12px; padding: 17px; cursor: pointer; }
@@ -221,3 +221,24 @@
 .entry-inline-agency h3 { margin-bottom: 15px; }
 .entry-inline-agency .measurement-help { margin: 13px 0; }
 .entry-inline-agency > .measurement-inline-actions { margin-top: 14px; justify-content: flex-end; }
+
+.entry-agency-options .measurement-field { max-width: 480px; }
+.entry-agency-direct-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.entry-agency-direct-actions .btn { min-width: 125px; justify-content: center; }
+@media (max-width: 600px) {
+  .entry-agency-options { padding-left: 17px; }
+  .entry-agency-direct-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .entry-agency-direct-actions .btn { min-width: 0; padding-inline: 10px; }
+}
+
+@media (min-width: 1200px) {
+  .entry-agency-catalog.direct-actions .entry-agency-card.selected { display: grid; grid-template-columns: minmax(180px,220px) minmax(180px,1fr) auto; gap: 14px 20px; padding: 17px; align-items: center; }
+  .entry-agency-catalog.direct-actions .selected > .entry-agency-choice { grid-column: 1; grid-row: 1; padding: 0; }
+  .entry-agency-catalog.direct-actions .selected > .entry-agency-options { display: contents; }
+  .entry-agency-catalog.direct-actions .entry-agency-options > .measurement-field { grid-column: 2; grid-row: 1; max-width: none; margin: 0; }
+  .entry-agency-catalog.direct-actions .entry-agency-direct-actions { grid-column: 3; grid-row: 1; margin: 0; align-self: end; }
+  .entry-agency-catalog.direct-actions .entry-agency-options > .agency-link-panel { grid-column: 1 / -1; margin: 0; }
+  .entry-agency-catalog.direct-actions .entry-agency-unavailable { grid-column: 1 / -1; grid-row: 2; margin: 0; }
+}
+
+.entry-agency-choice .entry-agency-submitted { color: #25623f; font-weight: 600; }

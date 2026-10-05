@@ -39,6 +39,32 @@ describe('measurement entry controls', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Record stakeholder return' }));
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ participantId: 'party-2', lines: [{ lineId: 'line-1', status: 'reported', quantity: '0', note: '' }], evidenceIds: ['file-1'] })));
   });
+  it('keeps a direct agency reading fixed to its selected participant', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<ReturnForm plan={measurementFixture()} initialParticipantId="party-2" fixedAgency collectionOnly onSave={onSave} onCancel={vi.fn()} />);
+    expect(screen.queryByLabelText('Reporting agency')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Source document reference'), 'TERMINAL-READING');
+    await userEvent.type(screen.getByLabelText('Reported quantity · Wheat'), '100');
+    await userEvent.click(screen.getByLabelText('signed-survey.pdf'));
+    await userEvent.click(screen.getByRole('button', { name: 'Submit reading' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ participantId: 'party-2' })));
+  });
+  it('fails closed when the selected direct agency no longer exists', () => {
+    render(<ReturnForm plan={measurementFixture()} initialParticipantId="deleted-party" fixedAgency collectionOnly onSave={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.queryByLabelText('Reporting agency')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit reading' })).toBeDisabled();
+    expect(screen.getByText('Choose an agency')).toBeInTheDocument();
+  });
+  it('preserves the draft and blocks saving when cargo IDs change while a form is open', async () => {
+    const plan = measurementFixture();
+    const { rerender } = render(<ReturnForm plan={plan} initialParticipantId="party-2" fixedAgency collectionOnly onSave={vi.fn()} onCancel={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText('Source document reference'), 'RETAINED-REF');
+    await userEvent.type(screen.getByLabelText('Reported quantity · Wheat'), '100');
+    await userEvent.click(screen.getByLabelText('signed-survey.pdf'));
+    rerender(<ReturnForm plan={{ ...plan, version: plan.version + 1, lines: [{ ...plan.lines[0], id: 'replacement-line' }] }} initialParticipantId="party-2" fixedAgency collectionOnly onSave={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByLabelText('Source document reference')).toHaveValue('RETAINED-REF');
+    expect(screen.getByRole('button', { name: 'Submit reading' })).toBeDisabled();
+  });
   it('requires a revision reason and keeps not-applicable distinct from zero', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<ReturnForm plan={measurementFixture()} onSave={onSave} onCancel={vi.fn()} />);

@@ -116,11 +116,20 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("checkbox", { name: "Select agency Test Ship Agent", exact: true }).check();
   await page.getByRole("checkbox", { name: "Select agency Test Terminal", exact: true }).check();
-  await page.getByRole("button", { name: "Create voyage sheet", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Report vessel load", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Finish", exact: true })).toBeDisabled();
+  const createdPlanResponse = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/measurement-plans");
+  await page.getByRole("group", { name: "Agency Test Ship Agent", exact: true }).getByRole("button", { name: "Enter reading", exact: true }).click();
+  const createdPlan = await createdPlanResponse;
+  expect(createdPlan.status(), await createdPlan.text()).toBe(201);
+  const planId: string = (await createdPlan.json()).plan.id;
+  const planPath = `/app/measurements/${planId}`;
+  await expect(page.getByRole("dialog", { name: "Test Ship Agent reading", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/measurements\/new\?callId=/);
+  await page.getByRole("button", { name: "Close reading", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Test Ship Agent reading", exact: true })).toHaveCount(0);
   await expect(page.getByRole("tablist", { name: "Measurement workspaces", exact: true })).toHaveCount(0);
-  const planPath = new URL(page.url()).pathname;
-  const planId = planPath.split("/").at(-1)!;
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/measurements$/);
   await page.goto(`${planPath}?workspace=reconciliation`);
   await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
 

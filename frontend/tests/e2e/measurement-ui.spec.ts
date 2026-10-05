@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
 import { measurementFixture } from "../../src/measurements/fixtures.test-support";
 import { guestContext } from "../../src/measurements/guest.test-support";
 import type { GuestReadingInput } from "../../src/measurements/guestTypes";
-import type { MeasurementPlan, PlanInput, ReconciliationInput, SubmissionInput } from "../../src/measurements/types";
+import type { Evidence, MeasurementPlan, PlanInput, ReconciliationInput, SubmissionInput } from "../../src/measurements/types";
 import type { AppState, AuthSession, VesselCall } from "../../src/types";
 
 test.skip(process.env.PLAYWRIGHT_REAL_BACKEND === "1", "These presentation checks use an isolated mocked API.");
@@ -13,6 +14,8 @@ async function installMeasurementApi(page: Page, initialPlan = measurementFixtur
   let plan: MeasurementPlan = structuredClone(initialPlan);
   const requests = {
     plans: [] as PlanInput[],
+    links: [] as { participantId: string; expiryDays: number }[],
+    uploads: [] as string[],
     submissions: [] as (SubmissionInput & { version: number })[],
     reconciliations: [] as (ReconciliationInput & { version: number })[],
     unexpected: [] as string[],
@@ -51,12 +54,28 @@ async function installMeasurementApi(page: Page, initialPlan = measurementFixtur
       return json({ plan, rev: 2 }, 201);
     }
     if (path === `/api/measurement-plans/${plan.id}` && request.method() === "GET") return json({ plan });
+    if (path === `/api/measurement-plans/${plan.id}/evidence/presign` && request.method() === "POST") return json({ uploadUrl: `${url.origin}/api/mock-measurement-upload`, headers: { "Content-Type": "application/pdf" }, objectKey: "mock-evidence-object" });
+    if (path === "/api/mock-measurement-upload" && request.method() === "PUT") {
+      requests.uploads.push(request.headers()["content-type"]);
+      return route.fulfill({ status: 200, body: "" });
+    }
+    if (path === `/api/measurement-plans/${plan.id}/evidence` && request.method() === "POST") {
+      const evidence: Evidence = { ...request.postDataJSON() as Omit<Evidence, "id" | "createdAt">, id: "uploaded-evidence", createdAt: "2026-10-05T12:00:00Z" };
+      plan = { ...plan, evidence: [...plan.evidence, evidence] };
+      return json({ evidence }, 201);
+    }
     if (path === `/api/measurement-plans/${plan.id}/agency-links` && request.method() === "GET") return json({ links: [] });
+    const linkParticipant = plan.participants.find(party => path === `/api/measurement-plans/${plan.id}/participants/${party.id}/agency-links`);
+    if (linkParticipant && request.method() === "POST") {
+      requests.links.push({ participantId: linkParticipant.id, ...request.postDataJSON() as { expiryDays: number } });
+      return json({ link: { id: `link-${linkParticipant.id}`, participantId: linkParticipant.id, expiresAt: "2099-10-12T12:00:00Z", revokedAt: null, submittedAt: null }, url: `https://example.test/agency-reading#token=synthetic-${linkParticipant.id}` }, 201);
+    }
     if (path === `/api/measurement-plans/${plan.id}/submissions` && request.method() === "POST") {
       const input = request.postDataJSON() as SubmissionInput & { version: number };
       requests.submissions.push(structuredClone(input));
+      if (input.version !== plan.version) return json({ detail: "This voyage changed. Reload the latest version." }, 409);
       const revision = 1 + Math.max(0, ...plan.submissions.filter(item => item.participantId === input.participantId).map(item => item.revision));
-      plan = { ...plan, version: plan.version + 1, submissions: [...plan.submissions, { ...input, id: "new-return", revision, recordedBy: user, recordedAt: "2026-10-04T12:00:00Z" }] };
+      plan = { ...plan, version: plan.version + 1, submissions: [...plan.submissions, { ...input, id: `new-return-${requests.submissions.length}`, revision, recordedBy: user, recordedAt: "2026-10-04T12:00:00Z" }] };
       return json({ plan, rev: 2 }, 201);
     }
     if (path === `/api/measurement-plans/${plan.id}/reconciliations` && request.method() === "POST") {
@@ -76,18 +95,35 @@ async function openDeclaration(page: Page) {
   await expect(page.getByRole("heading", { name: "Owner declaration", exact: true })).toBeVisible();
 }
 
-async function createPlan(page: Page, agencies = ["Harbour Agency"]) {
+async function openAgencyReading(page: Page, name: string) {
+  await page.getByRole("group", { name: `Agency ${name}`, exact: true }).getByRole("button", { name: "Enter reading", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: `${name} reading`, exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/measurements\/new(?:\?|$)/);
+  await page.getByRole("button", { name: "Close reading", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: `${name} reading`, exact: true })).toHaveCount(0);
+}
+
+async function createPlan(page: Page, agencies = ["Harbour Agency"], action: "reading" | "link" = "reading") {
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Agencies", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agency readings", exact: true })).toBeVisible();
   await expect(page.getByText("Step 3 of 3", { exact: true })).toBeVisible();
   for (const name of agencies) await page.getByRole("checkbox", { name: `Select agency ${name}`, exact: true }).check();
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Create voyage sheet", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Report vessel load", exact: true })).toBeVisible();
-  await expect(page).toHaveURL(/\/app\/measurements\/created-plan$/);
+  await expect(page.getByRole("button", { name: "Finish", exact: true })).toBeDisabled();
+  if (action === "reading") await openAgencyReading(page, agencies[0]);
+  else {
+    const agency = page.getByRole("group", { name: `Agency ${agencies[0]}`, exact: true });
+    await agency.getByRole("button", { name: "Get link", exact: true }).click();
+    await expect(agency.getByLabel(`Link for ${agencies[0]}`, { exact: true })).toHaveValue("https://example.test/agency-reading#token=synthetic-created-party-0");
+    await agency.getByRole("button", { name: "Get link", exact: true }).click();
+    await expect(page).toHaveURL(/\/app\/measurements\/new(?:\?|$)/);
+  }
   await expect(page.getByRole("tablist", { name: "Measurement workspaces", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Propose reconciliation|Assess disparity|Issue invoice/ })).toHaveCount(0);
-  for (const name of agencies) await expect(page.getByRole("article", { name: `Agency ${name}`, exact: true })).toBeVisible();
+  for (const name of agencies) await expect(page.getByRole("checkbox", { name: `Select agency ${name}`, exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/measurements$/);
+  await expect(page.getByRole("heading", { name: "Voyage log", exact: true })).toBeVisible();
 }
 
 async function fitsViewport(page: Page) {
@@ -96,6 +132,56 @@ async function fitsViewport(page: Page) {
 }
 
 const includeCargo = (page: Page, item: number) => page.getByRole("checkbox", { name: new RegExp(`^Include cargo item ${item} ·`) });
+
+test("same-page readings submit evidence and reuse one voyage with the latest version for the next agency", async ({ page }) => {
+  const api = await installMeasurementApi(page);
+  const pdf = Buffer.from("%PDF-1.4\n% Synthetic agency evidence\n%%EOF\n");
+  const evidenceName = "synthetic-agency-tally.pdf";
+  await page.goto("/app/measurements/new?callId=call-1");
+  await openDeclaration(page);
+  await page.getByLabel("Cargo description 1", { exact: true }).fill("Wheat");
+  await page.getByLabel("Manifest quantity 1", { exact: true }).fill("100");
+  await page.getByLabel("Vessel declaration reference", { exact: true }).fill("OWNER-BASELINE");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  for (const name of ["Harbour Agency", "Port Terminal"]) await page.getByRole("checkbox", { name: `Select agency ${name}`, exact: true }).check();
+  await expect(page.getByRole("button", { name: "Finish", exact: true })).toBeDisabled();
+
+  for (const [index, name] of ["Harbour Agency", "Port Terminal"].entries()) {
+    const agency = page.getByRole("group", { name: `Agency ${name}`, exact: true });
+    await expect(agency.getByText("Submitted", { exact: true })).toHaveCount(0);
+    await agency.getByRole("button", { name: "Enter reading", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: `${name} reading`, exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/measurements\/new\?callId=call-1$/);
+    await expect(dialog.getByRole("combobox", { name: "Reporting agency", exact: true })).toHaveCount(0);
+    await expect(dialog.getByLabel("Reported quantity · Wheat", { exact: true })).toHaveValue("");
+    await expect(dialog.getByLabel("Source document reference", { exact: true })).toHaveValue("");
+    await dialog.getByLabel("Source document reference", { exact: true }).fill(`AGENCY-READING-${index + 1}`);
+    await dialog.getByLabel("Reported quantity · Wheat", { exact: true }).fill(index ? "108.25" : "107.125");
+    await expect(dialog.getByRole("button", { name: "Submit reading", exact: true })).toBeDisabled();
+    if (index === 0) {
+      await dialog.locator('input[type="file"]').setInputFiles({ name: evidenceName, mimeType: "application/pdf", buffer: pdf });
+      await expect(dialog.getByLabel(evidenceName, { exact: true })).toBeChecked();
+    } else {
+      await expect(dialog.getByLabel(evidenceName, { exact: true })).not.toBeChecked();
+      await dialog.getByLabel(evidenceName, { exact: true }).check();
+    }
+    await dialog.getByRole("button", { name: "Submit reading", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(agency.getByText("Submitted", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/measurements\/new\?callId=call-1$/);
+    expect(api.requests.plans).toHaveLength(1);
+    expect(api.requests.submissions[index]).toMatchObject({ participantId: `created-party-${index}`, version: index + 1, sourceReference: `AGENCY-READING-${index + 1}`, evidenceIds: ["uploaded-evidence"], lines: [{ lineId: "created-line-0", quantity: index ? "108.25" : "107.125", status: "reported", note: "" }] });
+  }
+  expect(api.plan().version).toBe(3);
+  expect(api.plan().submissions.map(reading => reading.lines[0].quantity)).toEqual(["107.125", "108.25"]);
+  expect(api.requests.uploads).toEqual(["application/pdf"]);
+  expect(api.plan().evidence).toEqual([expect.objectContaining({ id: "uploaded-evidence", fileName: evidenceName, contentType: "application/pdf", size: pdf.byteLength, checksum: `sha256:${createHash("sha256").update(pdf).digest("hex")}` })]);
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/measurements$/);
+  await expect(page.getByText("2 / 2 agency readings", { exact: true })).toBeVisible();
+  expect(api.requests.unexpected).toEqual([]);
+});
 
 test("public agency link submits an independent reading and downloads only its own report without sign-in", async ({ page }) => {
   const context = guestContext();
@@ -258,7 +344,9 @@ test("mixed import cargo preserves declarations and snapshots reusable agencies"
   await page.getByLabel("Manifest quantity 2", { exact: true }).fill("5");
   await page.getByLabel("Manifest / baseline reference 2", { exact: true }).fill("BOL-CARS");
   await fitsViewport(page);
-  await createPlan(page, ["Harbour Agency", "Port Terminal"]);
+  await createPlan(page, ["Harbour Agency", "Port Terminal"], "link");
+  expect(api.requests.plans).toHaveLength(1);
+  expect(api.requests.links).toEqual([{ participantId: "created-party-0", expiryDays: 7 }]);
   expect(api.requests.plans[0].lines.map(line => [line.category, line.direction, line.unit, line.manifestQuantity])).toEqual([["Bulk", "import", "tonnes", "400"], ["Vehicle", "import", "count", "5"]]);
   expect(api.requests.plans[0].participants).toEqual([
     { name: "Harbour Agency", role: "Agent", representative: "Ada Agent", requiredSubmission: true, requiredApproval: true },
@@ -304,8 +392,9 @@ test("admin creates agencies inline without losing the declaration and protects 
   await page.getByRole("combobox", { name: "Agency role", exact: true }).selectOption("Surveyor");
   await page.getByRole("button", { name: "Save agency", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "Select agency Voyage Survey Agency", exact: true })).toBeChecked();
-  await page.getByRole("button", { name: "Create voyage sheet", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Agencies", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Finish", exact: true })).toBeDisabled();
+  await page.getByRole("group", { name: "Agency Voyage Survey Agency", exact: true }).getByRole("button", { name: "Enter reading", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Agency readings", exact: true })).toBeVisible();
   expect(api.requests.plans).toHaveLength(0);
   await page.getByLabel("Representative for Voyage Survey Agency", { exact: true }).fill("Voyage Surveyor");
   await page.getByRole("button", { name: "Previous", exact: true }).click();
@@ -313,9 +402,12 @@ test("admin creates agencies inline without losing the declaration and protects 
   await expect(page.getByLabel("Vessel declaration reference", { exact: true })).toHaveValue("OWNER-VOYAGE-003");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await fitsViewport(page);
-  await page.getByRole("button", { name: "Create voyage sheet", exact: true }).click();
-  await expect(page).toHaveURL(/\/created-plan$/);
-  await expect(page.getByRole("heading", { name: "Report vessel load", exact: true })).toBeVisible();
+  await openAgencyReading(page, "Voyage Survey Agency");
+  await openAgencyReading(page, "Reusable Marine Agency");
+  expect(api.requests.plans).toHaveLength(1);
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/measurements$/);
+  await expect(page.getByRole("heading", { name: "Voyage log", exact: true })).toBeVisible();
   await expect(page.getByRole("tablist", { name: "Measurement workspaces", exact: true })).toHaveCount(0);
   expect(api.requests.plans[0]).toMatchObject({ callId: "call-3", lines: [expect.objectContaining({ manifestQuantity: "500", baselineReference: "OWNER-VOYAGE-003", direction: "import" })], participants: [expect.objectContaining({ name: "Reusable Marine Agency", representative: "Regular Agent" }), expect.objectContaining({ name: "Voyage Survey Agency", representative: "Voyage Surveyor" })] });
   await page.goto("/app/settings/agencies");

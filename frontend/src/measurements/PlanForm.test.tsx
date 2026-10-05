@@ -2,9 +2,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { VesselCall } from "../types";
-import type { PlanInput } from "./types";
+import type { ParticipantInput, PlanInput } from "./types";
 import type { AgencyProfile } from "./agencyDirectory";
 import { PlanForm } from "./PlanForm";
+import { measurementFixture } from "./fixtures.test-support";
 
 const vessel: VesselCall = { id: "call-1", vesselName: "MV Atlas", reference: "CALL-001", type: "Cargo", flag: "NG", nrt: 12345, eta: "2026-10-07T12:00:00Z", sailingEta: "", berth: "Berth 3", berthDate: null, status: "pending", notes: "", version: 1, registered: "2026-10-01" };
 const calls: VesselCall[] = [vessel, { ...vessel, id: "call-2", vesselName: " MV ATLAS ", reference: "CALL-002", berth: "Berth 8" }, { ...vessel, id: "call-3", vesselName: "MV Horizon", reference: "CALL-003" }, { ...vessel, id: "cancelled", vesselName: "Cancelled vessel", status: "cancelled" }];
@@ -378,4 +379,109 @@ describe("voyage declaration wizard", () => {
     await previous(user);
     expect(screen.getByLabelText("Cargo description 1")).toHaveValue("Wheat");
   });
+
+  it("offers direct agency actions with a shared validated payload and finishes only after the voyage is saved", async () => {
+    const { user, onSave, onCancel, rerender, props, container } = setup();
+    const onAgencyAction = vi.fn<(agencyId: string, action: "reading" | "link", input: PlanInput, participant: ParticipantInput) => Promise<void>>().mockResolvedValue(undefined);
+    const onFinish = vi.fn();
+    rerender(<PlanForm {...props} onAgencyAction={onAgencyAction} onFinish={onFinish} />);
+    await next(user);
+    await user.type(screen.getByLabelText("Cargo description 1"), "Wheat");
+    await user.type(screen.getByLabelText("Manifest quantity 1"), "0");
+    await user.type(screen.getByLabelText("Vessel declaration reference"), "OWNER-NIL");
+    await next(user);
+    expect(screen.getByRole("heading", { name: "Agency readings" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create voyage sheet" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enter reading" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled();
+    expect(screen.getByText("Your first reading or link action saves this voyage.")).toBeInTheDocument();
+    expect(screen.queryByText("Review declaration and agencies")).not.toBeInTheDocument();
+    expect(screen.getByText("Owner declaration · 1 cargo item", { selector: "summary" })).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
+    const card = within(screen.getByRole("group", { name: "Agency Harbour Agency" }));
+    await user.clear(card.getByLabelText("Representative for Harbour Agency"));
+    await user.click(card.getByRole("button", { name: "Enter reading" }));
+    expect(onAgencyAction).not.toHaveBeenCalled();
+    expect(card.getByLabelText("Representative for Harbour Agency")).toBeInvalid();
+    await user.type(card.getByLabelText("Representative for Harbour Agency"), "Voyage delegate");
+    await user.click(card.getByRole("button", { name: "Enter reading" }));
+    await waitFor(() => expect(onAgencyAction).toHaveBeenCalledOnce());
+    const input = onAgencyAction.mock.calls[0][2];
+    expect(onAgencyAction).toHaveBeenCalledWith("agency-1", "reading", expect.objectContaining({ callId: vessel.id, lines: [expect.objectContaining({ description: "Wheat", manifestQuantity: "0", baselineReference: "OWNER-NIL", direction: "import" })], participants: [{ name: "Harbour Agency", role: "Agent", representative: "Voyage delegate", requiredSubmission: true, requiredApproval: true }] }), input.participants[0]);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled();
+    rerender(<PlanForm {...props} agencyCatalog={catalog.map(profile => profile.id === "agency-1" ? { ...profile, name: "Renamed directory agency", representative: "New directory contact" } : profile)} onAgencyAction={onAgencyAction} onFinish={onFinish} savedPlan={measurementFixture()} renderAgencyAction={id => id === "agency-1" ? <div role="status">Agency link panel</div> : null} />);
+    expect(card.getByRole("checkbox", { name: "Select agency Harbour Agency" })).toBeDisabled();
+    expect(card.getByLabelText("Representative for Harbour Agency")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
+    expect(card.getByRole("button", { name: "Enter reading" })).toBeEnabled();
+    expect(card.getByRole("button", { name: "Get link" })).toBeEnabled();
+    expect(card.getByRole("status")).toHaveTextContent("Agency link panel");
+    expect(container.querySelectorAll("form form")).toHaveLength(0);
+    await user.click(card.getByRole("button", { name: "Get link" }));
+    await waitFor(() => expect(onAgencyAction).toHaveBeenCalledTimes(2));
+    expect(onAgencyAction).toHaveBeenLastCalledWith("agency-1", "link", input, input.participants[0]);
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+    expect(onFinish).toHaveBeenCalledOnce();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("serializes direct actions and retains agency selection and declaration after an action fails", async () => {
+    const { user, props, rerender, onSave } = setup();
+    let rejectAction: (error: Error) => void = () => {};
+    const onAgencyAction = vi.fn<(agencyId: string, action: "reading" | "link", input: PlanInput, participant: ParticipantInput) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectAction = reject; }))
+      .mockResolvedValue(undefined);
+    rerender(<PlanForm {...props} onAgencyAction={onAgencyAction} />);
+    await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat");
+    await next(user); await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
+    await user.click(screen.getByRole("button", { name: "Get link" }));
+    expect(screen.getByRole("button", { name: "Preparing…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Enter reading" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    rejectAction(new Error("Could not prepare this agency link"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not prepare this agency link");
+    expect(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" })).toBeChecked();
+    await previous(user);
+    expect(screen.getByLabelText("Cargo description 1")).toHaveValue("Wheat");
+    await user.type(screen.getByLabelText("Manifest quantity 1"), "3");
+    await user.type(screen.getByLabelText("Vessel declaration reference"), "OWNER-3");
+    await next(user); await user.click(screen.getByRole("button", { name: "Enter reading" }));
+    await waitFor(() => expect(onAgencyAction).toHaveBeenCalledTimes(2));
+    expect(onAgencyAction).toHaveBeenLastCalledWith("agency-1", "reading", expect.objectContaining({ lines: [expect.objectContaining({ manifestQuantity: "3", baselineReference: "OWNER-3" })] }), expect.objectContaining({ name: "Harbour Agency", role: "Agent", representative: "Ada Agent" }));
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("marks only the exact saved agency snapshot as submitted", async () => {
+    const { user, props, rerender } = setup();
+    const onAgencyAction = vi.fn().mockResolvedValue(undefined);
+    rerender(<PlanForm {...props} onAgencyAction={onAgencyAction} />);
+    await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat");
+    await next(user); await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
+    const plan = measurementFixture();
+    plan.participants[0] = { ...plan.participants[0], name: agency.name, role: agency.role, representative: agency.representative };
+    rerender(<PlanForm {...props} onAgencyAction={onAgencyAction} savedPlan={plan} />);
+    expect(within(screen.getByRole("group", { name: "Agency Harbour Agency" })).getByRole("status")).toHaveTextContent("Submitted");
+    const changed = { ...plan, participants: plan.participants.map(party => ({ ...party, representative: "Different representative" })) };
+    rerender(<PlanForm {...props} onAgencyAction={onAgencyAction} savedPlan={changed} />);
+    expect(screen.queryByText("Submitted")).not.toBeInTheDocument();
+  });
+
+  it("locks agency creation after persistence and provides the Finish fallback without a second save", async () => {
+    const { user, props, rerender, onSave, onCancel } = setup({ onCreateAgency: vi.fn() });
+    const onAgencyAction = vi.fn().mockResolvedValue(undefined);
+    rerender(<PlanForm {...props} onAgencyAction={onAgencyAction} />);
+    await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat");
+    await next(user); await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
+    await user.click(screen.getByRole("button", { name: "Enter reading" }));
+    await waitFor(() => expect(onAgencyAction).toHaveBeenCalledOnce());
+    rerender(<PlanForm {...props} onAgencyAction={onAgencyAction} savedPlan={measurementFixture()} />);
+    expect(screen.getByRole("button", { name: "Create agency" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Select agency Port Terminal" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
 });

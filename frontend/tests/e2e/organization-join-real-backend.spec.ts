@@ -36,15 +36,18 @@ test("a fresh anonymous session opens a real organization sign-up link after the
   try {
     expect(await context.cookies()).toEqual([]);
     await page.addInitScript(() => {
-      Reflect.set(window, "__organizationJoinAnonymousBoundary", false);
+      const browserGlobal = globalThis as typeof globalThis & {
+        addEventListener(type: "pagehide", listener: () => void, options: { once: boolean }): void;
+      };
+      Reflect.set(browserGlobal, "__organizationJoinAnonymousBoundary", false);
       const channel = new BroadcastChannel("vessel-caller:auth-boundary");
       channel.addEventListener("message", (event) => {
         const message = event.data as { type?: string; phase?: string };
         if (message?.type === "auth-boundary-v1" && message.phase === "boundary") {
-          Reflect.set(window, "__organizationJoinAnonymousBoundary", true);
+          Reflect.set(browserGlobal, "__organizationJoinAnonymousBoundary", true);
         }
       });
-      window.addEventListener("pagehide", () => channel.close(), { once: true });
+      browserGlobal.addEventListener("pagehide", () => channel.close(), { once: true });
     });
 
     let markLookupStarted = () => {};
@@ -63,7 +66,7 @@ test("a fresh anonymous session opens a real organization sign-up link after the
     await page.route("**/api/organization-join/resolve", async (route) => {
       markLookupStarted();
       const resolved = await route.fetch();
-      await page.waitForFunction(() => Reflect.get(window, "__organizationJoinAnonymousBoundary") === true);
+      await page.waitForFunction(() => Reflect.get(globalThis, "__organizationJoinAnonymousBoundary") === true);
       await route.fulfill({ response: resolved });
     });
 

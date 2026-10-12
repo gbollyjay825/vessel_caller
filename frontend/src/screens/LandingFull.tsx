@@ -3,6 +3,7 @@
 // Styles live in styles/landing.css (imported globally in main.tsx).
 import { useEffect, useState, type SVGProps } from "react";
 import { Link } from "../lib/navigation";
+import { ProductBrand } from "../components/ProductBrand";
 
 // ---- tiny inline icon set (stroke, inherits currentColor) ----
 const STROKE = {
@@ -45,6 +46,12 @@ const ArrBtn = () => (
     <IcArrow size={12} />
   </span>
 );
+
+function Brand({ light }: { light?: boolean }) {
+  return <a className="brand" href="#top" style={light ? { color: "#fff" } : undefined}>
+    <ProductBrand subtitle="Port inspection" />
+  </a>;
+}
 
 // ---- content ----
 const NAV: [string, string][] = [
@@ -265,13 +272,6 @@ export function Landing() {
     return () => { io.disconnect(); document.documentElement.classList.remove("js-reveal"); };
   }, []);
 
-  const Brand = ({ light }: { light?: boolean }) => (
-    <a className="brand" href="#top" style={light ? { color: "#fff" } : undefined}>
-      <span className="mark"><IcAnchor size={19} /></span>
-      <span>Vessel Caller<small style={light ? { color: "rgba(255,255,255,.4)" } : undefined}>Port Inspection</small></span>
-    </a>
-  );
-
   return (
     <>
       {/* ================= NAV ================= */}
@@ -304,7 +304,7 @@ export function Landing() {
         <div className="wrap hero-in">
           <span className="badge"><span className="dot" /> NPA tariff-aligned · Built for Nigerian ports</span>
           <h1>Every vessel call,<br />from <span className="serif">berth</span> to <span className="serif">paid.</span></h1>
-          <p className="sub">Vessel Caller runs the complete port-inspection workflow — vessel registration, liquid &amp; dry cargo reconciliation, automated harbour dues, invoicing and payment tracking — in one auditable system.</p>
+          <p className="sub">NPA Vessel Caller runs the complete port-inspection workflow — vessel registration, liquid &amp; dry cargo reconciliation, automated harbour dues, invoicing and payment tracking — in one auditable system.</p>
           <div className="hero-cta">
             <Link className="btn btn-amber" to="/login">Launch the app <ArrBtn /></Link>
             <a className="btn btn-line" href="#how">See how it works</a>
@@ -449,7 +449,7 @@ export function Landing() {
       <section style={{ paddingTop: 0 }}>
         <div className="wrap">
           <div className="cta reveal">
-            <h2>Bring your next vessel call in<br />with Vessel Caller.</h2>
+            <h2>Bring your next vessel call in<br />with NPA Vessel Caller.</h2>
             <p>Register your organization, verify the first Admin account, invite your team, and run your first inspection.</p>
             <div className="hero-cta">
               <Link className="btn btn-amber" to="/register">Register an organization <ArrBtn /></Link>
@@ -478,9 +478,9 @@ export function Landing() {
               </div>
             ))}
           </div>
-          <div className="foot-mega" aria-hidden="true">VESSEL CALLER</div>
+          <div className="foot-mega" aria-hidden="true">NPA VESSEL CALLER</div>
           <div className="foot-bottom">
-            <span>© 2026 Vessel Caller · Built for the Port of Calabar and Nigerian ports.</span>
+            <span>© 2026 NPA Vessel Caller · Built for the Port of Calabar and Nigerian ports.</span>
             <span>Vessel calls · Inspections · Harbour dues · Payments</span>
           </div>
         </div>

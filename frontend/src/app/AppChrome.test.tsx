@@ -130,7 +130,7 @@ describe("application chrome", () => {
         <TopBar title="Invoices" />
       </>,
     );
-    expect(screen.getByAltText("Vessel Caller logo")).toBeInTheDocument();
+    expect(screen.getByAltText("NPA Vessel Caller logo")).toBeInTheDocument();
     expect(screen.getByText("No user")).toBeInTheDocument();
     expect(screen.getByLabelText("Current port: Onne")).toBeInTheDocument();
     expect(view.container.querySelector(".avatar")).toHaveTextContent("—");
@@ -138,7 +138,7 @@ describe("application chrome", () => {
 
   it("uses the NPA logo for an ordinary organisation without a logo and preserves custom branding", () => {
     const view = render(<Sidebar />);
-    expect(screen.getByRole("img", { name: "Nigerian Ports Authority" })).toHaveAttribute("src", "/branding/npa-logo.png");
+    expect(screen.getByRole("img", { name: "Nigerian Ports Authority" })).toHaveAttribute("src", "/branding/npa-icon-192.png");
     expect(view.container.querySelector(".sb-brand")).toHaveClass("sb-brand--npa");
 
     mocks.store = makeStore({ org: { ...(mocks.store.org as Record<string, unknown>), logo: "/custom-harbour-logo.png" } });

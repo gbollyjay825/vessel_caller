@@ -40,7 +40,7 @@ export function InvitationAccept() {
     <AuthCard
       title={complete ? "Invitation accepted" : "Join your organization"}
       subtitle={complete
-        ? "Your account is ready. Sign in to access the Vessel Caller workspace."
+        ? "Your account is ready. Sign in to access the NPA Vessel Caller workspace."
         : "Complete your profile and choose a secure password."}
     >
       {complete ? (

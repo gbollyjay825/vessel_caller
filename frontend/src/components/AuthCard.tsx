@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "../lib/navigation";
+import { ProductBrand } from "./ProductBrand";
 
 interface AuthCardProps {
   title: string;
@@ -11,10 +12,7 @@ export function AuthCard({ title, subtitle, children }: AuthCardProps) {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <div className="auth-brand">
-          <span className="auth-mark" aria-hidden="true">⚓</span>
-          Vessel Caller
-        </div>
+        <ProductBrand className="auth-brand" />
         <h1 className="auth-title">{title}</h1>
         <p className="auth-sub">{subtitle}</p>
         {children}

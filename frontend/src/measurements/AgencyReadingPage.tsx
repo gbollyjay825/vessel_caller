@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ProductBrand } from "../components/ProductBrand";
 import { GuestAgencyReading } from "./GuestAgencyReading";
 import { createGuestSubmissionAttempt, guestAgencyApi, GuestPortalError, type GuestPortalContext } from "./guestApi";
 import type { GuestReadingInput } from "./guestTypes";
@@ -55,5 +56,5 @@ export function AgencyReadingPage() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   if (context) return <>{context.uiPreview && <div className="guest-preview-notice" role="note">UI preview · sample data only. Secure agency links and report storage are not connected in this preview.</div>}<GuestAgencyReading context={context} onSubmit={submit} onDownloadReport={download} /></>;
-  return <main className="guest-reading-page"><div className="guest-reading-shell"><div className="guest-reading-brand">Vessel Caller</div>{error ? <section className="guest-reading-card"><h1>Agency link unavailable</h1><p className="guest-reading-error" role="alert">{error}</p><p className="guest-reading-help">Reopen the original agency link, or ask the voyage coordinator for a current link. No account sign-in is required.</p></section> : <p role="status">Opening your agency reading form…</p>}</div></main>;
+  return <main className="guest-reading-page"><div className="guest-reading-shell"><ProductBrand className="guest-reading-brand" />{error ? <section className="guest-reading-card"><h1>Agency link unavailable</h1><p className="guest-reading-error" role="alert">{error}</p><p className="guest-reading-help">Reopen the original agency link, or ask the voyage coordinator for a current link. No account sign-in is required.</p></section> : <p role="status">Opening your agency reading form…</p>}</div></main>;
 }

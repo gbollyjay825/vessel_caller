@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Icon } from "../components/Icon";
+import { ProductBrand } from "../components/ProductBrand";
 import { cargoScopeLabel, dateLabel, localDateTime } from "./helpers";
 import { readingQuantity } from "./comparison";
 import { UNIT_LABELS } from "./cargoTemplates";
@@ -30,7 +31,7 @@ function GuestReadingWorkspace({ context, onSubmit, onDownloadReport }: GuestAge
   const ownReport = current.ownReport?.status === "submitted" && current.ownReport.participantId === context.agency.id ? current.ownReport : null;
   const peers = ownReport ? current.completedPeers.filter(report => report.status === "submitted" && report.participantId !== context.agency.id) : [];
   return <main className="guest-reading-page"><div className="guest-reading-shell">
-    <div className="guest-reading-brand"><Icon name="anchor" size={19} />Vessel Caller</div>
+    <ProductBrand className="guest-reading-brand" />
     <h1>{ownReport ? "Your agency report" : "Record your agency’s reading"}</h1>
     <p className="guest-reading-intro">{ownReport ? "Your submitted measurement is recorded below. Download your report and view completed readings from other agencies on this voyage." : "Enter your agency’s independent measurements for this voyage. Your agency is fixed to this form; no account sign-in is needed."}</p>
     <section className="guest-reading-card" aria-labelledby="guest-agency-heading">

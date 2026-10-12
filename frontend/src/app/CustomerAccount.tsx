@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
+import { PRODUCT_NAME } from "../components/ProductBrand";
 import { Link } from "../lib/navigation";
 import { AccountSecurity } from "../screens/AccountSecurity";
 
@@ -17,7 +18,7 @@ export function CustomerAccount() {
       <header className="topbar account-workspace-header">
         <div>
           <h1>Account &amp; Security</h1>
-          <p className="muted">{org?.name || "Vessel Caller"}</p>
+          <p className="muted">{org?.name || PRODUCT_NAME}</p>
         </div>
         <button className="btn btn-ghost" type="button" onClick={() => void logout()}>
           <Icon name="logout" size={16} />Sign out

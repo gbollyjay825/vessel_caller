@@ -7,6 +7,7 @@ import { SHOW_SECONDARY_WORKFLOW_UI } from "../lib/featureVisibility";
 
 import { useAuth, type Permission } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
+import { ProductBrand, PRODUCT_NAME } from "../components/ProductBrand";
 import { orgPortsLabel, userInitials } from "../lib/format";
 import { useStore } from "./store";
 
@@ -38,23 +39,19 @@ const VISIBLE_NAV_KEYS = new Set(["dashboard", "measurements", "variation-invoic
 export function Sidebar({ mobileOpen, closeMobile }: { mobileOpen?: boolean; closeMobile?: () => void }) {
   const { org } = useStore();
   const { user, logout, can } = useAuth();
-  const orgName = org?.name || "Vessel Caller";
-  const logo = org?.logo || (org ? "/branding/npa-logo.png" : undefined);
+  const orgName = org?.name || PRODUCT_NAME;
+  const logo = org?.logo || "/branding/npa-logo.png";
   const hasNpaLogo = logo === "/branding/npa-logo.png";
   const portLine = orgPortsLabel(org, "Port of Calabar") + " · Inspection";
   return (
     <nav className={"sidebar " + (mobileOpen ? "open" : "")} aria-label="Primary">
       <div className={"sb-brand" + (hasNpaLogo ? " sb-brand--npa" : "")}>
         {hasNpaLogo ? (
-          <div className="sb-npa-logo-wrap">
-            <img className="sb-npa-logo" src={logo} width={304} height={136} alt="Nigerian Ports Authority" />
-          </div>
+          <ProductBrand className="sb-product-brand" subtitle={org?.name || portLine} />
         ) : (
           <>
-            <div className="sb-mark" style={logo ? { background: "#fff", overflow: "hidden", border: "1px solid var(--hairline)" } : undefined}>
-              {logo
-                ? <img src={logo} alt={orgName + " logo"} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-                : <Icon name="anchor" size={19} strokeWidth={2} />}
+            <div className="sb-mark" style={{ background: "#fff", overflow: "hidden", border: "1px solid var(--hairline)" }}>
+              <img src={logo} alt={orgName + " logo"} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </div>
             <div className="sb-wordmark">{orgName}<span>{portLine}</span></div>
           </>
@@ -114,7 +111,7 @@ export function TopBar({ title, onHamburger }: { title: string; onHamburger?: ()
               <div style={{ position: "absolute", right: 0, top: "110%", background: "#fff", border: "1px solid var(--hairline)", borderRadius: 8, boxShadow: "var(--shadow-pop)", minWidth: 240, zIndex: 2, padding: 6 }}>
                 <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--hairline)", marginBottom: 4 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{user ? user.name : "No user"}</div>
-                  <div style={{ fontSize: 12, color: "var(--slate-soft)" }}>{user ? `${user.role} · ${org?.name || "Vessel Caller"}` : "—"}</div>
+                  <div style={{ fontSize: 12, color: "var(--slate-soft)" }}>{user ? `${user.role} · ${org?.name || PRODUCT_NAME}` : "—"}</div>
                 </div>
                 <Link className="sb-item" style={{ borderLeft: "none" }} to="/app/account" onClick={() => setMenuOpen(false)}
                   aria-label="Account and security">

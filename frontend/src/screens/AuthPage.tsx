@@ -4,24 +4,7 @@ import { Link, useLocation, useNavigate } from "../lib/navigation";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../lib/api";
 import type { AuthSession } from "../types";
-
-const anchor = (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M12 22V8" />
-    <path d="M5 12H2a10 10 0 0 0 20 0h-3" />
-    <circle cx="12" cy="5" r="3" />
-  </svg>
-);
+import { ProductBrand } from "../components/ProductBrand";
 
 function errorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -128,7 +111,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
     return (
       <div className="auth-wrap">
         <div className="auth-card" role="status">
-          <div className="auth-brand"><span className="auth-mark">{anchor}</span> Vessel Caller</div>
+          <ProductBrand className="auth-brand" />
           <h1 className="auth-title">Verify your email</h1>
           <p className="auth-sub">{notice}</p>
           {approvalRequired && (
@@ -153,7 +136,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   return (
     <div className="auth-wrap">
       <form className="auth-card" onSubmit={submit}>
-        <div className="auth-brand"><span className="auth-mark">{anchor}</span> Vessel Caller</div>
+        <ProductBrand className="auth-brand" />
         <h1 className="auth-title">
           {challengeId ? "Two-factor verification" : mode === "login" ? "Sign in" : "Register your organization"}
         </h1>

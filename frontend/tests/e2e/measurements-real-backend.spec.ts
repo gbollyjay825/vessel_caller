@@ -11,7 +11,7 @@ async function signIn(page: Page, email: string) {
   const submit = page.getByRole("button", { name: "Sign in", exact: true });
   await expect(submit).toBeEnabled();
   await submit.evaluate((button) => (button as { click: () => void }).click());
-  await expect(page).toHaveURL(/\/app$/);
+  await expect(page).toHaveURL(/\/app\/dashboard$/);
   await expect(page.getByText("Loading your workspace…")).toBeHidden();
 }
 

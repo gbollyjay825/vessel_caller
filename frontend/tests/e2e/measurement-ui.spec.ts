@@ -123,7 +123,7 @@ async function createPlan(page: Page, agencies = ["Harbour Agency"], action: "re
   for (const name of agencies) await expect(page.getByRole("checkbox", { name: `Select agency ${name}`, exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/measurements$/);
-  await expect(page.getByRole("heading", { name: "Voyages", exact: true })).toBeVisible();
+  await expect(page.locator(".content").getByRole("heading", { name: "Voyages", exact: true })).toBeVisible();
 }
 
 async function fitsViewport(page: Page) {
@@ -180,7 +180,7 @@ test("same-page readings support optional evidence and reuse one voyage with the
   expect(api.plan().evidence).toEqual([expect.objectContaining({ id: "uploaded-evidence", fileName: evidenceName, contentType: "application/pdf", size: pdf.byteLength, checksum: `sha256:${createHash("sha256").update(pdf).digest("hex")}` })]);
   await page.getByRole("link", { name: "View readings", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/measurements\/voyages\/call-1\/readings$/);
-  await expect(page.getByRole("heading", { name: "Readings", exact: true })).toBeVisible();
+  await expect(page.locator(".content").getByRole("heading", { name: "Readings", exact: true })).toBeVisible();
   const report = page.getByRole("table", { name: "Owner declaration and agency readings for this voyage", exact: true });
   await expect(report.getByRole("columnheader", { name: /^Owner declaration/ })).toBeVisible();
   await expect(report.getByRole("columnheader", { name: /^Harbour Agency/ })).toBeVisible();
@@ -210,7 +210,7 @@ test("voyage readings compare all its sheets without mixing another voyage or co
   await fitsViewport(page);
   await voyage.getByRole("link", { name: "Readings", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/measurements\/voyages\/call-1\/readings$/);
-  await expect(page.getByRole("heading", { name: "Readings", exact: true })).toBeVisible();
+  await expect(page.locator(".content").getByRole("heading", { name: "Readings", exact: true })).toBeVisible();
   const report = page.getByRole("table", { name: "Owner declaration and agency readings for this voyage", exact: true });
   await expect(report.getByRole("columnheader", { name: /^Owner declaration/ })).toBeVisible();
   await expect(report.getByRole("columnheader", { name: /^Harbour Agent/ })).toBeVisible();
@@ -464,7 +464,7 @@ test("admin creates agencies inline without losing the declaration and protects 
   expect(api.requests.plans).toHaveLength(1);
   await page.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/measurements$/);
-  await expect(page.getByRole("heading", { name: "Voyages", exact: true })).toBeVisible();
+  await expect(page.locator(".content").getByRole("heading", { name: "Voyages", exact: true })).toBeVisible();
   await expect(page.getByRole("tablist", { name: "Measurement workspaces", exact: true })).toHaveCount(0);
   expect(api.requests.plans[0]).toMatchObject({ callId: "call-3", lines: [expect.objectContaining({ manifestQuantity: "500", baselineReference: "OWNER-VOYAGE-003", direction: "import" })], participants: [expect.objectContaining({ name: "Reusable Marine Agency", representative: "Regular Agent" }), expect.objectContaining({ name: "Voyage Survey Agency", representative: "Voyage Surveyor" })] });
   await page.goto("/app/settings/agencies");

@@ -542,7 +542,8 @@ class AuditExportView(APIView):
         for event in AuditEvent.objects.filter(
             organization=request.user.organization
         ).select_related("actor"):
-            writer.writerow(
+            # Every dynamic string is formula-escaped by csv_safe; the timestamp is generated.
+            writer.writerow(  # nosemgrep: python.django.security.injection.csv-writer-injection.csv-writer-injection
                 [
                     event.occurred_at.isoformat(),
                     csv_safe(event.action),

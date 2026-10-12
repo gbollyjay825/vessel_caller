@@ -10,6 +10,11 @@ on:
         description: Existing signed v* tag to package
         required: true
         type: string
+      staging_candidate:
+        description: Build this workflow commit as a signed staging-only candidate artifact
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -21,23 +26,23 @@ jobs:
   backend:
     uses: ./.github/workflows/backend.yml
     with:
-      ref: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.staging_candidate && github.sha || inputs.tag || github.ref_name }}
   frontend:
     uses: ./.github/workflows/frontend.yml
     with:
-      ref: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.staging_candidate && github.sha || inputs.tag || github.ref_name }}
   browser:
     uses: ./.github/workflows/e2e.yml
     with:
-      ref: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.staging_candidate && github.sha || inputs.tag || github.ref_name }}
   infrastructure:
     uses: ./.github/workflows/infrastructure.yml
     with:
-      ref: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.staging_candidate && github.sha || inputs.tag || github.ref_name }}
   security:
     uses: ./.github/workflows/security.yml
     with:
-      ref: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.staging_candidate && github.sha || inputs.tag || github.ref_name }}
 
   package:
     needs:
@@ -50,10 +55,12 @@ jobs:
     timeout-minutes: 30
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      STAGING_CANDIDATE: ${{ inputs.staging_candidate && 'true' || 'false' }}
+      VITE_API_BASE: ""
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ inputs.staging_candidate && github.sha || env.RELEASE_TAG }}
           fetch-depth: 0
       - name: Verify release tag
         env:
@@ -62,6 +69,18 @@ jobs:
           if [[ ! "${RELEASE_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Release tag must use semantic vMAJOR.MINOR.PATCH syntax." >&2
             exit 1
+          fi
+          if [[ "${STAGING_CANDIDATE}" == "true" ]]; then
+            if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-staging\.[0-9A-Za-z.-]+$ ]]; then
+              echo "Candidate artifacts must use a staging prerelease name." >&2
+              exit 1
+            fi
+            test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+            # This local-only tag is a packaging label, never published as a
+            # verified release tag. The archive is signed and attested below.
+            git -c user.name='Vessel Caller CI' -c user.email='ci@vesselcalls.com' \
+              tag -a "${RELEASE_TAG}" -m "Staging candidate ${GITHUB_SHA}"
+            exit 0
           fi
           tag_object="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object')"
           if [[ "$(jq -r '.type' <<<"${tag_object}")" != "tag" ]]; then
@@ -119,6 +138,7 @@ jobs:
         with:
           subject-path: artifacts/vessel-caller-${{ env.RELEASE_TAG }}.tar.gz
       - name: Publish GitHub release
+        if: ${{ !inputs.staging_candidate }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -130,3 +150,11 @@ jobs:
             "artifacts/vessel-caller-${RELEASE_TAG}.sbom.spdx.json" \
             --verify-tag \
             --generate-notes
+      - name: Upload signed staging candidate
+        if: ${{ inputs.staging_candidate }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-candidate-${{ env.RELEASE_TAG }}
+          path: artifacts/vessel-caller-${{ env.RELEASE_TAG }}.*
+          retention-days: 7
+          if-no-files-found: error

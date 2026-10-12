@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { Link } from "../lib/navigation";
+import { SHOW_SECONDARY_WORKFLOW_UI } from "../lib/featureVisibility";
 import { cargoInputLabel, dateLabel, latestReconciliation, latestReturns } from "./helpers";
 import { readingQuantity } from "./comparison";
 import { UNIT_LABELS } from "./cargoTemplates";
@@ -56,7 +57,7 @@ export function AgencyCollection({ plan, canManage, links = [], onSubmit, onCrea
         </AgencyCard>;
       })}</div>
     </Section>
-    {plan.reconciliations.length > 0 && <p className="measurement-help"><Link to={`/app/measurements/${plan.id}?workspace=reconciliation`}>View previous reconciliation records</Link></p>}
+    {SHOW_SECONDARY_WORKFLOW_UI && plan.reconciliations.length > 0 && <p className="measurement-help"><Link to={`/app/measurements/${plan.id}?workspace=reconciliation`}>View previous reconciliation records</Link></p>}
   </div>;
 }
 

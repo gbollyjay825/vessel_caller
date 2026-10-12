@@ -141,7 +141,7 @@ describe("VesselCalls list", () => {
     vi.spyOn(window, "open").mockImplementation(() => null);
   });
 
-  it("searches, filters, opens records, and exposes completed documents", async () => {
+  it("searches, filters, and opens records with billing shortcuts hidden", async () => {
     render(<VesselCalls />);
     expect(screen.getAllByText("MV Pending").length).toBeGreaterThan(0);
     expect(screen.getAllByText("MV Completed").length).toBeGreaterThan(0);
@@ -159,8 +159,11 @@ describe("VesselCalls list", () => {
     await userEvent.click(within(pendingRow).getByRole("button", { name: /Open/ }));
     expect(mocks.navigate).toHaveBeenCalledWith("/app/vessel-calls/call-pending");
     const completedRow = screen.getAllByText("MV Completed")[0].closest("tr")!;
-    await userEvent.click(within(completedRow).getByRole("button", { name: "Invoice PDF" }));
-    expect(window.open).toHaveBeenCalledWith("/api/invoices/invoice-1/document", "_blank", "noopener");
+    await userEvent.click(within(completedRow).getByRole("button", { name: /Open/ }));
+    expect(mocks.navigate).toHaveBeenCalledWith("/app/vessel-calls/call-completed");
+    expect(screen.queryByRole("columnheader", { name: /Dues/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Invoice PDF" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Report PDF" })).not.toBeInTheDocument();
   });
 
   it("validates and registers a vessel call, including unique rotation checks", async () => {
@@ -220,11 +223,11 @@ describe("VesselCallDetail", () => {
     vi.spyOn(window, "open").mockImplementation(() => null);
   });
 
-  it("updates, berths, inspects, and cancels a pending call with an audit reason", async () => {
+  it("updates, berths, and cancels a pending call with inspection controls hidden", async () => {
     render(<VesselCallDetail />);
     expect(screen.getByRole("heading", { name: "MV Pending" })).toBeInTheDocument();
     expect(screen.getByText("Requires pilot")).toBeInTheDocument();
-    expect(screen.getByText("No inspections logged on this call yet.")).toBeInTheDocument();
+    expect(screen.queryByText("Inspections on this call")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /Mark berthed/ }));
     await waitFor(() => expect(mocks.store.updateCallStatus).toHaveBeenCalledWith(
@@ -247,9 +250,7 @@ describe("VesselCallDetail", () => {
       nrt: 11_000,
     })));
 
-    const addInspectionButtons = screen.getAllByRole("button", { name: /Add Inspection/ });
-    await userEvent.click(addInspectionButtons[0]);
-    expect(mocks.navigate).toHaveBeenCalledWith("/app/inspections/new?callId=call-pending");
+    expect(screen.queryByRole("button", { name: /Add Inspection/ })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /Cancel call/ }));
     const cancelDialog = screen.getByRole("alertdialog", { name: "Cancel this vessel call?" });
@@ -260,17 +261,17 @@ describe("VesselCallDetail", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/app/vessel-calls");
   });
 
-  it("renders completed financials, inspections, and authenticated documents", async () => {
+  it("keeps completed vessel details visible with inspections and financials hidden", () => {
     mocks.params = { id: completedCall.id };
     render(<VesselCallDetail />);
-    expect(screen.getByText("Financials")).toBeInTheDocument();
-    expect(screen.getByText("NPA harbour dues").closest(".fin-row")).toHaveTextContent("International jetty");
-    expect(screen.getAllByText("INS-2026-0001").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "Add Inspection" })[0]).toBeDisabled();
-    await userEvent.click(screen.getAllByRole("button", { name: "Invoice PDF" }).at(-1)!);
-    expect(window.open).toHaveBeenCalledWith("/api/invoices/invoice-1/document", "_blank", "noopener");
-    fireEvent.click(screen.getAllByText("INS-2026-0001")[0].closest("tr")!);
-    expect(mocks.navigate).toHaveBeenCalledWith("/app/inspections?focus=inspection-1");
+    expect(screen.getByText("Vessel particulars")).toBeInTheDocument();
+    expect(screen.queryByText("Financials")).not.toBeInTheDocument();
+    expect(screen.queryByText("NPA harbour dues")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agency commission")).not.toBeInTheDocument();
+    expect(screen.queryByText("INS-2026-0001")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Inspection" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Invoice PDF" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Report PDF" })).not.toBeInTheDocument();
   });
 
   it("shows cancellation history and a safe not-found state", () => {
@@ -285,15 +286,16 @@ describe("VesselCallDetail", () => {
     expect(screen.getByText("Vessel call not found.")).toBeInTheDocument();
   });
 
-  it("links to measurements and displays both harbour dues and disparity invoices", async () => {
+  it("links to measurements and readings while all invoice panels remain hidden", async () => {
     mocks.params = { id: completedCall.id };
     mocks.store = makeStore({ invoices: [invoice, { ...invoice, id: "disparity-1", invoiceNo: "INV-DISPARITY-1", inspectionId: null, purpose: "disparity", dues: 100 }] });
     render(<VesselCallDetail />);
     await userEvent.click(screen.getByRole("button", { name: "Measurements" }));
     expect(mocks.navigate).toHaveBeenCalledWith("/app/measurements?callId=call-completed");
-    expect(screen.getAllByText("INV-2026-0001").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("INV-DISPARITY-1").length).toBeGreaterThan(0);
-    await userEvent.click(screen.getByRole("row", { name: /INV-DISPARITY-1/ }));
-    expect(mocks.navigate).toHaveBeenCalledWith("/app/invoices?focus=disparity-1");
+    fireEvent.click(screen.getByRole("button", { name: "Readings" }));
+    expect(mocks.navigate).toHaveBeenCalledWith("/app/measurements/voyages/call-completed/readings");
+    expect(screen.queryByText("Invoices on this call")).not.toBeInTheDocument();
+    expect(screen.queryByText("INV-2026-0001")).not.toBeInTheDocument();
+    expect(screen.queryByText("INV-DISPARITY-1")).not.toBeInTheDocument();
   });
 });

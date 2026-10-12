@@ -474,7 +474,7 @@ describe("session API client", () => {
 
   it("encodes user filters and performs invitation and security actions with CSRF", async () => {
     document.cookie = "csrftoken=csrf-cookie; path=/";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({
       results: [],
       count: 0,
       page: 2,
@@ -501,6 +501,17 @@ describe("session API client", () => {
     expect(api.auditExportUrl({ search: "role change", action: "user.updated" })).toBe(
       "/api/audit/export?action=user.updated&search=role+change",
     );
+  });
+
+  it("unwraps the server invitation envelope for create and resend", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    const invitation = { id: "invite-1", name: "Grace", email: "grace@example.com", role: "Operations", status: "pending" };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ invitation, rev: 2 }, 201))
+      .mockResolvedValueOnce(jsonResponse({ invitation: { ...invitation, expiresAt: "2026-10-20T09:00:00Z" } }));
+
+    await expect(api.inviteUser({ name: "Grace", email: "grace@example.com", role: "Operations" })).resolves.toEqual(invitation);
+    await expect(api.resendInvitation("invite-1")).resolves.toMatchObject({ id: "invite-1", expiresAt: "2026-10-20T09:00:00Z" });
   });
 
   it("uses append-only payment and explicit reversal endpoints", async () => {

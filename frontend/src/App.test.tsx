@@ -9,11 +9,14 @@ const authMock = vi.hoisted(() => ({
   user: { id: "user-1", mfaEnrollmentRequired: false },
   homePath: "/app",
   status: "anonymous" as "anonymous" | "authenticated",
+  permissions: [] as string[],
 }));
+const featureVisibility = vi.hoisted(() => ({ SHOW_SECONDARY_WORKFLOW_UI: false }));
+vi.mock("./lib/featureVisibility", () => featureVisibility);
 
 vi.mock("./auth/AuthContext", () => ({
   AuthProvider: ({ children }: { children: ReactNode }) => <div data-testid="auth-provider">{children}</div>,
-  useAuth: () => authMock,
+  useAuth: () => ({ ...authMock, can: (permission: string) => authMock.permissions.includes(permission) }),
 }));
 vi.mock("./components/ProtectedRoute", () => ({
   ProtectedRoute: ({ permission, children }: { permission?: string; children: ReactNode }) => (
@@ -45,6 +48,7 @@ vi.mock("./screens/Inspections", () => ({
   NewInspection: () => <div>New inspection screen</div>,
 }));
 vi.mock("./screens/InvitationAccept", () => ({ InvitationAccept: () => <div>Invitation screen</div> }));
+vi.mock("./screens/OrganizationJoin", () => ({ OrganizationJoin: () => <div>Organization join screen</div>, OrganizationJoinVerification: () => <div>Organization join verification screen</div> }));
 vi.mock("./screens/Invoices", () => ({ Invoices: () => <div>Invoices screen</div> }));
 vi.mock("./screens/LandingFull", () => ({ Landing: () => <div>Landing screen</div> }));
 vi.mock("./screens/PasswordRecovery", () => ({
@@ -53,6 +57,9 @@ vi.mock("./screens/PasswordRecovery", () => ({
 }));
 vi.mock("./screens/Settings", () => ({ Settings: () => <div>Settings screen</div> }));
 vi.mock("./screens/VoyageReadings", () => ({ VoyageReadings: () => <div>Voyage readings screen</div> }));
+vi.mock("./screens/VoyageReconciliation", () => ({ VoyageReconciliation: () => <div>Voyage reconciliation screen</div> }));
+vi.mock("./screens/VariationInvoice", () => ({ VariationInvoice: () => <div>Variation invoice screen</div>, VariationInvoices: () => <div>Variation invoices screen</div> }));
+vi.mock("./screens/ActivityDashboard", () => ({ ActivityDashboard: () => <div>Activity dashboard screen</div> }));
 vi.mock("./screens/UserManagement", () => ({ UserManagement: () => <div>User management screen</div> }));
 vi.mock("./screens/VesselCalls", () => ({
   VesselCalls: () => <div>Vessel calls screen</div>,
@@ -84,6 +91,8 @@ describe("App route contract", () => {
     authMock.user.mfaEnrollmentRequired = false;
     authMock.homePath = "/app";
     authMock.status = "anonymous";
+    authMock.permissions = [];
+    featureVisibility.SHOW_SECONDARY_WORKFLOW_UI = false;
   });
 
   it.each([
@@ -94,24 +103,36 @@ describe("App route contract", () => {
     ["/forgot-password", "Forgot password screen"],
     ["/reset-password", "Reset password screen"],
     ["/accept-invitation", "Invitation screen"],
+    ["/join-organization", "Organization join screen"],
+    ["/join-organization/verify", "Organization join verification screen"],
   ])("routes the public path %s", (path, expected) => {
     renderPath(path);
     expect(screen.getByText(expected)).toBeInTheDocument();
     expect(screen.getByTestId("auth-provider")).toBeInTheDocument();
   });
 
-  it.each([
+  it.each<[string, string, string, string[]?, boolean?]>([
     ["/app", "Dashboard screen", "authenticated"],
+    ["/app", "Navigate:/app/dashboard", "authenticated", ["measurements.view", "calls.view", "settings.view"]],
+    ["/app", "Navigate:/app/vessel-calls", "authenticated", ["calls.view", "settings.view"]],
+    ["/app", "Navigate:/app/settings/agencies", "authenticated", ["settings.view"]],
+    ["/app", "Dashboard screen", "authenticated", ["measurements.view", "calls.view", "settings.view"], true],
     ["/app/vessel-calls", "Vessel calls screen", "authenticated"],
     ["/app/vessel-calls/call-1", "Vessel call detail screen", "authenticated"],
     ["/app/measurements/voyages/call-1/readings", "Voyage readings screen", "measurements.view"],
+    ["/app/dashboard", "Activity dashboard screen", "measurements.view"],
+    ["/app/variation-invoices", "Variation invoices screen", "measurements.view"],
+    ["/app/measurements/voyages/call-1/reconciliation", "Voyage reconciliation screen", "measurements.view"],
+    ["/app/measurements/voyages/call-1/variation-invoice", "Variation invoice screen", "measurements.view"],
     ["/app/inspections", "Inspections screen", "authenticated"],
     ["/app/inspections/new", "New inspection screen", "inspections.manage"],
     ["/app/invoices", "Invoices screen", "authenticated"],
     ["/app/analytics", "Analytics screen", "analytics.view"],
     ["/app/users", "User management screen", "users.view"],
     ["/app/settings", "Settings screen", "settings.view"],
-  ])("routes the workspace path %s", (path, expected, permission) => {
+  ])("routes the workspace path %s", (path, expected, permission, permissions = [], showSecondary = false) => {
+    authMock.permissions = permissions;
+    featureVisibility.SHOW_SECONDARY_WORKFLOW_UI = showSecondary;
     const view = renderPath(path);
     expect(screen.getByText(expected)).toBeInTheDocument();
     expect(screen.getByTestId("app-loader")).toBeInTheDocument();

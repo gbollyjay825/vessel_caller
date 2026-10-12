@@ -256,6 +256,7 @@ prepare_unit = (
 assert "AssertPathExists=/etc/vessel-caller/staging-e2e.env" in prepare_unit
 assert "ConditionPathExists=/etc/vessel-caller/staging-e2e.env" not in prepare_unit
 assert "Type=oneshot\nRemainAfterExit=yes" in prepare_unit
+assert "manage.py seed_e2e" not in prepare_unit, "Release preparation must preserve account credentials"
 production_prepare_unit = (
     root / "deploy/systemd/vessel-caller-prepare@.service"
 ).read_text(encoding="utf-8")

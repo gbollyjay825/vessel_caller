@@ -18,6 +18,7 @@ describe("agency setup screen", () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     render(<AgencyDirectory />);
     const user = userEvent.setup();
+    expect(screen.getByRole("link", { name: "Measurements" })).toHaveAttribute("href", "/app/measurements");
     expect(screen.getByText(/UI preview · saved on this browser/)).toBeInTheDocument();
     expect(screen.getByText("No agencies set up yet.")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Agency name"), "Joint Survey Team");

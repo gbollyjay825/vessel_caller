@@ -93,6 +93,16 @@ from .user_views import (
     UserPasswordResetDispatchView,
     UsersView,
 )
+from .organization_join_views import (
+    OrganizationJoinRequestApproveView,
+    OrganizationJoinRequestRejectView,
+    OrganizationJoinRequestsView,
+    OrganizationSignupLinkDetailView,
+    OrganizationSignupLinksView,
+    PublicOrganizationJoinResolveView,
+    PublicOrganizationJoinVerifyView,
+    PublicOrganizationJoinView,
+)
 
 openapi_view = get_schema_view(
     title="Vessel Caller API",
@@ -218,6 +228,42 @@ urlpatterns = [
         name="user-mfa-reset",
     ),
     path("invitations", InvitationsView.as_view(), name="invitations"),
+    path(
+        "organization-signup-links",
+        OrganizationSignupLinksView.as_view(),
+        name="organization-signup-links",
+    ),
+    path(
+        "organization-signup-links/<str:link_id>",
+        OrganizationSignupLinkDetailView.as_view(),
+        name="organization-signup-link-detail",
+    ),
+    path(
+        "organization-join/resolve",
+        PublicOrganizationJoinResolveView.as_view(),
+        name="organization-join-resolve",
+    ),
+    path("organization-join", PublicOrganizationJoinView.as_view(), name="organization-join"),
+    path(
+        "organization-join/verify",
+        PublicOrganizationJoinVerifyView.as_view(),
+        name="organization-join-verify",
+    ),
+    path(
+        "organization-join-requests",
+        OrganizationJoinRequestsView.as_view(),
+        name="organization-join-requests",
+    ),
+    path(
+        "organization-join-requests/<str:request_id>/approve",
+        OrganizationJoinRequestApproveView.as_view(),
+        name="organization-join-request-approve",
+    ),
+    path(
+        "organization-join-requests/<str:request_id>/reject",
+        OrganizationJoinRequestRejectView.as_view(),
+        name="organization-join-request-reject",
+    ),
     path(
         "invitations/accept",
         InvitationAcceptView.as_view(),

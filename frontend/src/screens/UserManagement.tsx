@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "../auth/AuthContext";
@@ -18,20 +18,23 @@ import {
   ROLES,
   type AuditEvent,
   type Invitation,
+  type Paginated,
   type Role,
   type RoleDefinition,
   type User,
   type UserStatus,
 } from "../types";
 
-type ManagementTab = "users" | "invitations" | "audit";
+import { OrganizationAccess } from "./OrganizationAccess";
+
+type ManagementTab = "users" | "invitations" | "signup" | "audit";
 type UserAction = "activate" | "suspend" | "remove";
 
 const ROLE_HELP: Record<Role, string> = {
-  Admin: "Full access, including settings, user management, and audit.",
-  Operations: "Can manage vessel calls and inspections.",
-  Finance: "Can manage invoices and record payments.",
-  Viewer: "Read-only access to operational and financial records.",
+  Admin: "Manage users and settings, approve NPA reconciliation, and manage operational and financial records.",
+  Operations: "Manage vessel calls, measurement plans, agency readings, and inspections.",
+  Finance: "Manage invoices, bill extra load, and record payments.",
+  Viewer: "View vessel calls, readings, reports, and invoices without making changes.",
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -43,6 +46,10 @@ const PERMISSION_LABELS: Record<string, string> = {
   "audit.export": "Export audit history",
   "calls.view": "View vessel calls",
   "calls.manage": "Create, edit, and cancel vessel calls",
+  "measurements.view": "View measurements and readings",
+  "measurements.manage": "Plan measurements and record agency readings",
+  "measurements.approve": "Approve NPA reconciliation",
+  "measurements.bill": "Bill additional load",
   "inspections.view": "View inspections",
   "inspections.manage": "Create, edit, and finalize inspections",
   "invoices.view": "View invoices",
@@ -75,8 +82,8 @@ function RoleAccessMatrix() {
     <section className="card role-access-card" aria-labelledby="role-access-title">
       <div className="role-access-heading">
         <div>
-          <h2 id="role-access-title">Role access matrix</h2>
-          <p>These permissions are enforced by the API. Review them before inviting or changing a user’s role.</p>
+          <h2 id="role-access-title">Role access</h2>
+          <p>Roles apply across this organization. Access is enforced by the API.</p>
         </div>
       </div>
       <div className="role-access-scroll">
@@ -142,40 +149,100 @@ function Pagination({
 }
 
 export function UserManagement() {
-  const { can } = useAuth();
+  const { can, org } = useAuth();
   const [tab, setTab] = useState<ManagementTab>("users");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [showRoles, setShowRoles] = useState(false);
+  const [invitationCreated, setInvitationCreated] = useState(false);
+  const activeTab = (tab === "audit" && !can("audit.view")) || (tab === "signup" && !can("users.manage")) ? "users" : tab;
   const tabs: Array<[ManagementTab, string]> = [
     ["users", "Users"],
     ["invitations", "Invitations"],
-    ...(can("audit.view") ? [["audit", "Audit"] as [ManagementTab, string]] : []),
+    ...(can("users.manage") ? [["signup", "Sign-up link"] as [ManagementTab, string]] : []),
+    ...(can("audit.view") ? [["audit", "Activity"] as [ManagementTab, string]] : []),
   ];
 
+  if (!can("users.view")) {
+    return <div className="content-inner"><EmptyState icon="users" title="User management is unavailable" body="Your account does not have permission to view users." /></div>;
+  }
+
   return (
-    <div className="content-inner">
+    <div className="content-inner user-management-page">
       <div className="page-head">
         <div>
-          <h1 className="hide-sr">User Management</h1>
-          <p className="desc">Manage access, invitations, roles, security, and organization audit history.</p>
+          <h1>User management</h1>
+          <p className="desc">Invite colleagues and manage their access to {org?.name || "your organization"}.</p>
         </div>
+        {can("users.manage") && activeTab !== "audit" && (
+          <button className="btn btn-primary" type="button" onClick={() => {
+            setInvitationCreated(false);
+            setInviteOpen(true);
+          }}>
+            <Icon name="plus" size={17} /> Invite user
+          </button>
+        )}
       </div>
+      {invitationCreated && (
+        <div className="user-access-note user-management-feedback" role="status">
+          <Icon name="check" size={17} />
+          <div><strong>Invitation created</strong><p>The recipient must accept their invitation before they can sign in.</p></div>
+        </div>
+      )}
       <div className="settings-tabs" role="tablist" aria-label="User management sections">
         {tabs.map(([key, label]) => (
           <button
             key={key}
+            id={`user-management-tab-${key}`}
             type="button"
             role="tab"
-            aria-selected={tab === key}
-            className={tab === key ? "on" : ""}
+            aria-selected={activeTab === key}
+            aria-controls="user-management-panel"
+            tabIndex={activeTab === key ? 0 : -1}
+            className={activeTab === key ? "on" : ""}
             onClick={() => setTab(key)}
+            onKeyDown={(event) => {
+              const index = tabs.findIndex(([value]) => value === key);
+              const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
+                : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+                  : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+              if (next === null) return;
+              event.preventDefault();
+              setTab(tabs[next][0]);
+              event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#user-management-tab-${tabs[next][0]}`)?.focus();
+            }}
           >
             {label}
           </button>
         ))}
       </div>
-      <RoleAccessMatrix />
-      {tab === "users" && <UsersTab />}
-      {tab === "invitations" && <InvitationsTab />}
-      {tab === "audit" && <AuditTab />}
+      {activeTab !== "audit" && (
+        <div className="user-management-role-guide">
+          <button className="link-btn" type="button" aria-expanded={showRoles} aria-controls="user-management-roles" onClick={() => setShowRoles((value) => !value)}>
+            <Icon name={showRoles ? "chevronDown" : "chevronRight"} size={16} /> Compare role access
+          </button>
+          {showRoles && <div id="user-management-roles"><RoleAccessMatrix /></div>}
+        </div>
+      )}
+      <section id="user-management-panel" role="tabpanel" aria-labelledby={`user-management-tab-${activeTab}`}>
+        {activeTab === "users" && <UsersTab />}
+        {activeTab === "invitations" && <InvitationsTab />}
+        {activeTab === "signup" && <OrganizationAccess />}
+        {activeTab === "audit" && <AuditTab />}
+      </section>
+      {can("users.manage") && inviteOpen && (
+        <InvitationDrawer
+          onClose={() => setInviteOpen(false)}
+          onCreated={() => {
+            setInviteOpen(false);
+            setTab("invitations");
+            setInvitationCreated(true);
+          }}
+          onReviewUsers={() => {
+            setInviteOpen(false);
+            setTab("users");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -189,7 +256,6 @@ function UsersTab() {
   const [role, setRole] = useState<Role | "all">("all");
   const [status, setStatus] = useState<UserStatus | "all">("all");
   const [editor, setEditor] = useState<User | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
   const [confirm, setConfirm] = useState<{ action: UserAction; user: User } | null>(null);
 
   const params = { page, pageSize: 20, search: deferredQuery, role, status };
@@ -354,11 +420,6 @@ function UsersTab() {
           <option value="suspended">Suspended</option>
           <option value="removed">Removed</option>
         </select>
-        {can("users.manage") && (
-          <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}>
-            <Icon name="plus" size={17} /> Invite user
-          </button>
-        )}
       </div>
 
       {(usersQuery.isError || mutation.isError) && (
@@ -378,7 +439,6 @@ function UsersTab() {
       </div>
       <Pagination page={page} count={usersQuery.data?.count ?? 0} pageSize={20} onPage={setPage} />
 
-      {inviteOpen && <InvitationDrawer onClose={() => setInviteOpen(false)} />}
       {editor && <UserDrawer member={editor} onClose={() => setEditor(null)} />}
       {confirm && confirmCopy && (
         <ConfirmModal
@@ -451,10 +511,10 @@ function UserDrawer({ member, onClose }: { member: User; onClose: () => void }) 
       {notice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{notice}</div>}
       {error && <div className="auth-error" role="alert">{errorMessage(error, "Could not update this user.")}</div>}
       <Field label="Full name" required>
-        <input value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage} />
+        <input type="text" value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage} />
       </Field>
       <Field label="Email" hint="Email changes are completed by the user from their profile.">
-        <input value={member.email} disabled />
+        <input type="email" value={member.email} disabled />
       </Field>
       <Field label="Role" hint={ROLE_HELP[role]}>
         <select value={role} onChange={(event) => setRole(event.target.value as Role)} disabled={!canManage}>
@@ -482,52 +542,75 @@ function UserDrawer({ member, onClose }: { member: User; onClose: () => void }) 
   );
 }
 
-function InvitationDrawer({ onClose }: { onClose: () => void }) {
+function InvitationDrawer({ onClose, onCreated, onReviewUsers }: { onClose: () => void; onCreated: () => void; onReviewUsers: () => void }) {
+  const { org, can, user: currentUser } = useAuth();
   const queryClient = useQueryClient();
+  const formId = useId();
+  const submitInFlight = useRef(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("Operations");
+  const findExistingMember = () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return undefined;
+    if (currentUser?.email.toLowerCase() === normalizedEmail) return currentUser;
+    return queryClient.getQueriesData<Paginated<User>>({ queryKey: ["users"] })
+      .flatMap(([, data]) => data?.results ?? [])
+      .find((member) => member.email.toLowerCase() === normalizedEmail);
+  };
+  const existingMember = findExistingMember();
 
   const mutation = useMutation({
-    mutationFn: () => api.inviteUser({ name: name.trim(), email: email.trim().toLowerCase(), role }),
+    mutationFn: (payload: { name: string; email: string; role: Role }) => api.inviteUser(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["invitations"] });
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      onClose();
+      onCreated();
     },
+    onSettled: () => { submitInFlight.current = false; },
   });
 
   return (
     <Drawer
       title="Invite user"
-      sub="Send a seven-day, single-use invitation."
+      sub="A seven-day invitation to your organization."
       onClose={onClose}
+      guard={() => mutation.isPending || submitInFlight.current}
       footer={(
         <>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+          <button className="btn btn-secondary" type="button" disabled={mutation.isPending} onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"
-            type="button"
-            disabled={mutation.isPending || !name.trim() || !email.trim()}
-            onClick={() => mutation.mutate()}
+            type="submit"
+            form={formId}
+            disabled={mutation.isPending || !name.trim() || !email.trim() || Boolean(existingMember)}
           >
-            {mutation.isPending ? "Sending…" : "Send invitation"}
+            {mutation.isPending ? "Creating invitation…" : "Send invitation"}
           </button>
         </>
       )}
     >
-      {mutation.isError && <div className="auth-error" role="alert">{errorMessage(mutation.error, "Could not send the invitation.")}</div>}
-      <Field label="Full name" required>
-        <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
-      </Field>
-      <Field label="Email" required hint="The recipient chooses their own password after opening the secure link.">
-        <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
-      </Field>
-      <Field label="Role" hint={ROLE_HELP[role]}>
-        <select value={role} onChange={(event) => setRole(event.target.value as Role)}>
-          {ROLES.map((option) => <option key={option}>{option}</option>)}
-        </select>
-      </Field>
+      <form id={formId} className="user-invitation-form" aria-label="Invitation details" onSubmit={(event) => {
+        event.preventDefault();
+        if (!can("users.manage") || mutation.isPending || submitInFlight.current || !event.currentTarget.checkValidity() || !name.trim() || findExistingMember()) return;
+        submitInFlight.current = true;
+        mutation.mutate({ name: name.trim(), email: email.trim().toLowerCase(), role });
+      }}>
+        <p className="user-invitation-scope">Access to <strong>{org?.name || "your organization"}</strong>. This role applies across the organization.</p>
+        {mutation.isError && <div className="auth-error" role="alert">{errorMessage(mutation.error, "Could not create the invitation. Please try again.")}</div>}
+        <Field label="Full name" required>
+          <input type="text" value={name} onChange={(event) => setName(event.target.value)} required disabled={mutation.isPending} autoComplete="name" />
+        </Field>
+        <Field label="Email" required hint="The recipient chooses their own password after opening the secure link." error={existingMember ? "This email already belongs to a user in your organization. Review their existing access." : undefined}>
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={mutation.isPending} autoComplete="email" />
+        </Field>
+        {existingMember && <button className="link-btn" type="button" onClick={onReviewUsers}>Review existing users</button>}
+        <Field label="Role" hint={ROLE_HELP[role]}>
+          <select value={role} onChange={(event) => setRole(event.target.value as Role)} disabled={mutation.isPending}>
+            {ROLES.map((option) => <option key={option}>{option}</option>)}
+          </select>
+        </Field>
+      </form>
     </Drawer>
   );
 }
@@ -536,11 +619,9 @@ function InvitationsTab() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [page, setPage] = useState(1);
-  const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
-  const [inviteOpen, setInviteOpen] = useState(false);
   const [revoke, setRevoke] = useState<Invitation | null>(null);
-  const params = { page, pageSize: 20, search: deferredQuery };
+  const [notice, setNotice] = useState<string | null>(null);
+  const params = { page, pageSize: 20 };
   const invitationsQuery = useQuery({
     queryKey: ["invitations", params],
     queryFn: () => api.invitations(params),
@@ -548,11 +629,17 @@ function InvitationsTab() {
   });
   const resendMutation = useMutation({
     mutationFn: api.resendInvitation,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+      setNotice("Invitation renewed. The previous link is no longer valid.");
+    },
   });
   const revokeMutation = useMutation({
     mutationFn: api.revokeInvitation,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+      setNotice("Invitation revoked. The recipient can no longer use that link.");
+    },
   });
   const rows = invitationsQuery.data?.results ?? [];
   const columns: Column<Invitation>[] = [
@@ -563,7 +650,7 @@ function InvitationsTab() {
       render: (invitation) => <div><div className="cell-primary">{invitation.name}</div><div className="cell-sub">{invitation.email}</div></div>,
     },
     { key: "role", label: "Role", sortable: true, render: (invitation) => <RoleBadge role={invitation.role} /> },
-    { key: "status", label: "Status", sortable: true, render: (invitation) => <StatusBadge status={invitation.status} /> },
+    { key: "status", label: "Status", sortable: true, render: (invitation) => <StatusBadge status={invitation.status === "pending" && Date.parse(invitation.expiresAt) <= Date.now() ? "expired" : invitation.status} /> },
     { key: "expiresAt", label: "Expires", sortable: true, render: (invitation) => <span className="tnum muted">{fmtDate(invitation.expiresAt)}</span> },
     {
       key: "actions",
@@ -574,8 +661,8 @@ function InvitationsTab() {
           <button
             className="btn btn-secondary btn-sm"
             type="button"
-            disabled={!can("users.manage") || resendMutation.isPending || !["pending", "expired"].includes(invitation.status)}
-            onClick={() => resendMutation.mutate(invitation.id)}
+            disabled={!can("users.manage") || resendMutation.isPending || invitation.status !== "pending"}
+            onClick={() => { setNotice(null); resendMutation.mutate(invitation.id); }}
           >
             Resend
           </button>
@@ -595,26 +682,8 @@ function InvitationsTab() {
 
   return (
     <>
-      <div className="filter-bar">
-        <div className="search-input">
-          <Icon name="search" size={17} />
-          <input
-            type="search"
-            placeholder="Search invitation…"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(1);
-            }}
-            aria-label="Search invitations"
-          />
-        </div>
-        {can("users.manage") && (
-          <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}>
-            <Icon name="plus" size={17} /> Invite user
-          </button>
-        )}
-      </div>
+      <p className="user-management-tab-copy">Track invitations before colleagues join. You can renew or revoke pending invitations.</p>
+      {notice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{notice}</div>}
       {(invitationsQuery.isError || resendMutation.isError || revokeMutation.isError) && (
         <div className="auth-error section-gap" role="alert">
           {errorMessage(invitationsQuery.error || resendMutation.error || revokeMutation.error, "Could not update invitations.")}
@@ -630,7 +699,6 @@ function InvitationsTab() {
         />
       </div>
       <Pagination page={page} count={invitationsQuery.data?.count ?? 0} pageSize={20} onPage={setPage} />
-      {inviteOpen && <InvitationDrawer onClose={() => setInviteOpen(false)} />}
       {revoke && (
         <ConfirmModal
           title={`Revoke ${revoke.email}’s invitation?`}
@@ -638,7 +706,7 @@ function InvitationsTab() {
           confirmLabel="Revoke invitation"
           danger
           onClose={() => setRevoke(null)}
-          onConfirm={() => revokeMutation.mutate(revoke.id)}
+          onConfirm={() => { setNotice(null); revokeMutation.mutate(revoke.id); }}
         />
       )}
     </>

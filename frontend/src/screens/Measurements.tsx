@@ -10,6 +10,7 @@ import { measurementApi } from "../measurements/api";
 import { PlanForm } from "../measurements/PlanForm";
 import { useAgencyDirectory } from "../measurements/agencyDirectory";
 import { VoyageLog } from "../measurements/VoyageLog";
+import { useCloseoutPreviews } from "../measurements/closeoutPreview";
 import { AgencyCollection } from "../measurements/AgencyCollection";
 import type { CreatedAgencyLink } from "../measurements/AgencyCollection";
 import { AgencyLinkPanel } from "../measurements/AgencyLinkPanel";
@@ -25,6 +26,7 @@ import "../styles/measurements.css";
 export function Measurements() {
   const { org, can } = useAuth();
   const store = useStore();
+  const previews = useCloseoutPreviews(org?.id);
   const [params] = useSearchParams();
   const callId = params.get("callId") ?? undefined;
   const [search, setSearch] = useState("");
@@ -33,10 +35,11 @@ export function Measurements() {
   const plans = (plansQuery.data?.plans ?? []).filter(plan => !callId || plan.callId === callId);
   const calls = (store.calls ?? []).filter(call => !callId || call.id === callId);
   return <div className="content-inner measurement-workspace">
-    <div className="page-head"><div><h1>Voyages</h1><p className="desc">Choose a voyage to open its Readings report.</p></div><div className="measurement-inline-actions">{can("settings.view") && <Link className="btn btn-secondary" to="/app/settings/agencies"><Icon name="users" size={16} /> Agencies</Link>}{can("measurements.manage") && <Link className="btn btn-primary" to={`/app/measurements/new${callId ? `?callId=${encodeURIComponent(callId)}` : ""}`}><Icon name="plus" size={17} /> Set up voyage</Link>}</div></div>
+    <div className="page-head"><div><h1>Voyages</h1><p className="desc">Open a voyage to compare readings, reconcile the final quantity and review its invoice.</p></div><div className="measurement-inline-actions">{can("calls.view") && <Link className="btn btn-secondary" to="/app/vessel-calls"><Icon name="ship" size={16} /> Vessel setup</Link>}{can("measurements.manage") && <Link className="btn btn-primary" to={`/app/measurements/new${callId ? `?callId=${encodeURIComponent(callId)}` : ""}`}><Icon name="plus" size={17} /> Measure voyage</Link>}</div></div>
     <div className="filter-bar"><div className="search-input"><Icon name="search" size={17} /><input aria-label="Search vessels or voyages" placeholder="Search vessel or voyage reference…" value={search} onChange={event => setSearch(event.target.value)} /></div><label className="measurement-filter">Readings <select aria-label="Readings status" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All voyages</option><option value="awaiting">Readings pending</option><option value="complete">Readings complete</option><option value="cancelled">Cancelled voyages</option></select></label>{callId && <Link className="link-btn" to="/app/measurements">Show all voyages</Link>}</div>
     <ErrorMessage error={plansQuery.error} />
-    {plansQuery.isPending ? <div className="measurement-loading" role="status">Loading voyages…</div> : !plansQuery.error && <VoyageLog key={org?.id} calls={calls} plans={plans} canManage={can("measurements.manage")} search={search} status={filter} />}
+    {previews.error && <p role="alert">{previews.error}</p>}
+    {plansQuery.isPending ? <div className="measurement-loading" role="status">Loading voyages…</div> : !plansQuery.error && <VoyageLog key={org?.id} calls={calls} plans={plans} closeoutRecords={previews.records} canManage={can("measurements.manage")} search={search} status={filter} />}
   </div>;
 }
 

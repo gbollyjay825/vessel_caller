@@ -31,6 +31,14 @@ def challenge_id() -> str:
     return prefixed("mfa")
 
 
+def signup_link_id() -> str:
+    return prefixed("joinlink")
+
+
+def join_request_id() -> str:
+    return prefixed("joinreq")
+
+
 class User(AbstractBaseUser, PermissionsMixin):
     class Role(models.TextChoices):
         ADMIN = "Admin", "Admin"
@@ -126,6 +134,120 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self) -> str:
         return self.email
+
+
+class OrganizationSignupLink(models.Model):
+    """An administrator's revocable capability to request tenant membership.
+
+    The token grants no workspace access or role. Its plaintext is returned
+    once on creation; only its digest is retained here.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=signup_link_id)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="signup_links"
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_signup_links"
+    )
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization",),
+                condition=models.Q(revoked_at__isnull=True),
+                name="accounts_one_unrevoked_signup_link",
+            )
+        ]
+
+    @property
+    def active(self) -> bool:
+        return self.revoked_at is None and self.expires_at > timezone.now()
+
+
+class OrganizationJoinRequest(models.Model):
+    """Verified membership requests remain isolated from authentication users.
+
+    Only the recipient of the verification email can set a password hash. It
+    is retained until approval/rejection; unverified requests have no password.
+    There is no User or session until an administrator approves access.
+    """
+
+    class Status(models.TextChoices):
+        UNVERIFIED = "unverified", "Awaiting email verification"
+        PENDING = "pending", "Awaiting administrator review"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        EXPIRED = "expired", "Expired"
+
+    id = models.CharField(primary_key=True, max_length=32, default=join_request_id)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT, related_name="join_requests"
+    )
+    signup_link = models.ForeignKey(
+        OrganizationSignupLink, on_delete=models.PROTECT, related_name="join_requests"
+    )
+    name = models.CharField(max_length=255)
+    email = models.EmailField()
+    password_hash = models.CharField(max_length=255, blank=True, default="")
+    verification_token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    verification_expires_at = models.DateTimeField()
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.UNVERIFIED)
+    role = models.CharField(max_length=20, choices=User.Role.choices, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="reviewed_join_requests",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="approved_join_requests",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("email",),
+                condition=models.Q(status__in=["unverified", "pending"]),
+                name="accounts_one_open_join_request_email",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=["unverified", "pending", "approved", "rejected", "expired"]
+                ),
+                name="accounts_valid_join_request_status",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(role__in=["", "Admin", "Operations", "Finance", "Viewer"]),
+                name="accounts_valid_join_request_role",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(status="unverified", password_hash="", email_verified_at__isnull=True)
+                    | (
+                        models.Q(status="pending", email_verified_at__isnull=False)
+                        & ~models.Q(password_hash="")
+                    )
+                    | models.Q(status__in=["approved", "rejected", "expired"], password_hash="")
+                ),
+                name="accounts_join_password_verification_state",
+            ),
+        ]
+        indexes = [models.Index(fields=("organization", "status", "-created_at"))]
 
 
 class PlatformAccessGrant(models.Model):

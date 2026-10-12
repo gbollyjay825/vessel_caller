@@ -1,6 +1,8 @@
 # Import voyage declarations and agency readings
 
-This iteration stops at collecting independent agency reports. The owner’s declaration belongs to a specific voyage; it is separate from every agency’s measurement. The vessel-grouped voyage log retains earlier trips and their individual records.
+The vessel is an entity with a separate record for each voyage. Each voyage has an owner declaration and independent agency readings. NPA chooses and records the final quantities after comparing those readings. The UI continues from **Readings → Reconciliation → Invoice**, with an activity dashboard guiding the next unfinished step on each voyage.
+
+Variation is a calculation within the voyage's invoice view: **NPA final quantity minus owner declared quantity**, for each cargo item and unit. The original declaration invoice remains the paid baseline. Positive additional quantities can produce an additional invoice; equal quantities need no additional invoice; lower quantities are flagged for overpayment review. The app does not automatically net lower quantities against other cargo or create a credit note.
 
 ## Linear input flow
 
@@ -9,7 +11,16 @@ This iteration stops at collecting independent agency reports. The owner’s dec
 3. **Agencies.** Select reusable directory entries or create an agency inline. Confirm its attending representative, then **Create voyage sheet**. There is no separate review/scheduling step. A compact review disclosure is optional.
 4. **Report vessel load.** Each selected agency has its own card, submission status and quantities. Staff can open the chosen agency’s reading form. Owner quantities remain in a separate declaration disclosure. The default screen has no reconciliation or disparity billing actions.
 
-Agency setup remains at **Settings → Agency setup**. It is browser-local and organization-scoped, not a shared backend directory. Saved agency snapshots on existing voyage sheets retain the names and representatives copied at creation. The vessel selector groups existing calls by name and flag; it does not create a persistent vessel registry.
+Agency setup is available directly through **Agencies**. It is browser-local and organization-scoped, not a shared backend directory. Saved agency snapshots on existing voyage sheets retain the names and representatives copied at creation. The vessel selector groups existing calls by name and flag; it does not create a persistent vessel registry.
+
+## Reconciliation, variation and activity: UI preview
+
+- `/app/dashboard` recommends one next action with the vessel, voyage and missing agency names or declaration context. A compact Declaration / Agency readings / NPA review / Invoice strip and attention worklist show outstanding work. Prepared drafts and no-charge outcomes sit in a secondary disclosure; dated activity shows three recent actions with expandable history. Search and stage filters apply to the recommendation, counts, worklist and activity together. Draft amounts stay separate by currency; prepared previews do not imply issued invoices or completed voyages.
+- `/app/measurements/voyages/:callId/reconciliation` compares owner and latest agency quantities with NPA's chosen final quantity, per-item rationale and variance. Required submissions and complete declarations gate approval. Cancelled sheets are excluded. Approvals retain a frozen source snapshot, actor, time and revision in organisation-scoped browser storage. A changed source requires a new approval; previous versions remain in history. Print/save PDF uses the saved report and labels it as a preview.
+- `/app/measurements/voyages/:callId/variation-invoice` requires a current approved preview. The owner’s original invoice/payment details are separate from previous variation charges. Manual rates calculate only the positive final-minus-declared quantity, then deduct previous charges for that same additional quantity. Integer decimal arithmetic preserves cents. The original declaration payment is never deducted from the variation or charged again. Missing inputs block saving. Equal quantities produce no additional charge; lower quantities flag overpayment for review without a credit note or refund; previous variation charges exceeding entitlement hold billing. A review/hold outcome blocks a payable total across mixed rows.
+- `/app/variation-invoices` is labelled **Invoices** and lists voyage invoice previews with the original paid declaration context, additional charge or review outcome, saved versions and reconciliation freshness. Repeated generation of an unchanged draft is idempotent. Printed invoice previews use the selected saved snapshot, even if the editor contains unsaved changes.
+
+These new screens make no backend mutations: only the existing measurement list is read. Reports, draft invoices and their activity events are local UI review records, not operational approvals or issued NPA documents. They do not verify accounting payment, tariff authority or production permissions. There are no schema, endpoint, infrastructure or staging changes in this iteration. The NPA logo and shared green brand tokens are retained, with navigation limited to Dashboard, Voyages, Invoices and Agencies. Vessel setup remains accessible within Voyages.
 
 ## No-login agency form: frontend prepared for review
 
@@ -42,6 +53,6 @@ The server must derive the organization, plan, agency and external actor from th
 
 ## Existing records and verification
 
-Historical reconciliation records remain accessible through a secondary link; the previous workspace uses `?workspace=reconciliation`. Existing reconciliation, assessment and billing behavior is retained for regression coverage. Count, tonnes and m3 are never added into a cargo total.
+The previous workspace remains available at `?workspace=reconciliation` for regression coverage. Its existing reconciliation, assessment and billing behavior is unchanged. Count, tonnes and m3 are never added into a cargo total.
 
 Validation covers the linear setup, inline agency failures, selected agency and version handling, cancellation/permission changes, token removal, ambiguous submission retries, own PDF download, post-submission peer visibility and mobile layouts. Browser guest journeys use API mocks. Existing real-backend regression tests do not establish a working secure-link backend. No schema, permission, billing, infrastructure or staging changes are included.

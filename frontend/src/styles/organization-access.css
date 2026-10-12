@@ -1,0 +1,66 @@
+.organization-access { display: grid; gap: 20px; }
+.organization-access .organization-access-card { padding: 24px; margin: 0; box-shadow: none; }
+.organization-access-heading { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; margin-bottom: 22px; }
+.organization-access-heading h2 { margin: 0 0 6px; font-size: 18px; letter-spacing: -.25px; }
+.organization-access-heading p, .organization-access-empty, .organization-access-hint { margin: 0; color: var(--slate); font-size: 13px; line-height: 1.6; }
+.organization-access-policy { white-space: nowrap; color: var(--accent); border-radius: 5px; background: var(--brand-accent-soft); padding: 6px 9px; font-size: 11px; font-weight: 600; }
+.organization-active-link { display: flex; align-items: center; gap: 10px; color: var(--accent); padding: 14px; background: var(--brand-accent-faint); border: 1px solid var(--brand-accent-border); border-radius: 8px; margin-bottom: 16px; }
+.organization-active-link strong { color: var(--ink); font-size: 13px; }
+.organization-active-link p { margin: 3px 0 0; color: var(--slate); font-size: 12px; }
+.organization-generated-link { margin: 18px 0; }
+.organization-generated-link > label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 7px; }
+.organization-copy-row { display: flex; align-items: center; gap: 10px; }
+.organization-copy-row input { min-width: 0; flex: 1; background: var(--brand-accent-faint); font-size: 12px; }
+.organization-copy-row .btn { flex-shrink: 0; }
+.organization-generated-link p, .organization-generated-link > span { display: block; color: var(--slate); font-size: 12px; margin: 8px 0 0; line-height: 1.5; }
+.organization-generated-link > [role="status"] { color: var(--accent); }
+.organization-generated-link > [role="alert"] { color: var(--danger); }
+.organization-link-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 20px 0 0; }
+.organization-link-controls label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 600; width: 155px; }
+.organization-link-controls select { margin: 0; }
+.organization-link-controls > .link-btn { padding: 12px 0; }
+.organization-link-confirm { padding: 16px; margin-top: 18px; background: var(--brand-accent-faint); border: 1px solid var(--brand-accent-border); border-radius: 8px; font-size: 13px; }
+.organization-link-confirm p { color: var(--slate); line-height: 1.6; margin: 6px 0 15px; }
+.organization-access-actions { display: flex; align-items: center; gap: 10px; }
+.organization-access .auth-error { margin: 18px 0 0; }
+.organization-request-filter { width: 190px; flex-shrink: 0; }
+.organization-request-list { list-style: none; padding: 0; margin: 0; }
+.organization-request-list > li { display: grid; grid-template-columns: minmax(0, 1fr) 150px 170px; align-items: center; gap: 20px; border-top: 1px solid var(--border); padding: 18px 0; }
+.organization-request-person { display: grid; gap: 5px; min-width: 0; }
+.organization-request-person strong { font-size: 14px; }
+.organization-request-person > span { font-size: 13px; color: var(--slate); overflow-wrap: anywhere; }
+.organization-request-person small, .organization-request-state small { font-size: 11px; color: var(--muted); }
+.organization-request-state { display: grid; justify-items: start; gap: 7px; }
+.organization-request-badge { display: inline-flex; font-size: 11px; background: var(--page); color: var(--slate); padding: 5px 8px; border-radius: 5px; }
+.organization-request-badge.pending, .organization-request-badge.approved { background: var(--brand-accent-soft); color: var(--accent); }
+.organization-request-action { display: flex; justify-content: flex-end; }
+.organization-access-feedback { font-size: 13px; color: var(--accent); background: var(--brand-accent-faint); padding: 13px; margin-bottom: 14px; border-radius: 7px; line-height: 1.6; }
+.organization-review-person { display: grid; gap: 7px; margin-bottom: 24px; }
+.organization-review-person strong { font-size: 17px; }
+.organization-review-person span { color: var(--slate); font-size: 12px; }
+.organization-admin-confirm { display: flex; align-items: flex-start; gap: 9px; padding: 14px; margin: 0 0 20px; background: var(--brand-accent-faint); border: 1px solid var(--brand-accent-border); border-radius: 8px; font-size: 13px; line-height: 1.6; }
+.organization-admin-confirm input { width: 16px; height: 16px; flex-shrink: 0; margin-top: 3px; }
+.organization-review-footer { display: flex; gap: 10px; justify-content: flex-end; }
+.organization-reject-confirm h3 { margin: 0 0 10px; }
+.organization-reject-confirm p { color: var(--slate); line-height: 1.6; margin-bottom: 22px; }
+.organization-join-steps { display: flex; gap: 14px; padding: 0; margin: 0 0 24px; list-style: none; font-size: 11px; counter-reset: join-step; }
+.organization-join-steps li { display: flex; flex: 1; gap: 5px; align-items: center; color: var(--slate); counter-increment: join-step; }
+.organization-join-steps li::before { content: counter(join-step); border: 1px solid var(--border); width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; flex-shrink: 0; }
+.organization-join-steps .current { color: var(--accent); font-weight: 600; }
+.organization-join-steps .current::before { border-color: var(--accent); background: var(--brand-accent-soft); }
+@media (max-width: 700px) {
+  .organization-access .organization-access-card { padding: 18px; }
+  .organization-access-heading { flex-direction: column; gap: 12px; }
+  .organization-copy-row { flex-direction: column; align-items: stretch; }
+  .organization-link-controls { align-items: stretch; }
+  .organization-link-controls label { width: 100%; }
+  .organization-request-list > li { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+  .organization-request-action { grid-column: 1 / -1; justify-content: flex-start; }
+  .organization-request-filter { width: 100%; }
+  .organization-access .pagination { align-items: flex-start; gap: 12px; flex-direction: column; }
+  .user-management-page .settings-tabs { overflow-x: auto; }
+  .user-management-page .settings-tabs button { white-space: nowrap; }
+}
+.organization-password-hint { color: var(--slate); font-size: 12px; margin: 0; }
+.organization-join-form { display: grid; gap: 14px; }
+.organization-join-loading { padding: 28px 0; text-align: center; color: var(--slate); font-size: 14px; }

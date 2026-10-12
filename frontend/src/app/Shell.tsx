@@ -3,6 +3,7 @@
 // no user-switcher (real auth), navigation via the local SPA router adapter.
 import { useState } from "react";
 import { Link, NavLink } from "../lib/navigation";
+import { SHOW_SECONDARY_WORKFLOW_UI } from "../lib/featureVisibility";
 
 import { useAuth, type Permission } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
@@ -19,9 +20,11 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard",    label: "Dashboard",    icon: "dashboard", to: "/app", end: true },
+  { key: "dashboard",    label: "Dashboard",    icon: "dashboard", to: "/app/dashboard", end: true, permission: "measurements.view" },
   { key: "vessel-calls", label: "Vessel Calls", icon: "ship",      to: "/app/vessel-calls", permission: "calls.view" },
-  { key: "measurements", label: "Measurements", icon: "ruler", to: "/app/measurements", permission: "measurements.view" },
+  { key: "measurements", label: "Voyages", icon: "ship", to: "/app/measurements", permission: "measurements.view" },
+  { key: "variation-invoices", label: "Invoices", icon: "invoice", to: "/app/variation-invoices", permission: "measurements.view" },
+  { key: "agencies",     label: "Agencies",     icon: "building", to: "/app/settings/agencies", permission: "settings.view" },
   { key: "inspections",  label: "Inspections",  icon: "clipboard", to: "/app/inspections", permission: "inspections.view" },
   { key: "invoices",     label: "Invoices",     icon: "invoice",   to: "/app/invoices", permission: "invoices.view" },
   { key: "analytics",    label: "Analytics",    icon: "gauge",     to: "/app/analytics", permission: "analytics.view" },
@@ -29,24 +32,37 @@ const NAV_ITEMS: NavItem[] = [
   { key: "settings",     label: "Settings",     icon: "settings",  to: "/app/settings", permission: "settings.view" },
 ];
 
+// Keep the other screens available while the navigation focuses on measurement work.
+const VISIBLE_NAV_KEYS = new Set(["dashboard", "measurements", "variation-invoices", "agencies", "users"]);
+
 export function Sidebar({ mobileOpen, closeMobile }: { mobileOpen?: boolean; closeMobile?: () => void }) {
   const { org } = useStore();
   const { user, logout, can } = useAuth();
   const orgName = org?.name || "Vessel Caller";
+  const logo = org?.logo || (org ? "/branding/npa-logo.png" : undefined);
+  const hasNpaLogo = logo === "/branding/npa-logo.png";
   const portLine = orgPortsLabel(org, "Port of Calabar") + " · Inspection";
   return (
     <nav className={"sidebar " + (mobileOpen ? "open" : "")} aria-label="Primary">
-      <div className="sb-brand">
-        <div className="sb-mark" style={org && org.logo ? { background: "#fff", overflow: "hidden", border: "1px solid var(--hairline)" } : undefined}>
-          {org && org.logo
-            ? <img src={org.logo} alt={orgName + " logo"} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-            : <Icon name="anchor" size={19} strokeWidth={2} />}
-        </div>
-        <div className="sb-wordmark">{orgName}<span>{portLine}</span></div>
+      <div className={"sb-brand" + (hasNpaLogo ? " sb-brand--npa" : "")}>
+        {hasNpaLogo ? (
+          <div className="sb-npa-logo-wrap">
+            <img className="sb-npa-logo" src={logo} width={304} height={136} alt="Nigerian Ports Authority" />
+          </div>
+        ) : (
+          <>
+            <div className="sb-mark" style={logo ? { background: "#fff", overflow: "hidden", border: "1px solid var(--hairline)" } : undefined}>
+              {logo
+                ? <img src={logo} alt={orgName + " logo"} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                : <Icon name="anchor" size={19} strokeWidth={2} />}
+            </div>
+            <div className="sb-wordmark">{orgName}<span>{portLine}</span></div>
+          </>
+        )}
       </div>
       <div className="sb-nav scroll-host">
         <div className="sb-nav-label">Operations</div>
-        {NAV_ITEMS.filter((item) => !item.permission || can(item.permission)).map((item) => (
+        {NAV_ITEMS.filter((item) => (SHOW_SECONDARY_WORKFLOW_UI || VISIBLE_NAV_KEYS.has(item.key) || (item.key === "vessel-calls" && !can("measurements.view"))) && (!item.permission || can(item.permission))).map((item) => (
           <NavLink
             key={item.key}
             to={item.to}
@@ -73,7 +89,7 @@ export function Sidebar({ mobileOpen, closeMobile }: { mobileOpen?: boolean; clo
 
 export function TopBar({ title, onHamburger }: { title: string; onHamburger?: () => void }) {
   const { org, portLabel } = useStore();
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="topbar">
@@ -104,6 +120,12 @@ export function TopBar({ title, onHamburger }: { title: string; onHamburger?: ()
                   aria-label="Account and security">
                   <Icon name="settings" size={17} /><span className="lbl">Account &amp; security</span>
                 </Link>
+                {can("users.view") && (
+                  <Link className="sb-item" style={{ borderLeft: "none" }} to="/app/users" onClick={() => setMenuOpen(false)}
+                    aria-label="Manage users">
+                    <Icon name="users" size={17} /><span className="lbl">Manage users</span>
+                  </Link>
+                )}
                 <button className="sb-item" style={{ borderLeft: "none", color: "var(--danger)" }}
                   aria-label="Sign out"
                   onClick={() => { setMenuOpen(false); void logout(); }}>

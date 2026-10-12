@@ -3,6 +3,7 @@
 // to Vite + React + TS ES modules against the live store/api.
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "../lib/navigation";
+import { SHOW_SECONDARY_WORKFLOW_UI } from "../lib/featureVisibility";
 
 import { useStore } from "../app/store";
 import { Icon } from "../components/Icon";
@@ -24,7 +25,7 @@ const VESSEL_TYPES = ["Tanker", "Bulk Carrier", "Container", "General Cargo", "O
 function RowActions({ call }: { call: VesselCall }) {
   const store = useStore();
   const navigate = useNavigate();
-  if (call.status === "completed") {
+  if (SHOW_SECONDARY_WORKFLOW_UI && call.status === "completed") {
     const invoice = store.invoiceForCall(call.id);
     const inspection = store.inspectionsForCall(call.id).find((item) => item.status === "completed");
     return (
@@ -145,7 +146,7 @@ export function VesselCalls() {
       </div>
 
       <div className="card">
-        <DataTable columns={columns} rows={filtered} getKey={(r) => r.id}
+        <DataTable columns={columns.filter((column) => SHOW_SECONDARY_WORKFLOW_UI || column.key !== "dues")} rows={filtered} getKey={(r) => r.id}
           onRowClick={(r) => navigate("/app/vessel-calls/" + r.id)}
           emptyState={<EmptyState icon="search" title="No matching vessel calls" body="Try a different search term or status filter." />} />
       </div>
@@ -251,7 +252,7 @@ function RegisterCall({ store, onClose }: { store: StoreApi; onClose: () => void
             {VESSEL_TYPES.map((t) => <option key={t}>{t}</option>)}
           </select>
         </Field>
-        <Field label="Net tonnage" required hint="Drives the harbour-dues calculation." error={errors.nrt}>
+        <Field label="Net tonnage" required hint={SHOW_SECONDARY_WORKFLOW_UI ? "Drives the harbour-dues calculation." : undefined} error={errors.nrt}>
           <input type="number" className={errors.nrt ? "invalid" : ""} value={form.nrt} placeholder="e.g. 57137"
             onChange={(e) => set("nrt", e.target.value)} min="0" />
         </Field>
@@ -370,11 +371,11 @@ export function VesselCallDetail() {
               <Icon name="anchor" size={16} /> Mark berthed
             </button>
           )}
-          <button className="btn btn-secondary btn-sm" disabled={!store.can("addInspection") || call.status === "cancelled" || call.status === "completed"}
+          {SHOW_SECONDARY_WORKFLOW_UI && <button className="btn btn-secondary btn-sm" disabled={!store.can("addInspection") || call.status === "cancelled" || call.status === "completed"}
             title={store.can("addInspection") ? undefined : "Requires the Admin or Operations role"}
             onClick={() => navigate("/app/inspections/new?callId=" + call.id)}>
             <Icon name="plus" size={16} strokeWidth={2.2} /> Add Inspection
-          </button>
+          </button>}
           {store.can("cancelCall") && call.status !== "cancelled" && call.status !== "completed" && (
             <button className="btn btn-ghost btn-sm" style={{ color: "var(--danger)" }} onClick={() => setConfirmDel(true)}>
               <Icon name="x" size={16} /> Cancel call
@@ -408,7 +409,7 @@ export function VesselCallDetail() {
         )}
       </div>
 
-      <div className="card section-gap">
+      {SHOW_SECONDARY_WORKFLOW_UI && <div className="card section-gap">
         <div className="card-head">
           <div className="card-title">Inspections on this call</div>
           <button className="btn btn-secondary btn-sm" disabled={!store.can("addInspection") || call.status === "cancelled" || call.status === "completed"}
@@ -425,16 +426,16 @@ export function VesselCallDetail() {
             No inspections logged on this call yet.
           </div>
         )}
-      </div>
+      </div>}
 
-      <div className="card section-gap">
+      {SHOW_SECONDARY_WORKFLOW_UI && <div className="card section-gap">
         <div className="card-head"><div className="card-title">Invoices on this call</div></div>
         {invoices.length ? <DataTable columns={invoiceColumns} rows={invoices} getKey={(item) => item.id}
           onRowClick={(item) => navigate("/app/invoices?focus=" + encodeURIComponent(item.id))} /> :
           <p className="muted" style={{ padding: "16px 24px" }}>No invoices issued on this call yet.</p>}
-      </div>
+      </div>}
 
-      {completedInsp && f && (
+      {SHOW_SECONDARY_WORKFLOW_UI && completedInsp && f && (
         <div className="card card-pad section-gap">
           <div className="card-title" style={{ marginBottom: 18 }}>Financials</div>
           <div style={{ maxWidth: 480 }}>

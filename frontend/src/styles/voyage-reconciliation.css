@@ -1,0 +1,98 @@
+.voyage-reconciliation-page { min-width: 0; }
+.reconciliation-preview-notice { margin: 16px 0; color: var(--slate); font-size: 12px; line-height: 1.6; }
+.reconciliation-card { background: white; border: 1px solid var(--hairline); border-radius: 10px; padding: 24px; margin-top: 20px; min-width: 0; }
+.reconciliation-section-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 20px; }
+.reconciliation-section-heading h2,.reconciliation-empty h2,.reconciliation-history h2 { font-size: 18px; line-height: 1.4; margin: 0; }
+.reconciliation-section-heading p,.reconciliation-empty p,.reconciliation-history > p { font-size: 13px; color: var(--slate); line-height: 1.6; margin: 6px 0 0; }
+.reconciliation-section-heading .btn { white-space: nowrap; }
+.reconciliation-progress { background: var(--brand-accent-faint); color: var(--brand-accent); padding: 8px 12px; border: 1px solid var(--brand-accent-border); border-radius: 6px; font-size: 11px; line-height: 1.5; flex-shrink: 0; }
+.reconciliation-table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--hairline-strong); border-radius: 8px; overscroll-behavior-inline: contain; }
+.reconciliation-table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.reconciliation-table { border-spacing: 0; border-collapse: separate; width: 100%; text-align: left; font-size: 13px; font-variant-numeric: tabular-nums; }
+.reconciliation-table caption { text-align: left; padding: 14px 16px; color: var(--slate); font-size: 12px; font-weight: 600; }
+.reconciliation-table th,.reconciliation-table td { padding: 12px; min-width: 115px; max-width: 300px; border-bottom: 1px solid var(--hairline); border-right: 1px solid var(--hairline); vertical-align: top; overflow-wrap: anywhere; }
+.reconciliation-table th:last-child,.reconciliation-table td:last-child { border-right: 0; }
+.reconciliation-table thead th { background: var(--page); color: var(--slate); font-size: 12px; font-weight: 600; border-top: 1px solid var(--hairline); }
+.reconciliation-table small { display: block; margin-top: 5px; color: var(--slate); font-size: 11px; line-height: 1.5; font-weight: 400; }
+.reconciliation-table .reconciliation-cargo { min-width: 160px; max-width: 220px; background: white; position: sticky; left: 0; z-index: 1; box-shadow: 1px 0 var(--hairline-strong); }
+.reconciliation-table thead .reconciliation-cargo { background: var(--page); z-index: 2; }
+.reconciliation-table .reconciliation-owner { background: var(--brand-accent-faint); }
+.reconciliation-table .reconciliation-final { min-width: 190px; background: var(--brand-accent-faint); }
+.reconciliation-table thead th:last-child,.reconciliation-table tbody tr:not(.reconciliation-sheet) td:last-child { min-width: 100px; }
+.reconciliation-table thead .reconciliation-final { color: var(--brand-accent); background: var(--brand-accent-soft); }
+.reconciliation-table .reconciliation-sheet th { min-width: 0; max-width: none; font-size: 12px; background: var(--page); }
+.reconciliation-table .reconciliation-sheet small { display: inline; margin-left: 10px; }
+.reconciliation-table tbody:last-child tr:last-child > * { border-bottom: 0; }
+.reconciliation-use-reading { padding: 0; border: 0; background: transparent; color: var(--brand-accent); font: inherit; font-weight: 650; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--brand-accent-border); text-underline-offset: 4px; }
+.reconciliation-use-reading:hover { color: var(--brand-accent-hover); }
+.reconciliation-use-reading:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+.reconciliation-agency-value + .reconciliation-agency-value { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }
+.reconciliation-missing { color: var(--slate-soft); font-size: 12px; }
+.reconciliation-quantity-field,.reconciliation-reason-field,.reconciliation-review-field { display: block; }
+.reconciliation-quantity-field input,.reconciliation-reason-field textarea,.reconciliation-review-field textarea { width: 100%; border: 1px solid var(--hairline-strong); border-radius: 6px; padding: 10px 11px; color: var(--ink); background: white; font: inherit; line-height: 1.5; resize: vertical; }
+.reconciliation-quantity-field input:focus,.reconciliation-reason-field textarea:focus,.reconciliation-review-field textarea:focus { outline: 2px solid var(--brand-focus); outline-offset: 1px; }
+.reconciliation-quantity-field input { min-width: 130px; }
+.reconciliation-reason-field { margin-top: 14px; }
+.reconciliation-reason-field > span { display: block; color: var(--slate); font-size: 11px; margin-bottom: 6px; }
+.reconciliation-reason-field textarea { font-size: 12px; }
+.reconciliation-outcome { display: inline-block; font-weight: 650; color: var(--ink); }
+.reconciliation-outcome.tallies { color: var(--brand-accent); }
+.reconciliation-outcome.below,.reconciliation-table .reconciliation-review-note { color: #9b5713; }
+.reconciliation-outcome.above { color: #9b5713; }
+.reconciliation-context-note { color: var(--slate); font-size: 12px; line-height: 1.7; margin: 12px 0 0; }
+.reconciliation-review-field { margin: 24px 0 0; }
+.reconciliation-review-field > span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.reconciliation-review-field textarea { font-size: 13px; }
+.reconciliation-footer { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--hairline); }
+.reconciliation-footer .btn { min-height: 40px; }
+.reconciliation-access-note { display: block; color: var(--slate); font-size: 11px; line-height: 1.6; margin-top: 8px; max-width: 320px; }
+.reconciliation-feedback { padding: 12px 16px; background: var(--brand-accent-soft); border: 1px solid var(--brand-accent-border); border-radius: 7px; color: var(--brand-dark); font-size: 13px; line-height: 1.6; }
+.reconciliation-stale-notice,.reconciliation-readiness { border: 1px solid #eddab9; border-radius: 7px; padding: 15px 16px; margin-bottom: 18px; color: #6d471b; background: #fffaf1; font-size: 12px; line-height: 1.65; }
+.reconciliation-stale-notice p { margin: 6px 0 12px; }
+.reconciliation-readiness h3 { margin: 0 0 6px; font-size: 13px; }
+.reconciliation-readiness ul { margin: 8px 0 12px; padding-left: 18px; }
+.reconciliation-empty { border: 1px solid var(--hairline); border-radius: 10px; background: white; padding: 32px 24px; margin-top: 20px; text-align: center; }
+.reconciliation-empty .btn { margin-top: 18px; }
+.reconciliation-approval-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; margin-bottom: 18px; }
+.reconciliation-approval-meta p { margin: 0; color: var(--slate); font-size: 12px; line-height: 1.5; }
+.reconciliation-status { display: inline-block; border: 1px solid var(--brand-accent-border); border-radius: 5px; color: var(--brand-accent); background: var(--brand-accent-soft); font-size: 11px; padding: 5px 9px; }
+.reconciliation-review-summary { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--hairline); }
+.reconciliation-review-summary h3 { font-size: 13px; margin: 0 0 6px; }
+.reconciliation-review-summary p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--slate); white-space: pre-wrap; }
+.reconciliation-print-note { font-size: 11px; color: var(--slate); line-height: 1.6; margin: 16px 0 0; }
+.reconciliation-print-header { display: none; }
+.reconciliation-history details { border-top: 1px solid var(--hairline); padding-top: 16px; margin-top: 16px; }
+.reconciliation-history summary { cursor: pointer; font-size: 12px; line-height: 1.6; }
+.reconciliation-history summary span { color: var(--slate); margin-left: 16px; }
+.reconciliation-history details[open] .reconciliation-report-snapshot { margin-top: 20px; }
+@media (max-width: 760px) {
+  .reconciliation-card { padding: 18px 16px; }
+  .reconciliation-section-heading { flex-direction: column; gap: 12px; }
+  .reconciliation-progress { flex-shrink: 1; }
+  .reconciliation-table th,.reconciliation-table td { padding: 12px; }
+  .reconciliation-table .reconciliation-cargo { min-width: 155px; max-width: 175px; }
+  .reconciliation-footer { flex-direction: column; }
+  .reconciliation-footer > div { width: 100%; }
+  .reconciliation-footer > div .btn { width: 100%; }
+  .reconciliation-history summary span { display: block; margin-left: 0; }
+}
+@media print {
+  .reconciliation-approved-section > .reconciliation-section-heading { display: none; }
+  .app:has(.voyage-reconciliation-page) .sidebar,.app:has(.voyage-reconciliation-page) .topbar,.app:has(.voyage-reconciliation-page) .toast-host,.app:has(.voyage-reconciliation-page) .security-banner,.voyage-reconciliation-page > .page-head,.voyage-reconciliation-page .reconciliation-no-print,.voyage-reconciliation-page .reconciliation-preview-notice,.voyage-reconciliation-page .reconciliation-feedback,.voyage-reconciliation-page .reconciliation-stale-notice,.voyage-reconciliation-page .reconciliation-editor,.voyage-reconciliation-page .reconciliation-history,.voyage-reconciliation-page .reconciliation-empty { display: none !important; }
+  .app:has(.voyage-reconciliation-page),.app:has(.voyage-reconciliation-page) .main,.app:has(.voyage-reconciliation-page) .content { display: block; height: auto; overflow: visible; margin: 0; padding: 0; }
+  .voyage-reconciliation-page { padding: 0; max-width: none; }
+  .reconciliation-card { padding: 0; border: 0; margin: 0; }
+  .reconciliation-table-scroll { overflow: visible; border-radius: 0; }
+  .reconciliation-table { width: 100%; font-size: 8px; }
+  .reconciliation-table th,.reconciliation-table td,.reconciliation-table .reconciliation-cargo,.reconciliation-table .reconciliation-final { min-width: 0; max-width: none; padding: 6px; position: static; box-shadow: none; }
+  .reconciliation-table thead th:last-child,.reconciliation-table tbody tr:not(.reconciliation-sheet) td:last-child { min-width: 0; }
+  .reconciliation-table thead { display: table-header-group; }
+  .reconciliation-table tr { break-inside: avoid; }
+  .reconciliation-table small { font-size: 7px; }
+  .reconciliation-report-snapshot { break-before: auto; }
+  .reconciliation-print-header { display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #bbb; padding-bottom: 14px; margin-bottom: 18px; }
+  .reconciliation-print-header img { width: 150px; height: auto; object-fit: contain; }
+  .reconciliation-print-header h1 { font-size: 18px; margin: 0 0 5px; }
+  .reconciliation-print-header p { font-size: 11px; margin: 0; }
+  .reconciliation-status,.reconciliation-print-note { color: #222; }
+}

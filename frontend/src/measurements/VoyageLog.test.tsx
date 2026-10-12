@@ -87,6 +87,27 @@ describe("compact voyage log", () => {
     expect(row().queryByText("Complete", { exact: true })).not.toBeInTheDocument();
   });
 
+  it("allows NPA review once required readings are complete while optional agencies remain outstanding", () => {
+    const plan = measurementFixture();
+    plan.participants[1].requiredSubmission = false;
+    render(<VoyageLog calls={[call]} plans={[plan]} canManage />);
+    expect(row().getByText("1 of 2 received")).toBeInTheDocument();
+    expect(row().queryByText("Complete", { exact: true })).not.toBeInTheDocument();
+    expect(row().getByRole("link", { name: "Reconcile readings" })).toHaveAttribute("href", "/app/measurements/voyages/call-1/reconciliation");
+  });
+
+  it("does not offer NPA review for an incomplete submitted reading or missing declaration", () => {
+    const plan = measurementFixture();
+    plan.submissions.push({ ...plan.submissions[0], id: "terminal", participantId: "party-2", lines: [] });
+    const { rerender } = render(<VoyageLog calls={[call]} plans={[plan]} canManage />);
+    expect(row().getByText("2 of 2 received")).toBeInTheDocument();
+    expect(row().queryByRole("link", { name: "Reconcile readings" })).not.toBeInTheDocument();
+    plan.submissions[1].lines = structuredClone(plan.submissions[0].lines);
+    plan.lines[0].manifestQuantity = null;
+    rerender(<VoyageLog calls={[call]} plans={[plan]} canManage />);
+    expect(row().queryByRole("link", { name: "Reconcile readings" })).not.toBeInTheDocument();
+  });
+
   it("retains historical counts for a truly cancelled voyage without mutation actions", () => {
     const plan = measurementFixture(); plan.status = "cancelled";
     render(<VoyageLog calls={[{ ...call, status: "cancelled" }]} plans={[plan]} canManage status="cancelled" />);
@@ -131,7 +152,7 @@ describe("compact voyage log", () => {
     expect(row().getByText("2 of 2 received")).toBeInTheDocument();
     expect(row().getByText("Complete", { exact: true })).toBeInTheDocument();
     expect(row().getByText("Recorded", { exact: true })).toBeInTheDocument();
-    expect(row().getByRole("link", { name: "Record readings" })).toHaveAttribute("href", "/app/measurements/plan-1");
+    expect(row().getByRole("link", { name: "Reconcile readings" })).toHaveAttribute("href", "/app/measurements/voyages/call-1/reconciliation");
   });
 
   it("distinguishes absent, partial and complete owner quantities while treating NIL as recorded", () => {

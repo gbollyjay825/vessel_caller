@@ -41,7 +41,12 @@ export function CustomerAccount() {
                 </p>
               </div>
             </div>
-            {workspaceAvailable && <Link className="btn btn-primary" to="/app">Open workspace</Link>}
+            {workspaceAvailable && (
+              <div className="flex gap-3" style={{ flexWrap: "wrap" }}>
+                <Link className="btn btn-primary" to="/app">Open workspace</Link>
+                {can("users.view") && <Link className="btn btn-secondary" to="/app/users"><Icon name="users" size={16} />Manage users</Link>}
+              </div>
+            )}
           </section>
         </div>
         {/* Keep this component mounted after session refresh so recovery codes stay visible. */}

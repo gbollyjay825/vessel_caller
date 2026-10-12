@@ -11,14 +11,19 @@ import { useStore } from "./store";
 function titleFor(pathname: string): string {
   const p = pathname.replace(/\/+$/, "");
   if (p === "/app" || p === "") return "Dashboard";
+  if (p.includes("/variation-invoices")) return "Invoices";
   if (p.includes("/vessel-calls")) return "Vessel Calls";
-  if (p.includes("/measurements")) return "Measurements";
+  if (p.endsWith("/variation-invoice")) return "Voyage invoice";
+  if (p.endsWith("/reconciliation")) return "Reconciliation";
+  if (p.endsWith("/readings")) return "Readings";
+  if (p.includes("/measurements")) return "Voyages";
   if (p.includes("/inspections/new")) return "New Inspection";
   if (p.includes("/inspections")) return "Inspections";
   if (p.includes("/invoices")) return "Invoices";
   if (p.includes("/analytics")) return "Analytics";
   if (p.includes("/users")) return "User Management";
   if (p.includes("/account")) return "Account & Security";
+  if (p.includes("/settings/agencies")) return "Agencies";
   if (p.includes("/settings")) return "Settings";
   return "Dashboard";
 }

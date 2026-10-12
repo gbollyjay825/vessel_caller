@@ -16,7 +16,7 @@
 .collection-no-reading {color:var(--muted);font-size:12px;margin:9px 0 0}
 .collection-agency-actions {display:flex;align-items:center;gap:8px;flex-wrap:nowrap;margin-top:12px}
 .collection-agency-actions .btn {min-width:110px;justify-content:center}
-.agency-link-panel {padding:12px;margin-top:12px;border:1px solid var(--border);border-radius:8px;background:#f5f8fc;min-width:0}
+.agency-link-panel {padding:12px;margin-top:12px;border:1px solid var(--border);border-radius:8px;background:var(--brand-accent-faint);min-width:0}
 .agency-link-copy {display:flex;align-items:flex-end;gap:8px;min-width:0}
 .agency-link-copy .measurement-field {flex:1;min-width:0;margin:0;gap:5px}
 .agency-link-copy input {font-size:12px;min-width:0;width:100%;text-overflow:ellipsis}

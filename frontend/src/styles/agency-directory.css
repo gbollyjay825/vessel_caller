@@ -8,7 +8,7 @@
 .agency-directory h2 { font-size: 1.1rem; margin: 0 0 16px; }
 .agency-directory label { display: flex; flex-direction: column; gap: 7px; font-size: .875rem; font-weight: 500; }
 .agency-directory input:not([type=checkbox]), .agency-directory select { padding: 10px 12px; min-width: 0; width: 100%; border: 1px solid var(--border, #d0d5dd); border-radius: 7px; background: var(--surface, #fff); color: inherit; font: inherit; }
-.agency-directory input:focus-visible, .agency-directory select:focus-visible { outline: 2px solid var(--primary, #165dca); outline-offset: 2px; }
+.agency-directory input:focus-visible, .agency-directory select:focus-visible { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
 .agency-directory-editor form { display: grid; gap: 16px; }
 .agency-directory .agency-active-choice { flex-direction: row; align-items: center; }
 .agency-active-choice input { width: 17px; height: 17px; }
@@ -21,6 +21,6 @@
 .agency-status.active { background: #e8f7ed; color: #17613d; }
 .agency-empty { padding: 24px 0; color: var(--muted, #667085); }
 .agency-form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.agency-message { margin-top: 14px; padding: 12px 14px; border-radius: 7px; background: #eef4ff; color: #24456e; }
+.agency-message { margin-top: 14px; padding: 12px 14px; border-radius: 7px; background: var(--brand-accent-faint); color: var(--brand-accent-hover); }
 .agency-message.error { background: #fff0ee; color: #a52d28; }
 @media (max-width: 760px) { .agency-directory-layout { grid-template-columns: minmax(0, 1fr); } .agency-list-heading { flex-wrap: wrap; } .agency-directory .agency-directory-list, .agency-directory .agency-directory-editor { padding: 16px; } }

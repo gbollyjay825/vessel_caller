@@ -569,9 +569,11 @@ export const api = {
       role: params.role === "all" ? undefined : params.role,
     })}`),
   inviteUser: (data: { name: string; email: string; role: Role }) =>
-    request<Invitation>("/api/invitations", { method: "POST", body: JSON.stringify(data) }),
+    request<{ invitation: Invitation; rev: number }>("/api/invitations", { method: "POST", body: JSON.stringify(data) })
+      .then((result) => result.invitation),
   resendInvitation: (id: string) =>
-    request<Invitation>(`/api/invitations/${encodeURIComponent(id)}/resend`, { method: "POST" }),
+    request<{ invitation: Invitation }>(`/api/invitations/${encodeURIComponent(id)}/resend`, { method: "POST" })
+      .then((result) => result.invitation),
   revokeInvitation: (id: string) =>
     request<void>(`/api/invitations/${encodeURIComponent(id)}`, { method: "DELETE" }),
   acceptInvitation: (data: { token: string; name: string; password: string }) =>

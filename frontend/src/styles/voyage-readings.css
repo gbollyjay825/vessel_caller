@@ -10,14 +10,14 @@
 .voyage-readings-table caption { padding: 15px 18px; text-align: left; font-size: 13px; font-weight: 600; color: var(--slate); background: white; }
 .voyage-readings-table th,.voyage-readings-table td { min-width: 160px; max-width: 260px; padding: 15px 18px; border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); vertical-align: top; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .voyage-readings-table th:last-child,.voyage-readings-table td:last-child { border-right: 0; }
-.voyage-readings-table thead th { background: #edf2f6; color: #344b60; font-size: 12px; font-weight: 650; border-top: 1px solid var(--hairline); }
+.voyage-readings-table thead th { background: var(--page); color: var(--slate); font-size: 12px; font-weight: 650; border-top: 1px solid var(--hairline); }
 .voyage-readings-table small { display: block; margin-top: 5px; color: var(--slate); font-size: 11px; line-height: 1.55; font-weight: 400; }
 .voyage-readings-table .voyage-readings-cargo { position: sticky; left: 0; z-index: 1; min-width: 220px; max-width: 280px; background: white; box-shadow: 1px 0 var(--hairline-strong); }
-.voyage-readings-table thead .voyage-readings-cargo { background: #edf2f6; z-index: 2; }
+.voyage-readings-table thead .voyage-readings-cargo { background: var(--page); z-index: 2; }
 .voyage-readings-table tbody .voyage-readings-cargo { font-weight: 550; }
 .voyage-readings-table .voyage-readings-unit { min-width: 90px; width: 90px; color: var(--slate); font-size: 12px; }
-.voyage-readings-table .voyage-readings-owner { background: #f1f7fb; }
-.voyage-readings-table thead .voyage-readings-owner { background: #e1edf6; }
+.voyage-readings-table .voyage-readings-owner { background: var(--brand-accent-faint); }
+.voyage-readings-table thead .voyage-readings-owner { background: var(--brand-accent-soft); }
 .voyage-readings-table .voyage-readings-sheet th { max-width: none; min-width: 0; background: #f7f8fa; padding-block: 11px; }
 .voyage-readings-sheet th > div { display: flex; align-items: center; gap: 14px; }
 .voyage-readings-sheet strong { font-size: 12px; font-weight: 600; }

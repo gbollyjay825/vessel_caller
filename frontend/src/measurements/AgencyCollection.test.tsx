@@ -92,7 +92,7 @@ describe("linear agency collection", () => {
     if (mode === "final") { const final = reconciliationFixture(); final.status = "final"; plan.reconciliations = [final]; }
     renderCollection(plan, { canManage: mode !== "viewer", onCreateLink: vi.fn() });
     expect(screen.queryByRole("button", { name: /Enter reading|Revise reading|Get link/ })).not.toBeInTheDocument();
-    if (mode === "final") expect(screen.getByRole("link", { name: "View previous reconciliation records" })).toHaveAttribute("href", "/app/measurements/plan-1?workspace=reconciliation");
+    if (mode === "final") expect(screen.queryByRole("link", { name: "View previous reconciliation records" })).not.toBeInTheDocument();
     if (mode !== "viewer") expect(screen.getByRole("status")).toBeInTheDocument();
   });
 

@@ -35,7 +35,7 @@ function AgencyDirectoryContent({ orgId, canEdit }: { orgId?: string; canEdit: b
     setDraft({ ...agency }); setCustomRole(!AGENCY_ROLES.some(role => role.value === agency.role)); setNotice("");
   }
   return <div className="content-inner agency-directory">
-    <Link to="/app/settings" className="link-btn">Back to settings</Link>
+    <Link to="/app/measurements" className="link-btn">Measurements</Link>
     <div className="page-head"><div><h1>Agency setup</h1><p className="desc">Set up reusable agencies, roles and default representatives for voyage sheets.</p></div></div>
     <p className="agency-preview-note">UI preview · saved on this browser. This organization’s directory is not synced to other browsers or users.</p>
     <p className="agency-help">Selecting an agency copies its details into each voyage sheet. Later directory changes do not alter historical records or readings.</p>

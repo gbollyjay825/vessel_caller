@@ -74,6 +74,16 @@ jq -n \
     immutable: true
   }' > "${payload}/RELEASE.json"
 
+# Identify the frontend served through the independent staging static overlay.
+jq -n \
+  --arg release "${release_tag}" \
+  --arg commit "${head_commit}" \
+  --arg created "${commit_timestamp}" \
+  '{schemaVersion: 1, releaseId: $release, gitCommit: $commit,
+    createdAt: $created, deploymentScope: "frontend-and-backend",
+    apiBase: "same-origin", stagingOnlySchemaCutover: true}' \
+  > "${payload}/frontend/dist/ui-release.json"
+
 checksum_file="${stage_root}/SHA256SUMS"
 (
   cd "${payload}"

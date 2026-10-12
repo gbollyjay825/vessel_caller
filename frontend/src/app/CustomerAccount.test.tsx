@@ -50,6 +50,7 @@ describe("Customer account recovery", () => {
     expect(screen.getByRole("tab", { name: "Password & MFA" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("button", { name: "Set up authenticator" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Open workspace" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Manage users" })).not.toBeInTheDocument();
     expect(mocks.profile).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(mocks.logout).toHaveBeenCalledOnce();
@@ -74,6 +75,7 @@ describe("Customer account recovery", () => {
     expect(screen.getByText("test-only-recovery-one")).toBeInTheDocument();
     expect(screen.getByText("test-only-recovery-two")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open workspace" })).toHaveAttribute("href", "/app");
+    expect(screen.getByRole("link", { name: "Manage users" })).toHaveAttribute("href", "/app/users");
     expect(mocks.profile).not.toHaveBeenCalled();
   });
 
@@ -83,5 +85,6 @@ describe("Customer account recovery", () => {
     expect(await screen.findByLabelText(/Full name/)).toHaveValue("Ada");
     expect(screen.getByRole("heading", { name: "Your account" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open workspace" })).toHaveAttribute("href", "/app");
+    expect(screen.getByRole("link", { name: "Manage users" })).toHaveAttribute("href", "/app/users");
   });
 });

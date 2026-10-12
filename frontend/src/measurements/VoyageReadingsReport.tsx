@@ -1,3 +1,4 @@
+import { ProductBrand } from "../components/ProductBrand";
 import { UNIT_LABELS } from "./cargoTemplates";
 import { readingQuantity } from "./comparison";
 import { latestReturns } from "./helpers";
@@ -74,6 +75,7 @@ export function VoyageReadingsReport({ callId, plans }: { callId: string; plans:
   if (!sheets.length) return <div className="voyage-readings-empty" role="status"><strong>No cargo sheets recorded for this voyage.</strong><p>The owner declaration and agency readings will appear here when a voyage sheet is created.</p></div>;
 
   return <div className="voyage-readings-report">
+    <ProductBrand className="document-brand" subtitle="Readings report" />
     <div className="voyage-readings-summary"><p><strong>{received} / {expected}</strong> agency submissions received <span>· {sheets.length} cargo {sheets.length === 1 ? "sheet" : "sheets"}</span></p>{cancelled > 0 && <p className="voyage-readings-cancelled-note">Includes {cancelled} cancelled {cancelled === 1 ? "sheet" : "sheets"}.</p>}</div>
     <div className="voyage-readings-scroll" role="region" aria-label="Voyage readings table" tabIndex={0}>
       <table className="voyage-readings-table">

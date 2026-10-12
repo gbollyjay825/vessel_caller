@@ -42,7 +42,6 @@
 .variation-definition { color: var(--slate); font-size: 13px; line-height: 1.7; margin: 14px 0 22px; max-width: 860px; }
 .variation-invoice-document { margin-top: 24px; border-top: 4px solid var(--accent); }
 .variation-document-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 1px solid var(--hairline); }
-.variation-document-head img { display: block; width: 190px; max-width: 100%; height: auto; margin-bottom: 14px; }
 .variation-document-head h2 { margin: 0 0 8px; font-size: 21px; }
 .variation-document-head p { color: var(--slate); font-size: 12px; line-height: 1.65; margin: 3px 0; }
 .variation-document-number { text-align: right; }
@@ -101,7 +100,6 @@
   .variation-table tbody th { min-width: 0; }
   .variation-table thead { display: table-header-group; }
   .variation-table tr,.variation-document-head,.variation-document-facts,.variation-document-total { break-inside: avoid; }
-  .variation-document-head img { width: 150px; }
   .variation-document-facts { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .variation-document-head { flex-direction: row; }
 }

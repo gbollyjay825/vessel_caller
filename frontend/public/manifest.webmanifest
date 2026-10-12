@@ -1,8 +1,8 @@
 {
   "name": "NPA Vessel Caller",
   "short_name": "NPA Vessel Caller",
-  "description": "Vessel calls, inspections, harbour dues, invoices, and quayside capture.",
-  "start_url": "/capture",
+  "description": "Voyage declarations, agency readings, NPA reconciliation and invoice previews.",
+  "start_url": "/app/dashboard",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0B2814",

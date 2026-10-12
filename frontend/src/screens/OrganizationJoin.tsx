@@ -1,5 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { AuthCard } from "../components/AuthCard";
 import { ApiError } from "../lib/api";
@@ -16,15 +15,25 @@ function failureMessage(error: unknown, fallback: string): string {
   return fields.length ? fields.join(" ") : error.message;
 }
 
+type LinkState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; data: Awaited<ReturnType<typeof organizationJoinApi.inspect>> };
+
 export function OrganizationJoin() {
   const [token] = useState(secureToken);
-  const link = useQuery({
-    queryKey: ["organization-join-link", token],
-    queryFn: () => organizationJoinApi.inspect(token),
-    enabled: Boolean(token),
-    retry: false,
-    gcTime: 0,
-  });
+  const [link, setLink] = useState<LinkState>({ status: "loading" });
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    // Anonymous session hydration clears the authenticated query cache. This
+    // public capability lookup must finish independently of that cache reset.
+    void organizationJoinApi.inspect(token).then(
+      (data) => { if (active) setLink({ status: "ready", data }); },
+      () => { if (active) setLink({ status: "error" }); },
+    );
+    return () => { active = false; };
+  }, [token]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,7 +43,7 @@ export function OrganizationJoin() {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (inFlight.current || !link.data || !event.currentTarget.reportValidity()) return;
+    if (inFlight.current || link.status !== "ready" || !event.currentTarget.reportValidity()) return;
     setError(null);
     if (!name.trim()) { setError("Enter your full name."); return; }
     inFlight.current = true;
@@ -50,12 +59,12 @@ export function OrganizationJoin() {
     }
   };
 
-  if (!token || link.isError) {
+  if (!token || link.status === "error") {
     return <AuthCard title="Sign-up link unavailable" subtitle="This link may have expired or been revoked. Ask your organization’s Admin for a new sign-up link.">
       <Link className="auth-submit auth-submit-link" to="/login">Return to sign in</Link>
     </AuthCard>;
   }
-  if (link.isPending) {
+  if (link.status === "loading") {
     return <AuthCard title="Opening sign-up link" subtitle="Checking which organization you will join.">
       <div className="organization-join-loading" role="status">Loading…</div>
     </AuthCard>;

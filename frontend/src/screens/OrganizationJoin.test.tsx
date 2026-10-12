@@ -1,9 +1,14 @@
+import { StrictMode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError } from "../lib/api";
+import { AuthProvider, useAuth } from "../auth/AuthContext";
+import { api, ApiError } from "../lib/api";
+import { resetAuthSessionEpochForTests } from "../lib/authSessionEpoch";
+import { queryClient } from "../lib/queryClient";
+import type { AuthSession } from "../types";
 import { OrganizationJoin, OrganizationJoinVerification } from "./OrganizationJoin";
 
 const mocks = vi.hoisted(() => ({ inspect: vi.fn(), submit: vi.fn(), verify: vi.fn() }));
@@ -24,6 +29,15 @@ async function fillVerification() {
 function renderVerification() {
   window.history.replaceState(null, "", "/join-organization/verify#token=email-token");
   return render(<OrganizationJoinVerification />);
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((finish, fail) => { resolve = finish; reject = fail; });
+  return { promise, resolve, reject };
+}
+function AuthStatus() {
+  return <span data-testid="auth-status">{useAuth().status}</span>;
 }
 
 describe("public organization joining", () => {
@@ -55,6 +69,39 @@ describe("public organization joining", () => {
     expect(screen.getByRole("list", { name: "Joining steps" })).toHaveTextContent("Admin approval");
     expect(screen.queryByLabelText("Organization name")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+  });
+  it("opens and submits the public link after anonymous session hydration clears authenticated queries", async () => {
+    const lookup = deferred<{ organization: { name: string }; expiresAt: string }>();
+    const session = deferred<AuthSession>();
+    mocks.inspect.mockReturnValue(lookup.promise);
+    vi.spyOn(api, "me").mockReturnValue(session.promise);
+    resetAuthSessionEpochForTests();
+    queryClient.clear();
+    queryClient.setQueryData(["private-organization-data"], { private: true });
+
+    render(<QueryClientProvider client={queryClient}><AuthProvider><OrganizationJoin /><AuthStatus /></AuthProvider></QueryClientProvider>);
+    await waitFor(() => expect(mocks.inspect).toHaveBeenCalledWith("shared-token"));
+    expect(screen.getByRole("heading", { name: "Opening sign-up link" })).toBeInTheDocument();
+    await act(async () => { session.reject(new ApiError("Authentication credentials were not provided.", 401)); });
+    await waitFor(() => expect(screen.getByTestId("auth-status")).toHaveTextContent("anonymous"));
+    expect(queryClient.getQueryData(["private-organization-data"])).toBeUndefined();
+
+    await act(async () => { lookup.resolve({ organization: { name: "NPA Test Organization" }, expiresAt: "2090-10-19T19:00:00Z" }); });
+    expect(await screen.findByRole("heading", { name: "Join NPA Test Organization" })).toBeInTheDocument();
+    await fillJoin();
+    await userEvent.click(screen.getByRole("button", { name: "Request to join" }));
+    expect(mocks.submit).toHaveBeenCalledWith({ token: "shared-token", name: "Ada Agency", email: "ada@example.test" });
+    expect(await screen.findByRole("heading", { name: "Check your email" })).toBeInTheDocument();
+  });
+  it("ignores a stale lookup failure after StrictMode restarts the public lookup effect", async () => {
+    const staleLookup = deferred<{ organization: { name: string }; expiresAt: string }>();
+    mocks.inspect.mockReturnValueOnce(staleLookup.promise);
+    render(<StrictMode><OrganizationJoin /></StrictMode>);
+    expect(await screen.findByRole("heading", { name: "Join NPA Test Organization" })).toBeInTheDocument();
+
+    await act(async () => { staleLookup.reject(new ApiError("Invalid link", 400)); });
+    expect(screen.getByRole("heading", { name: "Join NPA Test Organization" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Sign-up link unavailable" })).not.toBeInTheDocument();
   });
   it("submits normalized identity without password or role, then requires email verification and approval", async () => {
     renderJoin();

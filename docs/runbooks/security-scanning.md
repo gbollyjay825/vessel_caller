@@ -52,6 +52,10 @@ An isolated CLI experiment with the same flags returned exit 0 for clean source,
 exit 1 for a synthetic finding, and exit 2 for an invalid rule. This verifies that
 omitting `--strict` does not suppress findings or fatal configuration failures.
 
+The full repository scan on 2026-10-12 completed with exit 0 and zero findings
+across 492 targets and 267 applicable rules. The 12 parser warnings described
+above remained visible; they are an analysis limitation, not a security finding.
+
 Primary references: [archived wrapper source](https://github.com/semgrep/semgrep-action/blob/713efdd345f3035192eaa63f56867b88e63e4e5d/src/semgrep_agent.py),
 [bundled version](https://github.com/semgrep/semgrep-action/blob/713efdd345f3035192eaa63f56867b88e63e4e5d/Dockerfile),
 [old CI defaults](https://github.com/semgrep/semgrep/blob/v1.36.0/cli/src/semgrep/commands/ci.py),

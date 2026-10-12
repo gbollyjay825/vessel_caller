@@ -6,6 +6,9 @@ on:
       release:
         required: true
         type: string
+    secrets:
+      LOAD_TEST_COOKIE:
+        required: true
   workflow_dispatch:
     inputs:
       release:

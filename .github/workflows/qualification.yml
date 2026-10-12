@@ -194,6 +194,8 @@ jobs:
     uses: ./.github/workflows/load.yml
     with:
       release: ${{ inputs.tag }}
+    secrets:
+      LOAD_TEST_COOKIE: ${{ secrets.LOAD_TEST_COOKIE }}
 
   dast:
     needs: preflight

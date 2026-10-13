@@ -29,6 +29,7 @@ def _before_send(event, hint):
     del hint
     request = event.get("request")
     platform_request = False
+    credential_request = False
     if request:
         headers = request.get("headers") or {}
         for key in list(headers):
@@ -42,7 +43,11 @@ def _before_send(event, hint):
             request["url"] = _strip_query(request["url"])
             stripped_url = request["url"]
             if isinstance(stripped_url, str):
-                platform_request = urlsplit(stripped_url).path.startswith("/api/system/")
+                path = urlsplit(stripped_url).path
+                platform_request = path.startswith("/api/system/")
+                credential_request = path.startswith("/api/auth/") or (
+                    path.startswith("/api/users/") and path.endswith("/temporary-password")
+                )
         request["headers"] = headers
     if "transaction" in event:
         event["transaction"] = _strip_query(event["transaction"])
@@ -57,6 +62,25 @@ def _before_send(event, hint):
         # Keep the error/transaction envelope, but omit those detailed spans
         # for the cross-organization control plane.
         event.pop("spans", None)
+    # Generated credentials and challenge capabilities can be local variables
+    # when an unexpected exception occurs. Removing the request body alone
+    # does not remove the SDK's captured exception-frame locals.
+    exception = event.get("exception")
+    if isinstance(exception, dict) and isinstance(exception.get("values"), list):
+        for value in exception["values"]:
+            stacktrace = value.get("stacktrace") if isinstance(value, dict) else None
+            frames = stacktrace.get("frames") if isinstance(stacktrace, dict) else None
+            if not isinstance(frames, list):
+                continue
+            for frame in frames:
+                if not isinstance(frame, dict):
+                    continue
+                credential_frame = (
+                    "accounts/temporary_passwords.py" in str(frame.get("filename", ""))
+                    or frame.get("module") == "accounts.temporary_passwords"
+                )
+                if credential_request or credential_frame:
+                    frame.pop("vars", None)
     user = event.get("user")
     if user:
         event["user"] = {"id": user.get("id")}

@@ -13,6 +13,7 @@ import { queryClient } from "./lib/queryClient";
 import { MobileApp } from "./mobile/MobileApp";
 import { Analytics } from "./screens/Analytics";
 import { AuthPage } from "./screens/AuthPage";
+import { TemporaryPasswordChange } from "./screens/TemporaryPasswordChange";
 import { Dashboard } from "./screens/Dashboard";
 import { EmailVerification } from "./screens/EmailVerification";
 import { Inspections, NewInspection } from "./screens/Inspections";
@@ -43,7 +44,8 @@ function SecureScreen({ permission, children }: { permission?: Permission; child
 }
 
 function PublicAuthRoute({ children }: { children: ReactNode }) {
-  const { status, homePath } = useAuth();
+  const { status, homePath, passwordChangeChallenge } = useAuth();
+  if (passwordChangeChallenge) return <Navigate to="/change-temporary-password" replace />;
   return status === "authenticated" ? <Navigate to={homePath} replace /> : <>{children}</>;
 }
 
@@ -169,6 +171,7 @@ export default function App() {
         <Switch>
           <Route path="/"><Landing /></Route>
           <Route path="/login"><PublicAuthRoute><AuthPage mode="login" /></PublicAuthRoute></Route>
+          <Route path="/change-temporary-password"><TemporaryPasswordChange /></Route>
           <Route path="/register"><PublicAuthRoute><AuthPage mode="register" /></PublicAuthRoute></Route>
           <Route path="/verify-email"><EmailVerification /></Route>
           <Route path="/forgot-password"><ForgotPassword /></Route>

@@ -7,30 +7,50 @@ set -euo pipefail
 marker="${1:-/var/lib/vessel-caller/staging-organization-approval-lifecycle.cutover}"
 current_link="${2:-/opt/vessel-caller/slots/staging/current}"
 release_root="${3:-/opt/vessel-caller/releases}"
+temporary_password_marker="${4:-$(dirname -- "${marker}")/staging-temporary-password-lifecycle.cutover}"
+require_organization=false
+require_temporary_password=false
 
-if [[ ! -e "${marker}" && ! -L "${marker}" ]]; then
-  if ! lifecycle_state="$(/usr/local/lib/vessel-caller/staging-lifecycle-state.sh)"; then
-    echo "The authoritative staging lifecycle state could not be established." >&2
-    exit 1
+for lifecycle in organization temporary-password; do
+  if [[ "${lifecycle}" == organization ]]; then
+    lifecycle_marker="${marker}"
+    capability=organizationApprovalLifecycle
+  else
+    lifecycle_marker="${temporary_password_marker}"
+    capability=temporaryPasswordLifecycle
   fi
-  if [[ "${lifecycle_state}" == absent ]]; then
-    exit 0
+  if [[ ! -e "${lifecycle_marker}" && ! -L "${lifecycle_marker}" ]]; then
+    if ! lifecycle_state="$(/usr/local/lib/vessel-caller/staging-lifecycle-state.sh "${lifecycle}")"; then
+      echo "The authoritative staging ${lifecycle} lifecycle state could not be established." >&2
+      exit 1
+    fi
+    case "${lifecycle_state}" in
+      absent) continue ;;
+      present) ;;
+      *)
+        echo "The authoritative staging ${lifecycle} lifecycle state is invalid." >&2
+        exit 1
+        ;;
+    esac
+  else
+    marker_dir="$(dirname -- "${lifecycle_marker}")"
+    if [[ ! -d "${marker_dir}" || -L "${marker_dir}" ]] \
+      || [[ "$(stat -c '%U:%G:%a' "${marker_dir}")" != root:root:755 ]] \
+      || [[ ! -f "${lifecycle_marker}" || -L "${lifecycle_marker}" ]] \
+      || [[ "$(stat -c '%U:%G:%a' "${lifecycle_marker}")" != root:root:644 ]] \
+      || [[ "$(<"${lifecycle_marker}")" != "${capability}=true" ]]; then
+      echo "The staging ${lifecycle} lifecycle marker is not trusted." >&2
+      exit 1
+    fi
   fi
-  if [[ "${lifecycle_state}" != present ]]; then
-    echo "The authoritative staging lifecycle state is invalid." >&2
-    exit 1
+  if [[ "${lifecycle}" == organization ]]; then
+    require_organization=true
+  else
+    require_temporary_password=true
   fi
-else
-  marker_dir="$(dirname -- "${marker}")"
-  if [[ ! -d "${marker_dir}" || -L "${marker_dir}" ]] \
-    || [[ "$(stat -c '%U:%G:%a' "${marker_dir}")" != root:root:755 ]] \
-    || [[ ! -f "${marker}" || -L "${marker}" ]] \
-    || [[ "$(stat -c '%U:%G:%a' "${marker}")" != root:root:644 ]] \
-    || [[ "$(<"${marker}")" != "organizationApprovalLifecycle=true" ]]; then
-    echo "The staging approval-lifecycle marker is not trusted." >&2
-    exit 1
-  fi
-fi
+done
+
+if [[ "${require_organization}" != true && "${require_temporary_password}" != true ]]; then exit 0; fi
 
 if [[ ! -L "${current_link}" ]] \
   || [[ "$(stat -c '%U' "${current_link}")" != root ]]; then
@@ -61,8 +81,12 @@ if (( (8#${target_mode} & 8#22) != 0 || (8#${manifest_mode} & 8#22) != 0 )); the
   exit 1
 fi
 if ! jq --exit-status \
-  '.schemaVersion == 1 and .application == "vessel-caller" and .organizationApprovalLifecycle == true' \
+  --argjson require_organization "${require_organization}" \
+  --argjson require_temporary_password "${require_temporary_password}" \
+  '.schemaVersion == 1 and .application == "vessel-caller" and
+   ($require_organization == false or .organizationApprovalLifecycle == true) and
+   ($require_temporary_password == false or .temporaryPasswordLifecycle == true)' \
   "${manifest}" >/dev/null; then
-  echo "The staging release predates the required approval lifecycle." >&2
+  echo "The staging release predates a required lifecycle." >&2
   exit 1
 fi

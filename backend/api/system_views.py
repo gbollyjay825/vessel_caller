@@ -14,6 +14,7 @@ from vessel_caller import __version__
 def _runtime_capabilities() -> dict[str, bool]:
     return {
         "organizationAccessStatus": True,
+        "temporaryPasswordLifecycle": True,
         "systemAdminEmailDeliveryReady": (
             settings.EMAIL_DELIVERY_BACKEND == "resend"
             and bool((settings.RESEND_API_KEY or "").strip())

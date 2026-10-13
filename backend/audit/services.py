@@ -4,7 +4,16 @@ from decimal import Decimal
 
 from .models import AuditEvent, PlatformAuditEvent
 
-SENSITIVE = {"password", "token", "secret", "recoveryCodes", "mfaSecret"}
+SENSITIVE = {
+    "password",
+    "token",
+    "secret",
+    "recoveryCodes",
+    "mfaSecret",
+    "temporaryPassword",
+    "passwordChangeToken",
+    "currentPassword",
+}
 
 
 def _sanitize(value):

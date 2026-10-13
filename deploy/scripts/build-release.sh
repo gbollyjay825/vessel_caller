@@ -70,6 +70,7 @@ jq -n \
     createdAt: $created,
     runtimes: {python: $python, node: $node},
     organizationApprovalLifecycle: true,
+    temporaryPasswordLifecycle: true,
     stagingOnlySchemaCutover: true,
     immutable: true
   }' > "${payload}/RELEASE.json"

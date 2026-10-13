@@ -21,6 +21,7 @@ from accounts.models import ActionToken, Invitation, User
 from accounts.notifications import queue_security_notice
 from accounts.security import EMPTY_MFA_SECRET, issue_action_token, token_hash
 from accounts.services import opaque_token, queue_email, revoke_sessions
+from accounts.temporary_passwords import provision_temporary_user, regenerate_temporary_password
 from audit.models import AuditEvent
 from audit.services import record_event
 from organizations.models import Organization
@@ -72,6 +73,52 @@ class UsersView(APIView):
         return paginator.get_paginated_response([user_data(item) for item in page])
 
 
+def _temporary_password_response(user, temporary_password):
+    response = Response(
+        {
+            "user": user_data(user),
+            "rev": bump_revision(user.organization_id),
+            "temporaryPassword": temporary_password,
+            "temporaryPasswordExpiresAt": user.temporary_password_expires_at.isoformat(),
+            "signInUrl": f"{settings.FRONTEND_URL}/login",
+        },
+        status=status.HTTP_201_CREATED,
+    )
+    response["Cache-Control"] = "no-store"
+    response["Pragma"] = "no-cache"
+    return response
+
+
+class TemporaryPasswordUserView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "users.manage"
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = InvitationCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user, temporary_password = provision_temporary_user(
+            actor=request.user,
+            request=request,
+            **serializer.validated_data,
+        )
+        return _temporary_password_response(user, temporary_password)
+
+
+class TemporaryPasswordRegenerateView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "users.manage"
+
+    @transaction.atomic
+    def post(self, request, user_id):
+        user, temporary_password = regenerate_temporary_password(
+            actor=request.user,
+            user_id=user_id,
+            request=request,
+        )
+        return _temporary_password_response(user, temporary_password)
+
+
 class UserDetailView(APIView):
     permission_classes = [IsAuthenticated, HasVesselPermission]
     required_permission = "users.manage"
@@ -103,7 +150,11 @@ class UserDetailView(APIView):
         if changing_self_access:
             raise ValidationError("You cannot change your own role or status")
         before = user_data(member)
-        if member.role == User.Role.ADMIN and member.status == User.Status.ACTIVE:
+        if (
+            member.role == User.Role.ADMIN
+            and member.status == User.Status.ACTIVE
+            and not member.password_change_required
+        ):
             losing_admin = (
                 data.get("role", member.role) != User.Role.ADMIN
                 or data.get("status", member.status) != User.Status.ACTIVE
@@ -112,6 +163,7 @@ class UserDetailView(APIView):
                 organization=member.organization,
                 role=User.Role.ADMIN,
                 status=User.Status.ACTIVE,
+                password_change_required=False,
             ).count()
             if losing_admin and active_admins <= 1:
                 raise ValidationError("The organization must keep at least one active Admin")
@@ -162,11 +214,16 @@ class UserDetailView(APIView):
             raise NotFound("User not found")
         if member.pk == request.user.pk:
             raise ValidationError("You cannot remove your own account")
-        if member.role == User.Role.ADMIN and member.status == User.Status.ACTIVE:
+        if (
+            member.role == User.Role.ADMIN
+            and member.status == User.Status.ACTIVE
+            and not member.password_change_required
+        ):
             active_admins = User.objects.filter(
                 organization=member.organization,
                 role=User.Role.ADMIN,
                 status=User.Status.ACTIVE,
+                password_change_required=False,
             ).count()
             if active_admins <= 1:
                 raise ValidationError("The organization must keep at least one active Admin")
@@ -215,7 +272,11 @@ class UserPasswordResetDispatchView(APIView):
         )
         if not organization:
             raise NotFound("User not found")
-        member = organization.users.filter(pk=user_id, status=User.Status.ACTIVE).first()
+        member = organization.users.filter(
+            pk=user_id,
+            status=User.Status.ACTIVE,
+            password_change_required=False,
+        ).first()
         if not member:
             raise NotFound("User not found")
         token_obj, raw = issue_action_token(member, ActionToken.Kind.RESET_PASSWORD, hours=1)

@@ -72,7 +72,7 @@ test("real Django sessions enforce server RBAC without browser tokens", async ({
   await expect(
     page.getByText("operations@e2e.vesselcalls.test").filter({ visible: true }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Invite user" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add user" })).toBeVisible();
 });
 
 test("operations creates and finalizes a call; finance records and reverses payment", async ({ page }, testInfo) => {

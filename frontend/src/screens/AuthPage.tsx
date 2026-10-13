@@ -82,6 +82,11 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
       }
       if (mode === "login") {
         const result = await login(email.trim().toLowerCase(), password);
+        if ("passwordChangeRequired" in result) {
+          setPassword("");
+          navigate("/change-temporary-password", { replace: true, state: { from: safeRequestedDestination } });
+          return;
+        }
         if ("mfaRequired" in result) {
           setChallengeId(result.challengeId);
           setPassword("");
@@ -144,7 +149,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           {challengeId
             ? "Enter the six-digit code from your authenticator app, or a recovery code."
             : mode === "login"
-              ? "Access your port-inspection workspace."
+              ? "Access your voyage readings and reconciliation workspace."
               : "Create your agency and its first Admin account."}
         </p>
 

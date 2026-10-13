@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from accounts.models import ActionToken, MFAChallenge, User
 from accounts.notifications import queue_security_notice
 from accounts.platform_access import platform_access_data
+from accounts.temporary_passwords import complete_temporary_password, temporary_password_challenge
 from accounts.security import (
     consume_action_token,
     decrypt_secret,
@@ -60,6 +61,7 @@ from .serializers import (
     RegisterSerializer,
     ResetPasswordSerializer,
     TokenSerializer,
+    TemporaryPasswordCompleteSerializer,
     organization_data,
     user_data,
 )
@@ -415,12 +417,35 @@ class LoginView(APIView):
         ip_attempt = _increment_rate_key(ip_key)
         if account_attempt > 8 or ip_attempt > 24:
             raise Unauthorized("Too many attempts. Try again later")
+        temporary = temporary_password_challenge(
+            email=email,
+            password=serializer.validated_data["password"],
+            request=request,
+        )
+        if temporary:
+            challenge, raw = temporary
+            # Do not retain a different identity's workspace session while the
+            # browser is completing this limited first-sign-in challenge.
+            end_current_session(request)
+            _decrement_rate_key(account_key)
+            _decrement_rate_key(ip_key)
+            response = Response(
+                {
+                    "passwordChangeRequired": True,
+                    "passwordChangeToken": raw,
+                    "passwordChangeExpiresAt": challenge.expires_at.isoformat(),
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+            response["Cache-Control"] = "no-store"
+            response["Pragma"] = "no-cache"
+            return response
         user = authenticate(
             request,
             email=email,
             password=serializer.validated_data["password"],
         )
-        if not user or user.is_staff or user.is_superuser or not user.email_verified_at:
+        if not user or user.is_staff or user.is_superuser or not user.login_identity_approved:
             raise Unauthorized("Invalid email or password")
         _decrement_rate_key(account_key)
         _decrement_rate_key(ip_key)
@@ -446,6 +471,42 @@ class LoginView(APIView):
             request=request,
         )
         return Response(session_payload(user, request=request))
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class CompleteTemporaryPasswordView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = TemporaryPasswordCompleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = complete_temporary_password(
+            raw=serializer.validated_data["token"],
+            password=serializer.validated_data["password"],
+            request=request,
+        )
+        if user.mfa_enabled:
+            challenge = start_mfa_challenge(user)
+            response = Response(
+                {"mfaRequired": True, "challengeId": challenge.id},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        else:
+            start_session(request, user)
+            record_identity_event(
+                organization=user.organization,
+                actor=user,
+                action="session.login",
+                target=user,
+                target_label=user.email,
+                request=request,
+            )
+            response = Response(session_payload(user, request=request))
+        response["Cache-Control"] = "no-store"
+        response["Pragma"] = "no-cache"
+        return response
 
 
 @method_decorator(csrf_protect, name="dispatch")
@@ -561,6 +622,7 @@ class ForgotPasswordView(APIView):
         user = User.objects.filter(
             email=email,
             status=User.Status.ACTIVE,
+            password_change_required=False,
             organization__access_status=Organization.AccessStatus.ACTIVE,
             is_staff=False,
             is_superuser=False,
@@ -604,6 +666,8 @@ class ResetPasswordView(APIView):
             .select_related("organization")
             .get(pk=token_obj.user_id)
         )
+        if user.password_change_required:
+            raise ValidationError({"token": ["This reset link is invalid or expired"]})
         platform_setup = bool(token_obj.metadata.get("platformSetup"))
         if platform_setup:
             from accounts.platform_access import active_platform_grant

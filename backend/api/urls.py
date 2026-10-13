@@ -7,6 +7,7 @@ from rest_framework.schemas import get_schema_view
 
 from .auth_views import (
     ChangePasswordView,
+    CompleteTemporaryPasswordView,
     CsrfView,
     ForgotPasswordView,
     LoginView,
@@ -89,6 +90,8 @@ from .user_views import (
     InvitationsView,
     RoleDefinitionsView,
     UserDetailView,
+    TemporaryPasswordUserView,
+    TemporaryPasswordRegenerateView,
     UserMFAResetView,
     UserPasswordResetDispatchView,
     UsersView,
@@ -188,6 +191,11 @@ urlpatterns = [
         name="auth-resend-verification",
     ),
     path("auth/login", LoginView.as_view(), name="auth-login"),
+    path(
+        "auth/complete-temporary-password",
+        CompleteTemporaryPasswordView.as_view(),
+        name="auth-complete-temporary-password",
+    ),
     path("auth/mfa/verify", MFAVerifyView.as_view(), name="auth-mfa-verify"),
     path("auth/logout", LogoutView.as_view(), name="auth-logout"),
     path("auth/me", MeView.as_view(), name="auth-me"),
@@ -216,7 +224,17 @@ urlpatterns = [
     path("profile", ProfileView.as_view(), name="profile"),
     path("roles", RoleDefinitionsView.as_view(), name="role-definitions"),
     path("users", UsersView.as_view(), name="users"),
+    path(
+        "users/temporary-password",
+        TemporaryPasswordUserView.as_view(),
+        name="user-temporary-password",
+    ),
     path("users/<str:user_id>", UserDetailView.as_view(), name="user-detail"),
+    path(
+        "users/<str:user_id>/temporary-password",
+        TemporaryPasswordRegenerateView.as_view(),
+        name="user-temporary-password-regenerate",
+    ),
     path(
         "users/<str:user_id>/send-password-reset",
         UserPasswordResetDispatchView.as_view(),

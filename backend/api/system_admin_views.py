@@ -106,13 +106,14 @@ def annotated_customer_organizations():
             user_count=Count("users", distinct=True),
             active_user_count=Count(
                 "users",
-                filter=Q(users__status=User.Status.ACTIVE),
+                filter=Q(users__status=User.Status.ACTIVE, users__password_change_required=False),
                 distinct=True,
             ),
             admin_count=Count(
                 "users",
                 filter=Q(
                     users__status=User.Status.ACTIVE,
+                    users__password_change_required=False,
                     users__role=User.Role.ADMIN,
                     users__email_verified_at__isnull=False,
                     users__is_staff=False,
@@ -686,6 +687,7 @@ class SystemOrganizationUserPasswordResetView(APIView):
                 pk=user_id,
                 role=User.Role.ADMIN,
                 status=User.Status.ACTIVE,
+                password_change_required=False,
             )
             .first()
         )

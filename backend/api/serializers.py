@@ -33,6 +33,9 @@ def user_data(user: User) -> dict:
         "status": user.status,
         "active": user.is_active,
         "emailVerified": bool(user.email_verified_at),
+        "adminProvisioned": bool(user.admin_provisioned_at),
+        "passwordChangeRequired": user.password_change_required,
+        "temporaryPasswordExpiresAt": iso(user.temporary_password_expires_at),
         "mfaEnabled": user.mfa_enabled,
         "mfaGraceEndsAt": iso(user.mfa_grace_ends_at),
         "mfaEnrollmentRequired": user.mfa_enrollment_required,
@@ -396,6 +399,11 @@ class InvitationCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
     email = serializers.EmailField()
     role = serializers.ChoiceField(choices=User.Role.values)
+
+
+class TemporaryPasswordCompleteSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=256, trim_whitespace=False)
+    password = PasswordField(max_length=128)
 
 
 class InvitationAcceptSerializer(TokenSerializer):

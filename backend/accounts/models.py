@@ -64,6 +64,18 @@ class User(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.VIEWER)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.INVITED)
     email_verified_at = models.DateTimeField(null=True, blank=True)
+    # Explicit tenant-Admin provisioning is distinct from proving ownership of
+    # an email address. Neither field is writable through profile/user edits.
+    admin_provisioned_at = models.DateTimeField(null=True, blank=True)
+    admin_provisioned_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admin_provisioned_users",
+    )
+    password_change_required = models.BooleanField(default=False)
+    temporary_password_expires_at = models.DateTimeField(null=True, blank=True)
     mfa_secret = models.TextField(blank=True)
     mfa_enabled_at = models.DateTimeField(null=True, blank=True)
     mfa_grace_ends_at = models.DateTimeField(null=True, blank=True)
@@ -95,13 +107,27 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_active(self) -> bool:  # type: ignore[override]
-        if self.status != self.Status.ACTIVE:
+        if self.status != self.Status.ACTIVE or self.password_change_required:
             return False
         try:
             organization = self.organization
         except ObjectDoesNotExist:
             return False
         return organization.is_access_active
+
+    @property
+    def login_identity_approved(self) -> bool:
+        """Email ownership or an explicit customer-Admin membership decision."""
+
+        return bool(
+            self.email_verified_at
+            or (
+                self.admin_provisioned_at
+                and self.organization.kind == "customer"
+                and not self.is_staff
+                and not self.is_superuser
+            )
+        )
 
     @property
     def mfa_enabled(self) -> bool:
@@ -397,6 +423,7 @@ class ActionToken(models.Model):
         VERIFY_EMAIL = "verify_email", "Verify email"
         RESET_PASSWORD = "reset_password", "Reset password"
         CHANGE_EMAIL = "change_email", "Change email"
+        TEMPORARY_PASSWORD_CHANGE = "temporary_password_change", "Replace temporary password"
 
     id = models.CharField(primary_key=True, max_length=32, default=token_id)
     user = models.ForeignKey(

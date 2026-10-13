@@ -322,7 +322,22 @@ export interface MfaChallenge {
   challengeId: string;
 }
 
-export type LoginResult = AuthSession | MfaChallenge;
+export interface TemporaryPasswordChallenge {
+  passwordChangeRequired: true;
+  passwordChangeToken: string;
+  passwordChangeExpiresAt: string;
+}
+
+export interface TemporaryPasswordUserResult {
+  user: User;
+  rev: number;
+  temporaryPassword: string;
+  temporaryPasswordExpiresAt: string;
+  signInUrl: string;
+}
+
+export type PasswordChangeResult = AuthSession | MfaChallenge;
+export type LoginResult = PasswordChangeResult | TemporaryPasswordChallenge;
 
 export interface UserListParams {
   page?: number;
@@ -458,6 +473,14 @@ export const api = {
       body: JSON.stringify({ email, password }),
       suppressAuthExpired: true,
     }),
+  completeTemporaryPassword: (token: string, password: string) =>
+    request<PasswordChangeResult>("/api/auth/complete-temporary-password", {
+      broadcastsIdentityTransition: true,
+      method: "POST",
+      serializesAuthCookie: true,
+      body: JSON.stringify({ token, password }),
+      suppressAuthExpired: true,
+    }),
   verifyMfaChallenge: (challengeId: string, code: string) =>
     request<AuthSession>("/api/auth/mfa/verify", {
       broadcastsIdentityTransition: true,
@@ -549,6 +572,17 @@ export const api = {
       status: params.status === "all" ? undefined : params.status,
       role: params.role === "all" ? undefined : params.role,
     })}`),
+  createTemporaryPasswordUser: (data: { name: string; email: string; role: Role }) =>
+    request<TemporaryPasswordUserResult>("/api/users/temporary-password", {
+      method: "POST",
+      body: JSON.stringify(data),
+      cache: "no-store",
+    }),
+  regenerateTemporaryPassword: (id: string) =>
+    request<TemporaryPasswordUserResult>(`/api/users/${encodeURIComponent(id)}/temporary-password`, {
+      method: "POST",
+      cache: "no-store",
+    }),
   roleDefinitions: () => request<{ roles: RoleDefinition[] }>("/api/roles"),
   updateUser: (id: string, patch: Partial<Pick<User, "name" | "role" | "status">>) =>
     request<{ user: User; rev: number }>(`/api/users/${encodeURIComponent(id)}`, {

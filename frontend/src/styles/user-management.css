@@ -24,3 +24,21 @@
 @media (max-width: 900px) {
   .user-management-page .filter-bar { grid-template-columns: 1fr; }
 }
+
+.user-first-signin { margin: 0 0 24px; padding: 0; border: 0; display: grid; gap: 10px; }
+.user-first-signin legend { margin-bottom: 10px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.user-first-signin label { display: flex; align-items: flex-start; gap: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; cursor: pointer; }
+.user-first-signin label:has(input:checked) { border-color: var(--brand-accent); background: var(--brand-accent-faint); }
+.user-first-signin input { margin: 3px 0 0; accent-color: var(--brand-accent); flex: 0 0 auto; }
+.user-first-signin strong { display: block; color: var(--ink); font-size: 14px; }
+.user-first-signin small { display: block; margin-top: 5px; color: var(--slate); line-height: 1.55; }
+.temporary-user-result .user-access-note p { margin: 6px 0 0; line-height: 1.6; }
+.temporary-user-summary { display: grid; gap: 14px; margin: 24px 0; }
+.temporary-user-summary div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 12px; font-size: 14px; }
+.temporary-user-summary dt { color: var(--slate); }
+.temporary-user-summary dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.temporary-password-control { display: flex; gap: 8px; align-items: stretch; }
+.temporary-password-control input { min-width: 0; flex: 1; font-family: var(--mono, monospace); }
+.temporary-password-control button { white-space: nowrap; }
+.temporary-copy-notice { color: var(--brand-accent); font-size: 13px; line-height: 1.6; }
+@media (max-width: 480px) { .temporary-password-control { flex-direction: column; } .temporary-password-control button { align-self: flex-start; } }

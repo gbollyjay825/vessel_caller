@@ -148,4 +148,16 @@ describe("AuthPage", () => {
     await vi.waitFor(() => expect(window.location.pathname).toBe("/system"));
     expect(authMock.verifyMfa).toHaveBeenCalledWith("challenge-1", "123456");
   });
+  it("routes temporary-password sign-in to mandatory replacement without putting the challenge in history", async () => {
+    authMock.login.mockResolvedValue({ passwordChangeRequired: true, passwordChangeToken: "limited-test-token", passwordChangeExpiresAt: "2026-10-20T10:00:00Z" });
+    render(<AuthPage mode="login" />);
+    await userEvent.type(screen.getByLabelText("Email"), "viewer@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "fixture temporary password");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/change-temporary-password"));
+    expect(window.location.href).not.toContain("limited-test-token");
+    expect(JSON.stringify(window.history.state)).not.toContain("limited-test-token");
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+  });
+
 });

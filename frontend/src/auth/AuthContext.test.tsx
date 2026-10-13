@@ -16,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
   me: vi.fn(),
   login: vi.fn(),
   verifyMfaChallenge: vi.fn(),
+  completeTemporaryPassword: vi.fn(),
   register: vi.fn(),
   logout: vi.fn(),
 }));
@@ -92,6 +93,7 @@ function Probe() {
       <span data-testid="status">{auth.status}</span>
       <span data-testid="name">{auth.user?.name ?? "none"}</span>
       <span data-testid="can-users">{String(auth.can("users.view"))}</span>
+      <span data-testid="password-change-pending">{String(Boolean(auth.passwordChangeChallenge))}</span>
       <span data-testid="can-settings">{String(auth.can("settings.manage"))}</span>
       <span data-testid="expired">{String(auth.sessionExpired)}</span>
       <span data-testid="auth-error">{auth.authError ?? "none"}</span>
@@ -99,6 +101,7 @@ function Probe() {
       <span data-testid="platform-home">{auth.homePath}</span>
       <span data-testid="can-platform">{String(auth.can("platform.organizations.view"))}</span>
       <span data-testid="step-up">{String(auth.platformAccess?.stepUpRequired ?? false)}</span>
+      <button type="button" onClick={() => void auth.completeTemporaryPassword("fresh test password").catch(() => undefined)}>Complete temporary password</button>
       <button type="button" onClick={() => void auth.logout()}>Sign out</button>
       <button type="button" onClick={() => void auth.retrySession()}>Retry session</button>
       <button type="button" onClick={() => void auth.refreshSession().catch(() => undefined)}>
@@ -651,4 +654,67 @@ describe("AuthProvider", () => {
     expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
     expect(screen.getByTestId("platform-role")).toHaveTextContent("SystemAdmin");
   });
+  it("keeps a temporary-password challenge anonymous and clears previous identity-bound queries", async () => {
+    apiMock.me.mockResolvedValue(session);
+    apiMock.login.mockResolvedValue({ passwordChangeRequired: true, passwordChangeToken: "limited-fixture-token", passwordChangeExpiresAt: new Date(Date.now() + 300_000).toISOString() });
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await screen.findByText("Ada Admin");
+    queryClient.setQueryData(["users"], { private: true });
+    await userEvent.click(screen.getByRole("button", { name: "Log in next identity" }));
+    await waitFor(() => expect(screen.getByTestId("password-change-pending")).toHaveTextContent("true"));
+    expect(screen.getByTestId("status")).toHaveTextContent("anonymous");
+    expect(screen.getByTestId("name")).toHaveTextContent("none");
+    expect(screen.getByTestId("can-users")).toHaveTextContent("false");
+    expect(queryClient.getQueryData(["users"])).toBeUndefined();
+    expect(document.body.textContent).not.toContain("limited-fixture-token");
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(screen.getByTestId("password-change-pending")).toHaveTextContent("false");
+  });
+
+  it("commits the actual session only after replacing the temporary password", async () => {
+    apiMock.me.mockRejectedValue(new ApiError("Authentication credentials were not provided.", 401));
+    apiMock.login.mockResolvedValue({ passwordChangeRequired: true, passwordChangeToken: "limited-fixture-token", passwordChangeExpiresAt: new Date(Date.now() + 300_000).toISOString() });
+    apiMock.completeTemporaryPassword.mockResolvedValue(session);
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous"));
+    await userEvent.click(screen.getByRole("button", { name: "Log in next identity" }));
+    await waitFor(() => expect(screen.getByTestId("password-change-pending")).toHaveTextContent("true"));
+    await userEvent.click(screen.getByRole("button", { name: "Complete temporary password" }));
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("authenticated"));
+    expect(screen.getByTestId("password-change-pending")).toHaveTextContent("false");
+    expect(apiMock.completeTemporaryPassword).toHaveBeenCalledWith("limited-fixture-token", "fresh test password");
+    expect(screen.getByTestId("can-users")).toHaveTextContent("true");
+  });
+
+  it("preserves the MFA gate after replacing the temporary password", async () => {
+    apiMock.me.mockRejectedValue(new ApiError("Authentication credentials were not provided.", 401));
+    apiMock.login.mockResolvedValue({ passwordChangeRequired: true, passwordChangeToken: "limited-fixture-token", passwordChangeExpiresAt: new Date(Date.now() + 300_000).toISOString() });
+    apiMock.completeTemporaryPassword.mockResolvedValue({ mfaRequired: true, challengeId: "mfa-fixture" });
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous"));
+    await userEvent.click(screen.getByRole("button", { name: "Log in next identity" }));
+    await waitFor(() => expect(screen.getByTestId("password-change-pending")).toHaveTextContent("true"));
+    await userEvent.click(screen.getByRole("button", { name: "Complete temporary password" }));
+    await waitFor(() => expect(screen.getByTestId("password-change-pending")).toHaveTextContent("false"));
+    expect(screen.getByTestId("status")).toHaveTextContent("anonymous");
+    expect(screen.getByTestId("can-users")).toHaveTextContent("false");
+  });
+
+  it("does not revive a cancelled identity from a late password-change response", async () => {
+    const completion = deferred<AuthSession>();
+    apiMock.me.mockRejectedValue(new ApiError("Authentication credentials were not provided.", 401));
+    apiMock.login.mockResolvedValue({ passwordChangeRequired: true, passwordChangeToken: "limited-fixture-token", passwordChangeExpiresAt: new Date(Date.now() + 300_000).toISOString() });
+    apiMock.completeTemporaryPassword.mockReturnValue(completion.promise);
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous"));
+    await userEvent.click(screen.getByRole("button", { name: "Log in next identity" }));
+    await waitFor(() => expect(screen.getByTestId("password-change-pending")).toHaveTextContent("true"));
+    await userEvent.click(screen.getByRole("button", { name: "Complete temporary password" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await act(async () => { completion.resolve(session); await completion.promise; });
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous"));
+    expect(screen.getByTestId("password-change-pending")).toHaveTextContent("false");
+    expect(screen.getByTestId("name")).toHaveTextContent("none");
+  });
+
 });

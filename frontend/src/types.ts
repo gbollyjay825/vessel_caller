@@ -22,6 +22,9 @@ export interface User {
   mfaRequired: boolean;
   mfaEnrollmentRequired?: boolean;
   mfaGraceEndsAt?: string | null;
+  passwordChangeRequired?: boolean;
+  temporaryPasswordExpiresAt?: string | null;
+  adminProvisioned?: boolean;
   lastLogin?: string | null;
   createdAt?: string | null;
 }

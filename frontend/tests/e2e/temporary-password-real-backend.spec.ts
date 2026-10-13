@@ -7,7 +7,12 @@ test.use({ trace: "off", screenshot: "off" });
 test("an Admin creates a user who must replace the temporary password before role access", async ({
   page, context, browser, baseURL,
 }, testInfo) => {
-  test.skip(Boolean(process.env.PLAYWRIGHT_BASE_URL), "Credential creation is exercised only against the isolated Django test database.");
+  const databaseName = process.env.VC_DATABASE_URL
+    ? new URL(process.env.VC_DATABASE_URL).pathname.split("/").filter(Boolean).at(-1) ?? ""
+    : "";
+  const isolated = Boolean(baseURL && ["localhost", "127.0.0.1", "[::1]"].includes(new URL(baseURL).hostname)
+    && /(?:^|[_-])(?:e2e|test)(?:$|[_-])/i.test(databaseName));
+  test.skip(!isolated, "Credential creation is exercised only against the isolated Django test database.");
   test.setTimeout(60_000);
   const adminPassword = process.env.E2E_PASSWORD;
   if (!adminPassword?.trim() || !baseURL) throw new Error("Isolated temporary-password E2E requires E2E_PASSWORD and baseURL.");

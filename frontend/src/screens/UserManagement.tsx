@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "../auth/AuthContext";
@@ -12,26 +12,29 @@ import {
   StatusBadge,
   type Column,
 } from "../components/ui";
-import { ApiError, api } from "../lib/api";
+import { ApiError, api, type TemporaryPasswordUserResult } from "../lib/api";
 import { fmtDate, fmtDateTime, userInitials } from "../lib/format";
 import {
   ROLES,
   type AuditEvent,
   type Invitation,
+  type Paginated,
   type Role,
   type RoleDefinition,
   type User,
   type UserStatus,
 } from "../types";
 
-type ManagementTab = "users" | "invitations" | "audit";
+import { OrganizationAccess } from "./OrganizationAccess";
+
+type ManagementTab = "users" | "invitations" | "signup" | "audit";
 type UserAction = "activate" | "suspend" | "remove";
 
 const ROLE_HELP: Record<Role, string> = {
-  Admin: "Full access, including settings, user management, and audit.",
-  Operations: "Can manage vessel calls and inspections.",
-  Finance: "Can manage invoices and record payments.",
-  Viewer: "Read-only access to operational and financial records.",
+  Admin: "Manage users and settings, approve NPA reconciliation, and manage operational and financial records.",
+  Operations: "Manage vessel calls, measurement plans, agency readings, and inspections.",
+  Finance: "Manage invoices, bill extra load, and record payments.",
+  Viewer: "View vessel calls, readings, reports, and invoices without making changes.",
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -43,6 +46,10 @@ const PERMISSION_LABELS: Record<string, string> = {
   "audit.export": "Export audit history",
   "calls.view": "View vessel calls",
   "calls.manage": "Create, edit, and cancel vessel calls",
+  "measurements.view": "View measurements and readings",
+  "measurements.manage": "Plan measurements and record agency readings",
+  "measurements.approve": "Approve NPA reconciliation",
+  "measurements.bill": "Bill additional load",
   "inspections.view": "View inspections",
   "inspections.manage": "Create, edit, and finalize inspections",
   "invoices.view": "View invoices",
@@ -75,8 +82,8 @@ function RoleAccessMatrix() {
     <section className="card role-access-card" aria-labelledby="role-access-title">
       <div className="role-access-heading">
         <div>
-          <h2 id="role-access-title">Role access matrix</h2>
-          <p>These permissions are enforced by the API. Review them before inviting or changing a user’s role.</p>
+          <h2 id="role-access-title">Role access</h2>
+          <p>Roles apply across this organization. Access is enforced by the API.</p>
         </div>
       </div>
       <div className="role-access-scroll">
@@ -106,11 +113,29 @@ function RoleAccessMatrix() {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? error.message : fallback;
+  if (!(error instanceof ApiError)) return fallback;
+  const fieldError = error.errors?.email ?? error.errors?.name;
+  return Array.isArray(fieldError) ? fieldError.join(" ") : fieldError || error.message;
 }
 
 function RoleBadge({ role }: { role: Role }) {
   return <span className={`role-badge role-${role.toLowerCase()}`}>{role}</span>;
+}
+
+function UserStatusBadge({ member }: { member: User }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!member.passwordChangeRequired || !member.temporaryPasswordExpiresAt) return;
+    const remaining = Date.parse(member.temporaryPasswordExpiresAt) - Date.now();
+    if (!Number.isFinite(remaining) || remaining <= 0) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(remaining + 1, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [member.passwordChangeRequired, member.temporaryPasswordExpiresAt, now]);
+  if (member.status === "active" && member.passwordChangeRequired) {
+    const expired = Boolean(member.temporaryPasswordExpiresAt && Date.parse(member.temporaryPasswordExpiresAt) <= now);
+    return <span className={`badge ${expired ? "expired" : "pending"}`}><span className="dot" />{expired ? "Temporary password expired" : "First sign-in pending"}</span>;
+  }
+  return <StatusBadge status={member.status} />;
 }
 
 function Pagination({
@@ -142,46 +167,113 @@ function Pagination({
 }
 
 export function UserManagement() {
-  const { can } = useAuth();
+  const { can, org, user } = useAuth();
   const [tab, setTab] = useState<ManagementTab>("users");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [showRoles, setShowRoles] = useState(false);
+  const [invitationCreated, setInvitationCreated] = useState(false);
+  const [userCreated, setUserCreated] = useState(false);
+  const activeTab = (tab === "audit" && !can("audit.view")) || (tab === "signup" && !can("users.manage")) ? "users" : tab;
   const tabs: Array<[ManagementTab, string]> = [
     ["users", "Users"],
     ["invitations", "Invitations"],
-    ...(can("audit.view") ? [["audit", "Audit"] as [ManagementTab, string]] : []),
+    ...(can("users.manage") ? [["signup", "Sign-up link"] as [ManagementTab, string]] : []),
+    ...(can("audit.view") ? [["audit", "Activity"] as [ManagementTab, string]] : []),
   ];
 
+  if (!can("users.view")) {
+    return <div className="content-inner"><EmptyState icon="users" title="User management is unavailable" body="Your account does not have permission to view users." /></div>;
+  }
+
   return (
-    <div className="content-inner">
+    <div className="content-inner user-management-page">
       <div className="page-head">
         <div>
-          <h1 className="hide-sr">User Management</h1>
-          <p className="desc">Manage access, invitations, roles, security, and organization audit history.</p>
+          <h1>User management</h1>
+          <p className="desc">Add colleagues and manage their access to {org?.name || "your organization"}.</p>
         </div>
+        {can("users.manage") && activeTab !== "audit" && (
+          <button className="btn btn-primary" type="button" onClick={() => {
+            setInvitationCreated(false);
+            setUserCreated(false);
+            setInviteOpen(true);
+          }}>
+            <Icon name="plus" size={17} /> Add user
+          </button>
+        )}
       </div>
+      {userCreated && <div className="user-access-note user-management-feedback" role="status">
+        <Icon name="check" size={17} /><div><strong>User created</strong><p>The user must replace their temporary password on first sign-in.</p></div>
+      </div>}
+      {invitationCreated && (
+        <div className="user-access-note user-management-feedback" role="status">
+          <Icon name="check" size={17} />
+          <div><strong>Invitation created</strong><p>The recipient must accept their invitation before they can sign in.</p></div>
+        </div>
+      )}
       <div className="settings-tabs" role="tablist" aria-label="User management sections">
         {tabs.map(([key, label]) => (
           <button
             key={key}
+            id={`user-management-tab-${key}`}
             type="button"
             role="tab"
-            aria-selected={tab === key}
-            className={tab === key ? "on" : ""}
+            aria-selected={activeTab === key}
+            aria-controls="user-management-panel"
+            tabIndex={activeTab === key ? 0 : -1}
+            className={activeTab === key ? "on" : ""}
             onClick={() => setTab(key)}
+            onKeyDown={(event) => {
+              const index = tabs.findIndex(([value]) => value === key);
+              const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
+                : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+                  : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+              if (next === null) return;
+              event.preventDefault();
+              setTab(tabs[next][0]);
+              event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#user-management-tab-${tabs[next][0]}`)?.focus();
+            }}
           >
             {label}
           </button>
         ))}
       </div>
-      <RoleAccessMatrix />
-      {tab === "users" && <UsersTab />}
-      {tab === "invitations" && <InvitationsTab />}
-      {tab === "audit" && <AuditTab />}
+      {activeTab !== "audit" && (
+        <div className="user-management-role-guide">
+          <button className="link-btn" type="button" aria-expanded={showRoles} aria-controls="user-management-roles" onClick={() => setShowRoles((value) => !value)}>
+            <Icon name={showRoles ? "chevronDown" : "chevronRight"} size={16} /> Compare role access
+          </button>
+          {showRoles && <div id="user-management-roles"><RoleAccessMatrix /></div>}
+        </div>
+      )}
+      <section id="user-management-panel" role="tabpanel" aria-labelledby={`user-management-tab-${activeTab}`}>
+        {activeTab === "users" && <UsersTab />}
+        {activeTab === "invitations" && <InvitationsTab />}
+        {activeTab === "signup" && <OrganizationAccess />}
+        {activeTab === "audit" && <AuditTab />}
+      </section>
+      {can("users.manage") && inviteOpen && (
+        <AddUserDrawer
+          key={`${user?.id}:${org?.id}`}
+          onUserCreated={() => { setTab("users"); setUserCreated(true); }}
+          onClose={() => setInviteOpen(false)}
+          onCreated={() => {
+            setInviteOpen(false);
+            setTab("invitations");
+            setInvitationCreated(true);
+          }}
+          onReviewUsers={() => {
+            setInviteOpen(false);
+            setTab("users");
+          }}
+        />
+      )}
     </div>
   );
 }
 
 function UsersTab() {
-  const { user: currentUser, can } = useAuth();
+  const { user: currentUser, org, can } = useAuth();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
@@ -189,7 +281,6 @@ function UsersTab() {
   const [role, setRole] = useState<Role | "all">("all");
   const [status, setStatus] = useState<UserStatus | "all">("all");
   const [editor, setEditor] = useState<User | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
   const [confirm, setConfirm] = useState<{ action: UserAction; user: User } | null>(null);
 
   const params = { page, pageSize: 20, search: deferredQuery, role, status };
@@ -226,7 +317,7 @@ function UsersTab() {
       ),
     },
     { key: "role", label: "Role", sortable: true, render: (member) => <RoleBadge role={member.role} /> },
-    { key: "status", label: "Status", sortable: true, render: (member) => <StatusBadge status={member.status} /> },
+    { key: "status", label: "Status", sortable: true, render: (member) => <UserStatusBadge member={member} /> },
     {
       key: "mfaEnabled",
       label: "MFA",
@@ -354,11 +445,6 @@ function UsersTab() {
           <option value="suspended">Suspended</option>
           <option value="removed">Removed</option>
         </select>
-        {can("users.manage") && (
-          <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}>
-            <Icon name="plus" size={17} /> Invite user
-          </button>
-        )}
       </div>
 
       {(usersQuery.isError || mutation.isError) && (
@@ -378,8 +464,7 @@ function UsersTab() {
       </div>
       <Pagination page={page} count={usersQuery.data?.count ?? 0} pageSize={20} onPage={setPage} />
 
-      {inviteOpen && <InvitationDrawer onClose={() => setInviteOpen(false)} />}
-      {editor && <UserDrawer member={editor} onClose={() => setEditor(null)} />}
+      {editor && <UserDrawer key={`${currentUser?.id}:${org?.id}:${editor.id}`} member={editor} onClose={() => setEditor(null)} />}
       {confirm && confirmCopy && (
         <ConfirmModal
           title={confirmCopy.title}
@@ -400,15 +485,23 @@ function UserDrawer({ member, onClose }: { member: User; onClose: () => void }) 
   const [name, setName] = useState(member.name);
   const [role, setRole] = useState(member.role);
   const [notice, setNotice] = useState<string | null>(null);
-
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerationError, setRegenerationError] = useState<string | null>(null);
+  const [credential, setCredential] = useState<TemporaryPasswordUserResult | null>(null);
+  const regenerationInFlight = useRef(false);
+  const mounted = useRef(true);
+  const canManage = can("users.manage") && member.id !== currentUser?.id;
+  const pendingTemporaryAccount = Boolean(member.adminProvisioned && member.passwordChangeRequired && member.status === "active");
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const close = () => { setCredential(null); onClose(); };
   const updateMutation = useMutation({
     mutationFn: () => api.updateUser(member.id, {
       ...(member.id === currentUser?.id ? {} : { name: name.trim(), role }),
     }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] });
-      onClose();
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["users"] }); close(); },
   });
   const passwordResetMutation = useMutation({
     mutationFn: () => api.sendUserPasswordReset(member.id),
@@ -422,112 +515,199 @@ function UserDrawer({ member, onClose }: { member: User; onClose: () => void }) 
     },
   });
   const error = updateMutation.error || passwordResetMutation.error || mfaResetMutation.error;
-  const canManage = can("users.manage") && member.id !== currentUser?.id;
-
+  const regenerate = async () => {
+    if (!canManage || !pendingTemporaryAccount || regenerationInFlight.current || regenerating) return;
+    regenerationInFlight.current = true;
+    setRegenerating(true);
+    setRegenerationError(null);
+    try {
+      // Direct request: never retain this credential in the mutation cache.
+      const result = await api.regenerateTemporaryPassword(member.id);
+      if (!mounted.current) return;
+      setCredential(result);
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
+    } catch (caught) {
+      if (mounted.current) setRegenerationError(errorMessage(caught, "Could not generate a new temporary password. Please try again."));
+    } finally {
+      regenerationInFlight.current = false;
+      if (mounted.current) setRegenerating(false);
+    }
+  };
   return (
-    <Drawer
-      title={canManage ? "Edit user" : "User details"}
-      sub={member.email}
-      onClose={onClose}
-      footer={(
-        <>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-          {canManage && (
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={updateMutation.isPending || !name.trim()}
-              onClick={() => updateMutation.mutate()}
-            >
-              {updateMutation.isPending ? "Saving…" : "Save changes"}
-            </button>
-          )}
-        </>
-      )}
-    >
-      {member.id === currentUser?.id && (
-        <div className="user-access-note"><Icon name="info" size={16} />Manage your own name and password from Account &amp; Security.</div>
-      )}
-      {notice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{notice}</div>}
-      {error && <div className="auth-error" role="alert">{errorMessage(error, "Could not update this user.")}</div>}
-      <Field label="Full name" required>
-        <input value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage} />
-      </Field>
-      <Field label="Email" hint="Email changes are completed by the user from their profile.">
-        <input value={member.email} disabled />
-      </Field>
-      <Field label="Role" hint={ROLE_HELP[role]}>
-        <select value={role} onChange={(event) => setRole(event.target.value as Role)} disabled={!canManage}>
-          {ROLES.map((option) => <option key={option}>{option}</option>)}
-        </select>
-      </Field>
-      <div className="user-account-summary">
-        <span>Account status</span>
-        <StatusBadge status={member.status} />
-        <small>{member.emailVerified ? "Email verified" : "Email not verified"} · MFA {member.mfaEnabled ? "enabled" : "not enabled"}</small>
-      </div>
-      {canManage && (
-        <div className="drawer-action-stack">
-          <button className="btn btn-secondary" type="button" disabled={passwordResetMutation.isPending} onClick={() => passwordResetMutation.mutate()}>
-            <Icon name="mail" size={16} /> Send password reset
-          </button>
-          {member.mfaEnabled && (
-            <button className="btn btn-secondary" type="button" disabled={mfaResetMutation.isPending} onClick={() => mfaResetMutation.mutate()}>
-              <Icon name="settings" size={16} /> Reset MFA and sessions
-            </button>
-          )}
+    <Drawer title={credential ? "User ready to sign in" : canManage ? "Edit user" : "User details"}
+      sub={member.email} onClose={close} guard={() => regenerating || regenerationInFlight.current}
+      footer={credential ? <button className="btn btn-primary" type="button" onClick={close}>Done</button> : <>
+        <button className="btn btn-secondary" type="button" onClick={close} disabled={regenerating}>Cancel</button>
+        {canManage && <button className="btn btn-primary" type="button" disabled={updateMutation.isPending || regenerating || !name.trim()} onClick={() => updateMutation.mutate()}>
+          {updateMutation.isPending ? "Saving…" : "Save changes"}
+        </button>}
+      </>}>
+      {credential ? <TemporaryUserCredentials result={credential} /> : <>
+        {member.id === currentUser?.id && <div className="user-access-note"><Icon name="info" size={16} />Manage your own name and password from Account &amp; Security.</div>}
+        {notice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{notice}</div>}
+        {(error || regenerationError) && <div className="auth-error" role="alert">{regenerationError || errorMessage(error, "Could not update this user.")}</div>}
+        <Field label="Full name" required><input type="text" value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage || regenerating} /></Field>
+        <Field label="Email" hint="Email changes are completed by the user from their profile."><input type="email" value={member.email} disabled /></Field>
+        <Field label="Role" hint={ROLE_HELP[role]}><select value={role} onChange={(event) => setRole(event.target.value as Role)} disabled={!canManage || regenerating}>{ROLES.map((option) => <option key={option}>{option}</option>)}</select></Field>
+        <div className="user-account-summary"><span>Account status</span><UserStatusBadge member={member} />
+          <small>{member.emailVerified ? "Email verified" : "Email not verified"} · MFA {member.mfaEnabled ? "enabled" : "not enabled"}</small>
         </div>
-      )}
+        {canManage && <div className="drawer-action-stack">
+          {pendingTemporaryAccount ? <>
+            <p className="user-management-tab-copy">If the password was lost or expired, generate a replacement for this pending account. The previous password and any open password-change session will stop working.</p>
+            <button className="btn btn-secondary" type="button" disabled={regenerating || updateMutation.isPending} onClick={() => void regenerate()}><Icon name="settings" size={16} />{regenerating ? "Generating temporary password…" : "Generate new temporary password"}</button>
+          </> : !member.passwordChangeRequired ? <button className="btn btn-secondary" type="button" disabled={passwordResetMutation.isPending} onClick={() => passwordResetMutation.mutate()}><Icon name="mail" size={16} /> Send password reset</button> : null}
+          {member.mfaEnabled && <button className="btn btn-secondary" type="button" disabled={mfaResetMutation.isPending || regenerating} onClick={() => mfaResetMutation.mutate()}><Icon name="settings" size={16} /> Reset MFA and sessions</button>}
+        </div>}
+      </>}
     </Drawer>
   );
 }
 
-function InvitationDrawer({ onClose }: { onClose: () => void }) {
+function TemporaryUserCredentials({ result }: { result: TemporaryPasswordUserResult }) {
+  const { org } = useAuth();
+  const formId = useId();
+  const mounted = useRef(true);
+  const [showPassword, setShowPassword] = useState(true);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const copy = async (passwordOnly = false) => {
+    const details = `NPA Vessel Caller\nOrganization: ${org?.name || "Your organization"}\nName: ${result.user.name}\nEmail: ${result.user.email}\nRole: ${result.user.role}\nSign in: ${result.signInUrl}\nTemporary password: ${result.temporaryPassword}\nExpires: ${fmtDateTime(result.temporaryPasswordExpiresAt)}\nYou must choose your own password on first sign-in. Use this organization’s sign-in link and password; your accounts in other organizations stay separate.`;
+    try {
+      await navigator.clipboard.writeText(passwordOnly ? result.temporaryPassword : details);
+      if (mounted.current) setCopyNotice(passwordOnly ? "Temporary password copied. Share it directly with this user." : "Sign-in details copied. Share them directly with this user.");
+    } catch {
+      if (mounted.current) setCopyNotice(showPassword ? "Could not copy automatically. Select and copy the sign-in fields above." : "Could not copy automatically. Use Show password, then select and copy the sign-in fields.");
+    }
+  };
+  return (<div className="temporary-user-result">
+        <div className="user-access-note"><Icon name="check" size={17} /><div><strong>Share these sign-in details</strong><p>No email is sent. This password is shown only here and cannot be retrieved after you close this panel.</p></div></div>
+        <dl className="temporary-user-summary"><div><dt>Organization</dt><dd>{org?.name || "Your organization"}</dd></div><div><dt>Name</dt><dd>{result.user.name}</dd></div><div><dt>Email</dt><dd>{result.user.email}</dd></div><div><dt>Role</dt><dd>{result.user.role}</dd></div></dl>
+        <Field label="Sign-in page"><input type="url" readOnly autoFocus value={result.signInUrl} onFocus={(event) => event.currentTarget.select()} /></Field>
+        <p className="hint">Share this organization’s sign-in link with the password. Accounts in other organizations keep their own passwords and access.</p>
+        <div className="field"><label htmlFor={`${formId}-temporary-password`}>Temporary password</label>
+          <div className="temporary-password-control"><input id={`${formId}-temporary-password`} aria-describedby={`${formId}-credential-hint`} type={showPassword ? "text" : "password"} readOnly value={result.temporaryPassword} autoComplete="off" data-1p-ignore="true" onFocus={(event) => event.currentTarget.select()} />
+            <button className="btn btn-secondary btn-sm" type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword}>{showPassword ? "Hide" : "Show"} password</button>
+          </div>
+          <div className="hint" id={`${formId}-credential-hint`}>Expires {fmtDateTime(result.temporaryPasswordExpiresAt)}. The user must replace it on first sign-in.</div>
+        </div>
+        <button className="btn btn-secondary" type="button" onClick={() => void copy(true)}><Icon name="clipboard" size={16} /> Copy password</button>
+        <button className="btn btn-primary" type="button" onClick={() => void copy()}><Icon name="clipboard" size={16} /> Copy sign-in details</button>
+        {copyNotice && <p className="temporary-copy-notice" role="status">{copyNotice}</p>}
+      </div>);
+}
+
+function AddUserDrawer({ onClose, onCreated, onUserCreated, onReviewUsers }: { onClose: () => void; onCreated: () => void; onUserCreated: () => void; onReviewUsers: () => void }) {
+  const { org, can, user: currentUser } = useAuth();
   const queryClient = useQueryClient();
+  const formId = useId();
+  const submitInFlight = useRef(false);
+  const mounted = useRef(true);
+  const [method, setMethod] = useState<"temporary" | "email">("temporary");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("Operations");
-
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [pendingInvitationEmail, setPendingInvitationEmail] = useState<string | null>(null);
+  const [replacePendingInvitation, setReplacePendingInvitation] = useState(false);
+  // A one-time credential must never enter the React Query mutation cache.
+  const [result, setResult] = useState<TemporaryPasswordUserResult | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const close = () => {
+    setResult(null);
+    onClose();
+  };
+  const findExistingMember = () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return undefined;
+    if (currentUser?.email.toLowerCase() === normalizedEmail) return currentUser;
+    return queryClient.getQueriesData<Paginated<User>>({ queryKey: ["users"] })
+      .flatMap(([, data]) => data?.results ?? [])
+      .find((member) => member.email.toLowerCase() === normalizedEmail);
+  };
+  const existingMember = findExistingMember();
+  const pendingInvitation = method === "temporary" && pendingInvitationEmail === email.trim().toLowerCase();
+  const clearInvitationReplacement = () => {
+    setPendingInvitationEmail(null);
+    setReplacePendingInvitation(false);
+  };
   const mutation = useMutation({
-    mutationFn: () => api.inviteUser({ name: name.trim(), email: email.trim().toLowerCase(), role }),
+    mutationFn: (payload: { name: string; email: string; role: Role }) => api.inviteUser(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["invitations"] });
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      onClose();
+      if (mounted.current) onCreated();
     },
+    onSettled: () => { submitInFlight.current = false; },
   });
-
+  const pending = creating || mutation.isPending;
   return (
-    <Drawer
-      title="Invite user"
-      sub="Send a seven-day, single-use invitation."
-      onClose={onClose}
-      footer={(
-        <>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-          <button
-            className="btn btn-primary"
-            type="button"
-            disabled={mutation.isPending || !name.trim() || !email.trim()}
-            onClick={() => mutation.mutate()}
-          >
-            {mutation.isPending ? "Sending…" : "Send invitation"}
-          </button>
-        </>
-      )}
-    >
-      {mutation.isError && <div className="auth-error" role="alert">{errorMessage(mutation.error, "Could not send the invitation.")}</div>}
-      <Field label="Full name" required>
-        <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
-      </Field>
-      <Field label="Email" required hint="The recipient chooses their own password after opening the secure link.">
-        <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
-      </Field>
-      <Field label="Role" hint={ROLE_HELP[role]}>
-        <select value={role} onChange={(event) => setRole(event.target.value as Role)}>
-          {ROLES.map((option) => <option key={option}>{option}</option>)}
-        </select>
-      </Field>
+    <Drawer title={result ? "User ready to sign in" : "Add user"}
+      sub={result ? `${result.user.name} · ${result.user.role}` : "Choose how your colleague will first sign in."}
+      onClose={close} guard={() => pending || submitInFlight.current}
+      footer={result ? <button className="btn btn-primary" type="button" onClick={close}>Done</button> : <>
+        <button className="btn btn-secondary" type="button" disabled={pending} onClick={close}>Cancel</button>
+        <button className="btn btn-primary" type="submit" form={formId} disabled={pending || !name.trim() || !email.trim() || Boolean(existingMember) || (pendingInvitation && !replacePendingInvitation)}>
+          {pending ? method === "temporary" ? "Creating user…" : "Creating invitation…" : method === "temporary" ? "Create user" : "Send invitation"}
+        </button>
+      </>}>
+      {result ? <TemporaryUserCredentials result={result} /> : <form id={formId} className="user-invitation-form" aria-label="New user details" onSubmit={async (event) => {
+        event.preventDefault();
+        if (!can("users.manage") || pending || submitInFlight.current || !event.currentTarget.checkValidity() || !name.trim() || findExistingMember() || (pendingInvitation && !replacePendingInvitation)) return;
+        const payload = { name: name.trim(), email: email.trim().toLowerCase(), role };
+        submitInFlight.current = true;
+        setCreateError(null);
+        if (method === "email") { mutation.mutate(payload); return; }
+        setCreating(true);
+        try {
+          const created = await api.createTemporaryPasswordUser({ ...payload, ...(pendingInvitation && replacePendingInvitation ? { replacePendingInvitation: true } : {}) });
+          if (!mounted.current) return;
+          setResult(created);
+          void queryClient.invalidateQueries({ queryKey: ["users"] });
+          if (pendingInvitation && replacePendingInvitation) void queryClient.invalidateQueries({ queryKey: ["invitations"] });
+          onUserCreated();
+        } catch (error) {
+          if (mounted.current) {
+            if (error instanceof ApiError && error.status === 409 && error.errors?.code === "pending_invitation") {
+              setPendingInvitationEmail(payload.email);
+              setReplacePendingInvitation(false);
+            } else {
+              clearInvitationReplacement();
+              setCreateError(errorMessage(error, "Could not create the user. Please try again."));
+            }
+          }
+        } finally {
+          submitInFlight.current = false;
+          if (mounted.current) setCreating(false);
+        }
+      }}>
+        <p className="user-invitation-scope">Access to <strong>{org?.name || "your organization"}</strong>. This role applies across the organization.</p>
+        <fieldset className="user-first-signin"><legend>First sign-in</legend>
+          <label><input type="radio" name={`${formId}-method`} checked={method === "temporary"} onChange={() => { setMethod("temporary"); setCreateError(null); clearInvitationReplacement(); mutation.reset(); }} disabled={pending} /><span><strong>Temporary password</strong><small>Create the user now and share their sign-in details yourself.</small></span></label>
+          <label><input type="radio" name={`${formId}-method`} checked={method === "email"} onChange={() => { setMethod("email"); setCreateError(null); clearInvitationReplacement(); mutation.reset(); }} disabled={pending} /><span><strong>Email invitation</strong><small>Send a link so the user can choose their own password.</small></span></label>
+        </fieldset>
+        {(createError || mutation.isError) && <div className="auth-error" role="alert">{createError || errorMessage(mutation.error, "Could not create the invitation. Please try again.")}</div>}
+        <Field label="Full name" required><input type="text" value={name} onChange={(event) => setName(event.target.value)} required disabled={pending} autoComplete="name" /></Field>
+        <Field label="Email" required hint={method === "temporary" ? "Used to sign in. You will share the temporary password directly; no email is sent." : "The recipient chooses their own password after opening the secure link."} error={existingMember ? "This email already belongs to a user in your organization. Review their existing access." : undefined}>
+          <input type="email" value={email} onChange={(event) => { setEmail(event.target.value); clearInvitationReplacement(); setCreateError(null); }} required disabled={pending} autoComplete="email" />
+        </Field>
+        {existingMember && <button className="link-btn" type="button" onClick={onReviewUsers}>Review existing users</button>}
+        {pendingInvitation && <div className="pending-invitation-replacement" role="group" aria-labelledby={`${formId}-replacement-title`}>
+          <p id={`${formId}-replacement-title`} role="status"><strong>An email invitation is already pending for this address.</strong></p>
+          <p className="user-management-tab-copy" id={`${formId}-replacement-hint`}>Replace it to create this user with the role selected below. The old email invitation will stop working; the user will sign in with the temporary password instead.</p>
+          <label className="organization-admin-confirm"><input type="checkbox" checked={replacePendingInvitation} disabled={pending} aria-describedby={`${formId}-replacement-hint`} onChange={(event) => setReplacePendingInvitation(event.target.checked)} /><span>Replace pending invitation</span></label>
+        </div>}
+        <Field label="Role" hint={ROLE_HELP[role]}><select value={role} onChange={(event) => setRole(event.target.value as Role)} disabled={pending}>{ROLES.map((option) => <option key={option}>{option}</option>)}</select></Field>
+        {method === "temporary" && <Field label="Temporary password" hint="Generated automatically after you create the user. You do not need to enter a password."><input type="text" value="" readOnly placeholder="Generated when you create this user" autoComplete="off" data-1p-ignore="true" /></Field>}
+        {method === "temporary" && <p className="user-management-tab-copy">You will see and can copy the generated password after creating this user. It expires in seven days and must be changed before workspace access.</p>}
+      </form>}
     </Drawer>
   );
 }
@@ -536,11 +716,9 @@ function InvitationsTab() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [page, setPage] = useState(1);
-  const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
-  const [inviteOpen, setInviteOpen] = useState(false);
   const [revoke, setRevoke] = useState<Invitation | null>(null);
-  const params = { page, pageSize: 20, search: deferredQuery };
+  const [notice, setNotice] = useState<string | null>(null);
+  const params = { page, pageSize: 20 };
   const invitationsQuery = useQuery({
     queryKey: ["invitations", params],
     queryFn: () => api.invitations(params),
@@ -548,11 +726,17 @@ function InvitationsTab() {
   });
   const resendMutation = useMutation({
     mutationFn: api.resendInvitation,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+      setNotice("Invitation renewed. The previous link is no longer valid.");
+    },
   });
   const revokeMutation = useMutation({
     mutationFn: api.revokeInvitation,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invitations"] });
+      setNotice("Invitation revoked. The recipient can no longer use that link.");
+    },
   });
   const rows = invitationsQuery.data?.results ?? [];
   const columns: Column<Invitation>[] = [
@@ -563,7 +747,7 @@ function InvitationsTab() {
       render: (invitation) => <div><div className="cell-primary">{invitation.name}</div><div className="cell-sub">{invitation.email}</div></div>,
     },
     { key: "role", label: "Role", sortable: true, render: (invitation) => <RoleBadge role={invitation.role} /> },
-    { key: "status", label: "Status", sortable: true, render: (invitation) => <StatusBadge status={invitation.status} /> },
+    { key: "status", label: "Status", sortable: true, render: (invitation) => <StatusBadge status={invitation.status === "pending" && Date.parse(invitation.expiresAt) <= Date.now() ? "expired" : invitation.status} /> },
     { key: "expiresAt", label: "Expires", sortable: true, render: (invitation) => <span className="tnum muted">{fmtDate(invitation.expiresAt)}</span> },
     {
       key: "actions",
@@ -574,8 +758,8 @@ function InvitationsTab() {
           <button
             className="btn btn-secondary btn-sm"
             type="button"
-            disabled={!can("users.manage") || resendMutation.isPending || !["pending", "expired"].includes(invitation.status)}
-            onClick={() => resendMutation.mutate(invitation.id)}
+            disabled={!can("users.manage") || resendMutation.isPending || invitation.status !== "pending"}
+            onClick={() => { setNotice(null); resendMutation.mutate(invitation.id); }}
           >
             Resend
           </button>
@@ -595,26 +779,8 @@ function InvitationsTab() {
 
   return (
     <>
-      <div className="filter-bar">
-        <div className="search-input">
-          <Icon name="search" size={17} />
-          <input
-            type="search"
-            placeholder="Search invitation…"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(1);
-            }}
-            aria-label="Search invitations"
-          />
-        </div>
-        {can("users.manage") && (
-          <button className="btn btn-primary filter-action" type="button" onClick={() => setInviteOpen(true)}>
-            <Icon name="plus" size={17} /> Invite user
-          </button>
-        )}
-      </div>
+      <p className="user-management-tab-copy">Track invitations before colleagues join. You can renew or revoke pending invitations.</p>
+      {notice && <div className="user-access-note" role="status"><Icon name="check" size={16} />{notice}</div>}
       {(invitationsQuery.isError || resendMutation.isError || revokeMutation.isError) && (
         <div className="auth-error section-gap" role="alert">
           {errorMessage(invitationsQuery.error || resendMutation.error || revokeMutation.error, "Could not update invitations.")}
@@ -630,7 +796,6 @@ function InvitationsTab() {
         />
       </div>
       <Pagination page={page} count={invitationsQuery.data?.count ?? 0} pageSize={20} onPage={setPage} />
-      {inviteOpen && <InvitationDrawer onClose={() => setInviteOpen(false)} />}
       {revoke && (
         <ConfirmModal
           title={`Revoke ${revoke.email}’s invitation?`}
@@ -638,7 +803,7 @@ function InvitationsTab() {
           confirmLabel="Revoke invitation"
           danger
           onClose={() => setRevoke(null)}
-          onConfirm={() => revokeMutation.mutate(revoke.id)}
+          onConfirm={() => { setNotice(null); revokeMutation.mutate(revoke.id); }}
         />
       )}
     </>

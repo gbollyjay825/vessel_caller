@@ -19,7 +19,7 @@ async function signIn(page: Page, email: string) {
   // Invoke the native activation atomically so Playwright does not retry a
   // click against the intentionally unmounted login button on mobile.
   await submit.evaluate((button) => (button as { click: () => void }).click());
-  await expect(page).toHaveURL(/\/app$/);
+  await expect(page).toHaveURL(/\/app\/dashboard$/);
   await expect(page.getByText("Loading your workspace…")).toBeHidden();
 }
 
@@ -56,7 +56,7 @@ test("real Django sessions enforce server RBAC without browser tokens", async ({
 
   await expect(page.getByRole("link", { name: "User Management" })).toHaveCount(0);
   await page.goto("/app/users");
-  await expect(page).toHaveURL(/\/app$/);
+  await expect(page).toHaveURL(/\/app\/dashboard$/);
   expect(await page.evaluate(() => ({
     local: { ...localStorage },
     session: { ...sessionStorage },
@@ -72,7 +72,7 @@ test("real Django sessions enforce server RBAC without browser tokens", async ({
   await expect(
     page.getByText("operations@e2e.vesselcalls.test").filter({ visible: true }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Invite user" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add user" })).toBeVisible();
 });
 
 test("operations creates and finalizes a call; finance records and reverses payment", async ({ page }, testInfo) => {
@@ -81,18 +81,31 @@ test("operations creates and finalizes a call; finance records and reverses paym
   const rotation = `ROT-2026-${suffix}`;
 
   await signIn(page, "operations@e2e.vesselcalls.test");
-  await navigateInWorkspace(page, "Vessel Calls");
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Vessel Calls", exact: true })).toHaveCount(0);
+  await navigateInWorkspace(page, "Voyages");
+  await page.getByRole("link", { name: "Vessel setup", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/vessel-calls$/);
   await page.getByRole("button", { name: "Register Vessel Call" }).click();
   await page.getByLabel("Vessel name").fill(vesselName);
   await page.getByLabel("Rotation number").fill(rotation);
   await page.getByLabel("Net tonnage").fill("10000");
+  const registeredResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/vessel-calls"
+  ));
   await page.getByRole("button", { name: "Register Call" }).click();
+  const registered = await registeredResponse;
+  expect(registered.status(), await registered.text()).toBe(201);
+  const callId: string = (await registered.json()).call.id;
   await expect(page.getByText(`${rotation} registered`)).toBeVisible();
 
   await page.getByText(vesselName, { exact: true }).filter({ visible: true }).first().click();
   await page.getByRole("button", { name: "Mark berthed" }).click();
   await expect(page.getByText(`${rotation} marked in progress`)).toBeVisible();
-  await page.getByRole("button", { name: "Add Inspection" }).first().click();
+  await expect(page.getByRole("button", { name: "Add Inspection", exact: true })).toHaveCount(0);
+  // The inspection workflow remains authorized while its unrelated entry
+  // points are hidden from the voyage measurement navigation.
+  await page.goto(`/app/inspections/new?callId=${encodeURIComponent(callId)}`);
 
   await page.getByRole("button", { name: /Liquid cargo/ }).click();
   await page.getByRole("button", { name: /Continue/ }).click();
@@ -106,7 +119,10 @@ test("operations creates and finalizes a call; finance records and reverses paym
   await page.goto("/app");
   await signOut(page);
   await signIn(page, "finance@e2e.vesselcalls.test");
-  await navigateInWorkspace(page, "Invoices");
+  // The visible Invoices navigation now belongs to voyage variations. This
+  // regression still exercises the persisted legacy invoice and payments.
+  await page.goto("/app/invoices");
+  await expect(page).toHaveURL(/\/app\/invoices$/);
   await page.getByText(vesselName, { exact: true }).filter({ visible: true }).first().click();
   await page.getByLabel("Payment reference").fill(`PAY-${suffix}`);
   await page.getByRole("button", { name: /Record payment/ }).click();

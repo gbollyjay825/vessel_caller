@@ -1,5 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QRCodeSVG } from "qrcode.react";
+
+import "../styles/authenticator-setup.css";
 
 import { useAuth } from "../auth/AuthContext";
 import { ConfirmModal, EmptyState, Field, StatusBadge } from "../components/ui";
@@ -12,19 +15,34 @@ type AccountTab = "profile" | "security" | "sessions";
 interface AccountSecurityProps {
   initialTab?: AccountTab;
   prioritizeMfa?: boolean;
+  guidedMfa?: boolean;
+  onMfaSetupComplete?: () => void;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
 
-export function AccountSecurity({ initialTab = "profile", prioritizeMfa = false }: AccountSecurityProps = {}) {
+export function AccountSecurity({
+  initialTab = "profile",
+  prioritizeMfa = false,
+  guidedMfa = false,
+  onMfaSetupComplete,
+}: AccountSecurityProps = {}) {
   const [tab, setTab] = useState<AccountTab>(initialTab);
   const tabs: Array<[AccountTab, string]> = [
     ["profile", "Profile"],
     ["security", "Password & MFA"],
     ["sessions", "Sessions"],
   ];
+
+  if (guidedMfa) {
+    return (
+      <div className="content-inner authenticator-onboarding">
+        <SecurityPanel prioritizeMfa guidedMfa onMfaSetupComplete={onMfaSetupComplete} />
+      </div>
+    );
+  }
 
   return (
     <div className="content-inner">
@@ -160,7 +178,11 @@ function ProfilePanel() {
   );
 }
 
-function SecurityPanel({ prioritizeMfa }: { prioritizeMfa: boolean }) {
+function SecurityPanel({ prioritizeMfa, guidedMfa = false, onMfaSetupComplete }: {
+  prioritizeMfa: boolean;
+  guidedMfa?: boolean;
+  onMfaSetupComplete?: () => void;
+}) {
   const { user, platformAccess, refreshSession } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
@@ -173,6 +195,105 @@ function SecurityPanel({ prioritizeMfa }: { prioritizeMfa: boolean }) {
   const [disablePassword, setDisablePassword] = useState("");
   const [mfaSetupPassword, setMfaSetupPassword] = useState("");
   const [showDisable, setShowDisable] = useState(false);
+  const [mfaOperation, setMfaOperation] = useState<"setup" | "confirm" | "regenerate" | null>(null);
+  const [mfaOperationError, setMfaOperationError] = useState<string | null>(null);
+  const [mfaConfirmed, setMfaConfirmed] = useState(false);
+  const [codesSaved, setCodesSaved] = useState(false);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const [sessionRefreshFailed, setSessionRefreshFailed] = useState(false);
+  const [refreshPending, setRefreshPending] = useState(false);
+  const lifecycle = useRef(0);
+  const operationBusy = useRef(false);
+  const scanHeading = useRef<HTMLHeadingElement>(null);
+  const recoveryHeading = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => () => { lifecycle.current += 1; }, []);
+  useEffect(() => {
+    if (recoveryCodes.length > 0) recoveryHeading.current?.focus();
+    else if (setup) scanHeading.current?.focus();
+  }, [setup, recoveryCodes.length]);
+
+  // Seeds, passwords and recovery codes stay in this component. Returning them
+  // from a query mutation would retain them in the shared mutation cache.
+  const refreshAfterEnrollment = async () => {
+    const currentLifecycle = lifecycle.current;
+    setRefreshPending(true);
+    try {
+      await refreshSession();
+      if (currentLifecycle === lifecycle.current) setSessionRefreshFailed(false);
+    } catch {
+      if (currentLifecycle === lifecycle.current) setSessionRefreshFailed(true);
+    } finally {
+      if (currentLifecycle === lifecycle.current) setRefreshPending(false);
+    }
+  };
+
+  const runMfaOperation = async (operation: "setup" | "confirm" | "regenerate") => {
+    if (operationBusy.current) return;
+    if (operation === "setup" && !mfaSetupPassword) return;
+    if (operation === "confirm" && !/^\d{6}$/.test(mfaCode)) return;
+    if (operation === "regenerate" && !/^\d{6}$/.test(recoveryCode)) return;
+    operationBusy.current = true;
+    const currentLifecycle = lifecycle.current;
+    setMfaOperation(operation);
+    setMfaOperationError(null);
+    setCopyNotice(null);
+    try {
+      if (operation === "setup") {
+        const result = await api.setupMfa(mfaSetupPassword);
+        if (currentLifecycle !== lifecycle.current) return;
+        setSetup(result);
+        setMfaSetupPassword("");
+        setRecoveryCodes([]);
+        setCodesSaved(false);
+      } else if (operation === "confirm") {
+        const result = await api.confirmMfa(mfaCode);
+        if (currentLifecycle !== lifecycle.current) return;
+        setRecoveryCodes(result.recoveryCodes);
+        setCodesSaved(false);
+        setSetup(null);
+        setMfaCode("");
+        setMfaConfirmed(true);
+        await refreshAfterEnrollment();
+      } else {
+        const result = await api.regenerateRecoveryCodes(recoveryCode);
+        if (currentLifecycle !== lifecycle.current) return;
+        setRecoveryCode("");
+        setRecoveryCodes(result.recoveryCodes);
+        setCodesSaved(false);
+      }
+    } catch (error) {
+      if (currentLifecycle === lifecycle.current) {
+        setMfaOperationError(errorMessage(error, "Could not update your authenticator. Please try again."));
+      }
+    } finally {
+      if (currentLifecycle === lifecycle.current) {
+        operationBusy.current = false;
+        setMfaOperation(null);
+      }
+    }
+  };
+
+  const copyValue = async (value: string, notice: string) => {
+    const currentLifecycle = lifecycle.current;
+    try {
+      await navigator.clipboard.writeText(value);
+      if (currentLifecycle === lifecycle.current) setCopyNotice(notice);
+    } catch {
+      if (currentLifecycle === lifecycle.current) setCopyNotice("Copy is unavailable. Select the text and copy it manually.");
+    }
+  };
+
+  const finishEnrollment = () => {
+    if (recoveryCodes.length > 0 && !codesSaved) return;
+    if (refreshPending || sessionRefreshFailed) return;
+    setRecoveryCodes([]);
+    setSetup(null);
+    setMfaCode("");
+    setMfaSetupPassword("");
+    setCopyNotice(null);
+    onMfaSetupComplete?.();
+  };
 
   const passwordMutation = useMutation({
     mutationFn: () => api.changePassword(currentPassword, password),
@@ -183,36 +304,13 @@ function SecurityPanel({ prioritizeMfa }: { prioritizeMfa: boolean }) {
       setConfirmPassword("");
     },
   });
-  const setupMutation = useMutation({
-    mutationFn: () => api.setupMfa(mfaSetupPassword),
-    onSuccess: (result) => {
-      setSetup(result);
-      setMfaSetupPassword("");
-      setRecoveryCodes([]);
-    },
-  });
-  const confirmMutation = useMutation({
-    mutationFn: () => api.confirmMfa(mfaCode.trim()),
-    onSuccess: async (result) => {
-      setRecoveryCodes(result.recoveryCodes);
-      setSetup(null);
-      setMfaCode("");
-      await refreshSession();
-    },
-  });
-  const regenerateMutation = useMutation({
-    mutationFn: () => api.regenerateRecoveryCodes(recoveryCode.trim()),
-    onSuccess: (result) => {
-      setRecoveryCode("");
-      setRecoveryCodes(result.recoveryCodes);
-    },
-  });
   const disableMutation = useMutation({
     mutationFn: () => api.disableMfa(disablePassword),
     onSuccess: async () => {
       setShowDisable(false);
       setDisablePassword("");
       setRecoveryCodes([]);
+      setMfaConfirmed(false);
       await refreshSession();
     },
   });
@@ -224,7 +322,11 @@ function SecurityPanel({ prioritizeMfa }: { prioritizeMfa: boolean }) {
     passwordMutation.mutate();
   };
 
-  const mfaError = setupMutation.error || confirmMutation.error || regenerateMutation.error || disableMutation.error;
+  const mfaError = mfaOperationError || (disableMutation.error
+    ? errorMessage(disableMutation.error, "Could not update MFA.")
+    : null);
+  const mfaEnabled = Boolean(user?.mfaEnabled || mfaConfirmed);
+  const currentStep = recoveryCodes.length > 0 || mfaEnabled ? 3 : setup ? 2 : 1;
   const passwordPanel = (
     <form className="card card-pad account-panel" onSubmit={changePassword}>
       <div className="card-title">Password</div>
@@ -277,23 +379,38 @@ function SecurityPanel({ prioritizeMfa }: { prioritizeMfa: boolean }) {
   );
 
   const authenticatorPanel = (
-    <section className="card card-pad account-panel" aria-labelledby="mfa-heading">
-      <div className="flex between items-center">
-        <div className="card-title" id="mfa-heading">Authenticator app</div>
-        <StatusBadge status={user?.mfaEnabled ? "active" : "inactive"} />
+    <section className={`card card-pad account-panel authenticator-panel${guidedMfa ? " authenticator-panel-guided" : ""}`} aria-labelledby="mfa-heading">
+      <div className="authenticator-heading">
+        <div>
+          <h2 className="card-title" id="mfa-heading">{guidedMfa ? "Set up your authenticator" : "Authenticator app"}</h2>
+          <p className="muted account-copy">
+            {mfaEnabled
+              ? "Your authenticator protects this account at sign-in."
+              : "Use an app such as Google Authenticator, Microsoft Authenticator or 1Password to get your sign-in codes."}
+          </p>
+        </div>
+        {!guidedMfa && <StatusBadge status={mfaEnabled ? "active" : "inactive"} />}
       </div>
-      <p className="muted account-copy">
-        {user?.mfaEnabled
-          ? "Two-factor authentication protects this account at sign-in."
-          : user?.mfaEnrollmentRequired
-            ? `Enrollment is required for your role${user.mfaGraceEndsAt ? ` by ${fmtDateTime(user.mfaGraceEndsAt)}` : ""}.`
-            : "Add a second factor using any TOTP-compatible authenticator app."}
-      </p>
-      {mfaError && <div className="auth-error" role="alert">{errorMessage(mfaError, "Could not update MFA.")}</div>}
+      {!mfaEnabled && !guidedMfa && user?.mfaEnrollmentRequired && (
+        <p className="authenticator-deadline">Required for your role{user.mfaGraceEndsAt ? ` by ${fmtDateTime(user.mfaGraceEndsAt)}` : ""}.</p>
+      )}
+      {(guidedMfa || setup || recoveryCodes.length > 0) && (
+        <ol className="authenticator-steps" aria-label="Authenticator setup steps">
+          {["Confirm password", "Scan & verify", "Save recovery codes"].map((label, index) => (
+            <li key={label} className={currentStep === index + 1 ? "current" : currentStep > index + 1 ? "complete" : ""} aria-current={currentStep === index + 1 ? "step" : undefined}>
+              <span aria-hidden="true">{currentStep > index + 1 ? <Icon name="check" size={16} /> : index + 1}</span>
+              {label}
+            </li>
+          ))}
+        </ol>
+      )}
+      {mfaError && <div className="auth-error" role="alert">{mfaError}</div>}
 
-      {!user?.mfaEnabled && !setup && (
-        <>
-          <Field label="Current password" required hint="Confirm your identity before creating a new MFA seed.">
+      {!mfaEnabled && !setup && (
+        <form className="authenticator-confirm-password" onSubmit={(event) => { event.preventDefault(); void runMfaOperation("setup"); }}>
+          <h3>Confirm your password</h3>
+          <p className="muted">Enter your current password{guidedMfa ? " — the new one you just chose" : ""} to protect this setup.</p>
+          <Field label="Current password" required>
             <input
               type="password"
               value={mfaSetupPassword}
@@ -302,56 +419,75 @@ function SecurityPanel({ prioritizeMfa }: { prioritizeMfa: boolean }) {
               required
             />
           </Field>
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={() => setupMutation.mutate()}
-            disabled={setupMutation.isPending || !mfaSetupPassword}
-          >
-            {setupMutation.isPending ? "Preparing…" : "Set up authenticator"}
+          <button className="btn btn-primary" type="submit" disabled={mfaOperation !== null || !mfaSetupPassword}>
+            {mfaOperation === "setup" ? "Preparing…" : "Set up authenticator"}
           </button>
-        </>
+        </form>
       )}
       {setup && (
-        <div className="mfa-setup">
-          <ol>
-            <li>
-              Open this setup link on a device with your authenticator:{" "}
-              <a href={setup.provisioningUri}>Add to authenticator</a>.
-            </li>
-            <li>If needed, enter this key manually: <code>{setup.secret}</code>.</li>
-            <li>Enter the six-digit code below to finish.</li>
-          </ol>
-          <Field label="Authenticator code" required>
-            <input
-              value={mfaCode}
-              onChange={(event) => setMfaCode(event.target.value)}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-            />
-          </Field>
-          <div className="flex gap-3">
-            <button className="btn btn-primary" type="button" onClick={() => confirmMutation.mutate()} disabled={confirmMutation.isPending || !mfaCode.trim()}>
-              {confirmMutation.isPending ? "Verifying…" : "Enable MFA"}
-            </button>
-            <button className="btn btn-secondary" type="button" onClick={() => setSetup(null)}>Cancel</button>
+        <div className="mfa-setup authenticator-scan">
+          <div className="authenticator-scan-grid">
+            <div className="authenticator-qr">
+              <QRCodeSVG
+                value={setup.provisioningUri}
+                size={208}
+                level="M"
+                marginSize={4}
+                role="img"
+                title="Scan to add NPA Vessel Caller to your authenticator"
+                aria-label="Scan to add NPA Vessel Caller to your authenticator"
+              />
+            </div>
+            <div className="authenticator-scan-instructions">
+              <h3 ref={scanHeading} tabIndex={-1}>Scan with your authenticator app</h3>
+              <p>Open the app on your phone, choose to add an account, then scan this QR code.</p>
+              <p>Using this phone? <a href={setup.provisioningUri}>Add to authenticator</a></p>
+              <details className="authenticator-manual">
+                <summary>Can’t scan the QR code?</summary>
+                <p>Choose to enter a setup key in your app. Use <strong>{user?.email}</strong> as the account name and select <strong>Time based</strong>.</p>
+                <code className="authenticator-setup-key">{setup.secret}</code>
+                <button className="btn btn-secondary btn-sm" type="button" onClick={() => void copyValue(setup.secret, "Setup key copied.")}>Copy setup key</button>
+              </details>
+            </div>
           </div>
+          <form className="authenticator-verify" onSubmit={(event) => { event.preventDefault(); void runMfaOperation("confirm"); }}>
+            <h3>Enter the code shown in the app</h3>
+            <Field label="Authenticator code" required hint="Use the current six-digit code. It changes every 30 seconds.">
+              <input
+                className="authenticator-code-input"
+                value={mfaCode}
+                onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                required
+              />
+            </Field>
+            <div className="authenticator-buttons">
+              <button className="btn btn-primary" type="submit" disabled={mfaOperation !== null || !/^\d{6}$/.test(mfaCode)}>
+                {mfaOperation === "confirm" ? "Verifying…" : "Enable MFA"}
+              </button>
+              <button className="btn btn-secondary" type="button" disabled={mfaOperation !== null} onClick={() => { setSetup(null); setMfaCode(""); setMfaOperationError(null); setCopyNotice(null); }}>Cancel</button>
+            </div>
+          </form>
         </div>
       )}
 
-      {user?.mfaEnabled && (
+      {mfaEnabled && !guidedMfa && recoveryCodes.length === 0 && (
         <div className="account-actions">
           <Field label="Current authenticator code" required hint="Required before replacing your recovery codes.">
             <input
               value={recoveryCode}
-              onChange={(event) => setRecoveryCode(event.target.value)}
+              onChange={(event) => setRecoveryCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
               inputMode="numeric"
               autoComplete="one-time-code"
+              maxLength={6}
             />
           </Field>
-          <div className="flex gap-3">
-            <button className="btn btn-secondary" type="button" onClick={() => regenerateMutation.mutate()} disabled={regenerateMutation.isPending || !recoveryCode.trim()}>
-              New recovery codes
+          <div className="authenticator-buttons">
+            <button className="btn btn-secondary" type="button" onClick={() => void runMfaOperation("regenerate")} disabled={mfaOperation !== null || !/^\d{6}$/.test(recoveryCode)}>
+              {mfaOperation === "regenerate" ? "Replacing…" : "New recovery codes"}
             </button>
             {!platformAccess && (
               <button className="btn btn-ghost" type="button" onClick={() => setShowDisable(true)} style={{ color: "var(--danger)" }}>
@@ -365,21 +501,39 @@ function SecurityPanel({ prioritizeMfa }: { prioritizeMfa: boolean }) {
         </div>
       )}
       {recoveryCodes.length > 0 && (
-        <div className="recovery-codes" role="status">
-          <strong>Save these recovery codes now</strong>
-          <p>Each code works once. They will not be shown again after you leave this page.</p>
+        <div className="recovery-codes authenticator-recovery" role="status">
+          <div className="authenticator-success"><Icon name="check" size={18} />Authenticator enabled</div>
+          <h3 ref={recoveryHeading} tabIndex={-1}>Save your recovery codes</h3>
+          <p>Keep these somewhere safe, separate from your phone. Each code lets you sign in once if you lose access to your authenticator. They will not be shown again after you leave this page.</p>
           <ul>{recoveryCodes.map((code) => <li key={code}><code>{code}</code></li>)}</ul>
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => void navigator.clipboard.writeText(recoveryCodes.join("\n"))}
-          >
-            Copy codes
+          <button className="btn btn-secondary btn-sm" type="button" onClick={() => void copyValue(recoveryCodes.join("\n"), "Recovery codes copied.")}>Copy codes</button>
+          <label className="authenticator-acknowledgment">
+            <input type="checkbox" checked={codesSaved} onChange={(event) => setCodesSaved(event.target.checked)} />
+            <span>I have saved my recovery codes</span>
+          </label>
+          <button className="btn btn-primary" type="button" disabled={!codesSaved || refreshPending || sessionRefreshFailed} onClick={finishEnrollment}>
+            {guidedMfa ? "Continue to workspace" : "Done"}
           </button>
+        </div>
+      )}
+      {guidedMfa && mfaEnabled && recoveryCodes.length === 0 && (
+        <div className="authenticator-already-enabled">
+          <div className="authenticator-success"><Icon name="check" size={18} />Authenticator already enabled</div>
+          <p>You can continue to your workspace. If you need new recovery codes, replace them in Account & Security.</p>
+          <button className="btn btn-primary" type="button" onClick={finishEnrollment}>Continue to workspace</button>
+        </div>
+      )}
+      {copyNotice && <p className="authenticator-copy-notice" role="status">{copyNotice}</p>}
+      {sessionRefreshFailed && (
+        <div className="authenticator-refresh" role="alert">
+          <p>Your authenticator is enabled and your recovery codes are ready to save. We could not refresh your account status.</p>
+          <button className="btn btn-secondary btn-sm" type="button" disabled={refreshPending} onClick={() => void refreshAfterEnrollment()}>{refreshPending ? "Refreshing…" : "Retry account refresh"}</button>
         </div>
       )}
     </section>
   );
+
+  if (guidedMfa) return authenticatorPanel;
 
   return (
     <div className="account-grid">

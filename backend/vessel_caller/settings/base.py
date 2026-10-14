@@ -112,6 +112,9 @@ DATABASES = {
 
 AUTH_USER_MODEL = "accounts.User"
 AUTHENTICATION_BACKENDS = ["accounts.backends.EmailBackend"]
+# Email is unique within each organization. Our only configured backend proves
+# the password before resolving an unscoped account, and refuses ambiguity.
+SILENCED_SYSTEM_CHECKS = ["auth.W004"]
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.Argon2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2PasswordHasher",

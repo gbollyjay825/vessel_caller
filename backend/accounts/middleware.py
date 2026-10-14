@@ -91,6 +91,7 @@ class ManagedSessionMiddleware:
                 if (
                     organization is None
                     or locked_user is None
+                    or not locked_user.is_active
                     or managed is None
                     or managed.revoked_at is not None
                     or managed.absolute_expires_at <= now
@@ -102,6 +103,7 @@ class ManagedSessionMiddleware:
                 if (
                     organization is not None
                     and locked_user is not None
+                    and locked_user.is_active
                     and managed is not None
                     and managed.revoked_at is None
                     and managed.absolute_expires_at > now

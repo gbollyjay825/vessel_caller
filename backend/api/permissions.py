@@ -120,6 +120,8 @@ def _lock_active_customer_identity(request, view) -> bool:
     if not locked_user:
         return False
     locked_user.organization = organization
+    if not locked_user.is_active:
+        return False
     request.user = locked_user
     request._tenant_lifecycle_locked_organization_id = str(organization.pk)
     return True

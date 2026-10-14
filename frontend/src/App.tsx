@@ -8,16 +8,25 @@ import { CustomerAccount } from "./app/CustomerAccount";
 import { AuthProvider, useAuth, type Permission } from "./auth/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Navigate } from "./lib/navigation";
+import { SHOW_SECONDARY_WORKFLOW_UI } from "./lib/featureVisibility";
 import { queryClient } from "./lib/queryClient";
 import { MobileApp } from "./mobile/MobileApp";
 import { Analytics } from "./screens/Analytics";
 import { AuthPage } from "./screens/AuthPage";
+import { TemporaryPasswordChange } from "./screens/TemporaryPasswordChange";
 import { Dashboard } from "./screens/Dashboard";
 import { EmailVerification } from "./screens/EmailVerification";
 import { Inspections, NewInspection } from "./screens/Inspections";
 import { InvitationAccept } from "./screens/InvitationAccept";
+import { OrganizationJoin, OrganizationJoinVerification } from "./screens/OrganizationJoin";
 import { Invoices } from "./screens/Invoices";
 import { Measurements, MeasurementDetail, NewMeasurement } from "./screens/Measurements";
+import { VoyageReadings } from "./screens/VoyageReadings";
+import { VoyageReconciliation } from "./screens/VoyageReconciliation";
+import { VariationInvoice, VariationInvoices } from "./screens/VariationInvoice";
+import { ActivityDashboard } from "./screens/ActivityDashboard";
+import { AgencyDirectory } from "./measurements/AgencyDirectoryScreen";
+import { AgencyReadingPage } from "./measurements/AgencyReadingPage";
 import { Landing } from "./screens/LandingFull";
 import { ForgotPassword, ResetPassword } from "./screens/PasswordRecovery";
 import { Settings } from "./screens/Settings";
@@ -35,17 +44,33 @@ function SecureScreen({ permission, children }: { permission?: Permission; child
 }
 
 function PublicAuthRoute({ children }: { children: ReactNode }) {
-  const { status, homePath } = useAuth();
+  const { status, homePath, passwordChangeChallenge } = useAuth();
+  if (passwordChangeChallenge) return <Navigate to="/change-temporary-password" replace />;
   return status === "authenticated" ? <Navigate to={homePath} replace /> : <>{children}</>;
+}
+
+function WorkspaceHome() {
+  const { can } = useAuth();
+  if (!SHOW_SECONDARY_WORKFLOW_UI) {
+    if (can("measurements.view")) return <Navigate to="/app/dashboard" replace />;
+    if (can("calls.view")) return <Navigate to="/app/vessel-calls" replace />;
+    if (can("settings.view")) return <Navigate to="/app/settings/agencies" replace />;
+  }
+  return <Dashboard />;
 }
 
 function WorkspaceRoutes() {
   return (
     <Switch>
-      <Route path="/app"><Dashboard /></Route>
+      <Route path="/app"><WorkspaceHome /></Route>
+      <Route path="/app/dashboard"><SecureScreen permission="measurements.view"><ActivityDashboard /></SecureScreen></Route>
+      <Route path="/app/variation-invoices"><SecureScreen permission="measurements.view"><VariationInvoices /></SecureScreen></Route>
       <Route path="/app/vessel-calls/:id"><VesselCallDetail /></Route>
       <Route path="/app/vessel-calls"><VesselCalls /></Route>
       <Route path="/app/measurements/new"><SecureScreen permission="measurements.manage"><NewMeasurement /></SecureScreen></Route>
+      <Route path="/app/measurements/voyages/:callId/readings"><SecureScreen permission="measurements.view"><VoyageReadings /></SecureScreen></Route>
+      <Route path="/app/measurements/voyages/:callId/reconciliation"><SecureScreen permission="measurements.view"><VoyageReconciliation /></SecureScreen></Route>
+      <Route path="/app/measurements/voyages/:callId/variation-invoice"><SecureScreen permission="measurements.view"><VariationInvoice /></SecureScreen></Route>
       <Route path="/app/measurements/:id"><SecureScreen permission="measurements.view"><MeasurementDetail /></SecureScreen></Route>
       <Route path="/app/measurements"><SecureScreen permission="measurements.view"><Measurements /></SecureScreen></Route>
       <Route path="/app/inspections/new">
@@ -58,6 +83,9 @@ function WorkspaceRoutes() {
       </Route>
       <Route path="/app/users">
         <SecureScreen permission="users.view"><UserManagement /></SecureScreen>
+      </Route>
+      <Route path="/app/settings/agencies">
+        <SecureScreen permission="settings.view"><AgencyDirectory /></SecureScreen>
       </Route>
       <Route path="/app/settings">
         <SecureScreen permission="settings.view"><Settings /></SecureScreen>
@@ -143,11 +171,15 @@ export default function App() {
         <Switch>
           <Route path="/"><Landing /></Route>
           <Route path="/login"><PublicAuthRoute><AuthPage mode="login" /></PublicAuthRoute></Route>
+          <Route path="/change-temporary-password"><TemporaryPasswordChange /></Route>
           <Route path="/register"><PublicAuthRoute><AuthPage mode="register" /></PublicAuthRoute></Route>
           <Route path="/verify-email"><EmailVerification /></Route>
           <Route path="/forgot-password"><ForgotPassword /></Route>
           <Route path="/reset-password"><ResetPassword /></Route>
           <Route path="/accept-invitation"><InvitationAccept /></Route>
+          <Route path="/join-organization/verify"><OrganizationJoinVerification /></Route>
+          <Route path="/join-organization"><OrganizationJoin /></Route>
+          <Route path="/agency-reading"><AgencyReadingPage /></Route>
           <Route path="/capture"><Capture /></Route>
           <Route path="/system"><SystemWorkspace /></Route>
           <Route path="/system/*"><SystemWorkspace /></Route>

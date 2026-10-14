@@ -80,6 +80,6 @@ function unknownEnvironment(): PlatformEnvironment {
   return {
     kind: "unknown",
     label: "Unknown environment",
-    description: "Confirm the address before making changes; this host is not a recognized Vessel Caller environment.",
+    description: "Confirm the address before making changes; this host is not a recognized NPA Vessel Caller environment.",
   };
 }

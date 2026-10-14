@@ -1,7 +1,7 @@
 /* ============================================================
    Calabar Port Inspection Platform
    Visual language per UI Specification §1.3
-   Clean white · high trust · single maritime-blue accent
+   Clean white · NPA green · neutral surfaces
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -18,21 +18,24 @@
   --ink: #16191D;
   --slate: #5F6B7A;
   --slate-soft: #8A95A3;
+  --muted: var(--slate);
+  --border: var(--hairline);
+  --primary: var(--accent);
 
-  /* Accent — single deep maritime blue */
-  --accent: #1B5FAA;
-  --accent-hover: #15508F;
-  --accent-press: #114375;
-  --accent-tint: #E6EFF8;     /* info / in-progress / live-calc bg */
-  --accent-tint-2: #F2F7FC;
+  /* Accent — shared NPA green */
+  --accent: var(--brand-accent);
+  --accent-hover: var(--brand-accent-hover);
+  --accent-press: var(--brand-accent-press);
+  --accent-tint: var(--brand-accent-soft);     /* info / in-progress / live-calc bg */
+  --accent-tint-2: var(--brand-accent-faint);
 
   /* Status */
   --success: #1F9254;
   --success-bg: #E7F4EC;
   --warning: #B6781E;
   --warning-bg: #FBF1DF;
-  --info: #1B5FAA;
-  --info-bg: #E6EFF8;
+  --info: var(--brand-accent);
+  --info-bg: var(--brand-accent-soft);
   --danger: #C0392B;
   --danger-bg: #FBEAE7;
 
@@ -61,7 +64,7 @@
   /* One soft shadow token */
   --shadow: 0 1px 3px rgba(16,19,29,0.06);
   --shadow-pop: 0 8px 28px rgba(16,19,29,0.12), 0 2px 6px rgba(16,19,29,0.06);
-  --focus-ring: 0 0 0 3px rgba(27,95,170,0.22);
+  --focus-ring: 0 0 0 3px rgba(var(--brand-accent-rgb),0.22);
 
   --sidebar-w: 240px;
   --rail-w: 64px;
@@ -90,8 +93,9 @@ body {
 h1, h2, h3, h4, p { margin: 0; }
 
 button { font-family: inherit; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 
-::selection { background: rgba(27,95,170,0.18); }
+::selection { background: rgba(var(--brand-accent-rgb),0.18); }
 
 /* tabular numerals everywhere numbers matter */
 .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
@@ -138,6 +142,11 @@ button { font-family: inherit; }
 }
 .sb-wordmark { font-weight: 600; font-size: 15px; color: var(--ink); letter-spacing: -0.01em; white-space: nowrap; }
 .sb-wordmark span { display: block; font-weight: 400; font-size: 11px; color: var(--slate-soft); letter-spacing: 0.04em; }
+.sb-product-brand { gap: 9px; width: 100%; }
+.sb-product-brand .product-brand-logo { width: 32px; height: 32px; }
+.sb-product-brand .product-brand-copy { font-weight: 600; font-size: 14px; color: var(--ink); }
+.sb-product-brand .product-brand-copy small { color: var(--slate-soft); opacity: 1; }
+.app.rail .sb-product-brand .product-brand-copy { display: none; }
 
 .sb-nav { padding: var(--s4) var(--s3); display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
 .sb-nav-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--slate-soft); padding: var(--s3) var(--s3) var(--s2); }
@@ -452,7 +461,7 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .toast .tic { display: grid; place-items: center; flex-shrink: 0; }
 .toast.success .tic { color: #5FE39B; }
 .toast.error .tic { color: #FF8B7E; }
-.toast.info .tic { color: #7FB4F0; }
+.toast.info .tic { color: #A8D5B4; }
 .toast .tx { flex: 1; }
 .toast .tclose { background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer; padding: 2px; display: grid; place-items: center; border-radius: 4px; }
 .toast .tclose:hover { color: #fff; }
@@ -612,6 +621,10 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .account-workspace-header h1 { white-space: normal; }
 .account-workspace-header p { font-size: var(--fs-meta); overflow-wrap: anywhere; }
 .account-workspace-intro { padding-bottom: 0; }
+.account-onboarding-intro { width: 100%; max-width: 856px; }
+.account-onboarding-intro h1 { margin: var(--s3) 0 var(--s2); font-size: var(--fs-h1); }
+.account-onboarding-intro > p { max-width: 62ch; line-height: 1.6; }
+.account-onboarding-complete { display: flex; align-items: center; gap: var(--s2); color: var(--accent); font-size: var(--fs-meta); font-weight: 600; }
 .account-access-heading { display: flex; align-items: flex-start; gap: var(--s3); }
 .account-access-heading > svg { flex-shrink: 0; margin-top: 3px; color: var(--accent); }
 .account-access-heading h2 { font-size: var(--fs-h2); }
@@ -661,6 +674,8 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 @media (max-width: 1023px) {
   .app { grid-template-columns: var(--rail-w) 1fr; }
   .app .sb-wordmark, .app .sb-item span.lbl, .app .sb-nav-label, .app .sb-user-meta { display: none; }
+  .app .sb-product-brand { justify-content: center; }
+  .app .sb-product-brand .product-brand-copy { display: none; }
   .app .sb-item { justify-content: center; padding-left: 0; padding-right: 0; border-left-width: 0; }
   .app .sb-item.active { border-left-width: 0; box-shadow: inset 3px 0 0 var(--accent); }
   .app .sb-brand { padding: 0; justify-content: center; }
@@ -672,6 +687,8 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
   .sidebar { position: fixed; top: 0; left: 0; height: 100vh; width: var(--sidebar-w); transform: translateX(-100%); transition: transform 260ms var(--ease); }
   .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-pop); }
   .sidebar .sb-wordmark, .sidebar .sb-item span.lbl, .sidebar .sb-nav-label, .sidebar .sb-user-meta { display: revert; }
+  .sidebar .sb-product-brand { justify-content: flex-start; }
+  .sidebar .sb-product-brand .product-brand-copy { display: block; }
   .sidebar .sb-item { justify-content: flex-start; padding-left: var(--s3); padding-right: var(--s3); border-left-width: 3px; }
   .sidebar .sb-item.active { box-shadow: none; border-left-width: 3px; }
   .sidebar .sb-brand { padding: 0 var(--s5); justify-content: flex-start; }
@@ -847,8 +864,8 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
    Platform administration
    ========================================================= */
 .system-sidebar { background: #F7F9FC; }
-.system-sidebar .sb-mark { background: #173B68; }
-.system-context .tag { background: #E7EEF8; color: #173B68; }
+.system-sidebar .sb-mark { background: var(--brand-accent); }
+.system-context .tag { background: var(--brand-accent-soft); color: var(--brand-accent); }
 .system-context .icon-btn { width: 40px; }
 .system-environment-tag.staging { background: var(--warning-bg); color: #805512; }
 .system-environment-tag.production { background: var(--danger-bg); color: var(--danger); }
@@ -867,7 +884,7 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .system-mutation-state { margin-left: var(--s2); }
 .system-mutation-state.enabled { color: var(--success); background: var(--success-bg); }
 .system-mutation-state.locked { color: var(--slate); background: #E8EBEF; }
-.system-readonly-banner { color: var(--info); background: var(--info-bg); border-color: #C8DDF2; }
+.system-readonly-banner { color: var(--info); background: var(--info-bg); border-color: var(--brand-accent-border); }
 .system-nav-lock-note { display: grid; gap: 2px; margin: 0 var(--s2) var(--s2); padding: var(--s3); border: 1px solid #E6D29C; border-radius: var(--r-input); background: var(--warning-bg); color: var(--warning); font-size: var(--fs-xs); }
 .system-nav-lock-note span { color: var(--slate); line-height: 1.4; }
 .system-nav-locked { cursor: not-allowed; color: var(--slate-soft); }

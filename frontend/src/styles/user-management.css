@@ -1,0 +1,48 @@
+.user-management-page { max-width: 1360px; }
+.user-management-page .page-head { align-items: center; margin-bottom: 24px; }
+.user-management-page .page-head h1 { margin: 0; font-size: 25px; letter-spacing: -.4px; }
+.user-management-page .settings-tabs { margin-bottom: 16px; }
+.user-management-page [role="tabpanel"] { padding: 0; }
+.user-management-page .filter-bar { display: grid; grid-template-columns: minmax(220px, 1fr) 180px 180px; }
+.user-management-page .search-input { min-width: 0; max-width: none; }
+.user-management-role-guide { margin: 0 0 16px; }
+.user-management-role-guide > .link-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
+.user-management-role-guide .role-access-card { margin-top: 14px; margin-bottom: 0; box-shadow: none; }
+.user-management-role-guide .role-access-table thead th { background: var(--brand-accent-faint); }
+.user-management-page .role-admin { color: var(--accent); background: var(--brand-accent-soft); }
+.user-management-feedback p { margin: 3px 0 0; color: var(--slate); line-height: 1.6; }
+.user-management-tab-copy { margin: 0 0 16px; color: var(--slate); font-size: 13px; line-height: 1.6; }
+.user-invitation-scope { padding: 14px; margin: 0 0 24px; border-radius: 8px; background: var(--brand-accent-faint); color: var(--slate); font-size: 13px; line-height: 1.65; }
+.user-invitation-scope strong { color: var(--ink); font-weight: 600; }
+.user-invitation-form .auth-error { margin-bottom: 20px; }
+@media (max-width: 640px) {
+  .user-management-page .page-head { align-items: flex-start; gap: 14px; }
+  .user-management-page .page-head h1 { font-size: 22px; }
+  .user-management-page .page-head > .btn { width: 100%; justify-content: center; }
+  .user-management-page .settings-tabs button { flex: 1; padding-right: 12px; padding-left: 12px; }
+}
+@media (max-width: 900px) {
+  .user-management-page .filter-bar { grid-template-columns: 1fr; }
+}
+
+.user-first-signin { margin: 0 0 24px; padding: 0; border: 0; display: grid; gap: 10px; }
+.user-first-signin legend { margin-bottom: 10px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.user-first-signin label { display: flex; align-items: flex-start; gap: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; cursor: pointer; }
+.user-first-signin label:has(input:checked) { border-color: var(--brand-accent); background: var(--brand-accent-faint); }
+.user-first-signin input { margin: 3px 0 0; accent-color: var(--brand-accent); flex: 0 0 auto; }
+.user-first-signin strong { display: block; color: var(--ink); font-size: 14px; }
+.user-first-signin small { display: block; margin-top: 5px; color: var(--slate); line-height: 1.55; }
+.temporary-user-result .user-access-note p { margin: 6px 0 0; line-height: 1.6; }
+.temporary-user-summary { display: grid; gap: 14px; margin: 24px 0; }
+.temporary-user-summary div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 12px; font-size: 14px; }
+.temporary-user-summary dt { color: var(--slate); }
+.temporary-user-summary dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.temporary-password-control { display: flex; gap: 8px; align-items: stretch; }
+.temporary-password-control input { min-width: 0; flex: 1; font-family: var(--mono, monospace); }
+.temporary-password-control button { white-space: nowrap; }
+.temporary-user-result > .btn { display: flex; width: 100%; justify-content: center; margin-top: 10px; }
+.pending-invitation-replacement { padding: 16px; margin: 0 0 20px; border: 1px solid var(--brand-accent-border); border-radius: 8px; background: var(--brand-accent-faint); }
+.pending-invitation-replacement > p:first-child { margin: 0 0 10px; color: var(--ink); font-size: 13px; line-height: 1.6; }
+.pending-invitation-replacement .organization-admin-confirm { margin-bottom: 0; padding: 0; border: 0; background: transparent; }
+.temporary-copy-notice { color: var(--brand-accent); font-size: 13px; line-height: 1.6; }
+@media (max-width: 480px) { .temporary-password-control { flex-direction: column; } .temporary-password-control button { align-self: flex-start; } }

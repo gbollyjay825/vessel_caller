@@ -58,6 +58,8 @@ def test_health_and_readiness_are_public(api_client):
     assert health.json()["release"]["sha"]
     assert health.json()["capabilities"] == {
         "organizationAccessStatus": True,
+        "temporaryPasswordLifecycle": True,
+        "organizationScopedIdentity": True,
         "systemAdminEmailDeliveryReady": False,
     }
     ready = api_client.get("/api/readiness")
@@ -65,6 +67,8 @@ def test_health_and_readiness_are_public(api_client):
     assert ready.json()["checks"] == {"database": True, "cache": True}
     assert ready.json()["capabilities"] == {
         "organizationAccessStatus": True,
+        "temporaryPasswordLifecycle": True,
+        "organizationScopedIdentity": True,
         "systemAdminEmailDeliveryReady": False,
     }
 

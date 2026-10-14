@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -21,10 +22,22 @@ const authMock = vi.hoisted(() => ({
   refreshSession: vi.fn(),
   logout: vi.fn(),
 }));
+const qrMock = vi.hoisted(() => ({ render: vi.fn() }));
 const authState = vi.hoisted(() => ({
   platformAccess: null as null | { role: "SystemAdmin"; permissions: string[] },
   mfaEnabled: false,
 }));
+
+vi.mock("qrcode.react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("qrcode.react")>();
+  return {
+    ...actual,
+    QRCodeSVG: (props: ComponentProps<typeof actual.QRCodeSVG>) => {
+      qrMock.render(props);
+      return <actual.QRCodeSVG {...props} />;
+    },
+  };
+});
 
 vi.mock("../lib/api", () => ({
   api: apiMock,
@@ -66,15 +79,17 @@ function renderAccount(props: Parameters<typeof AccountSecurity>[0] = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <AccountSecurity {...props} />
     </QueryClientProvider>,
   );
+  return { ...view, client };
 }
 
 describe("AccountSecurity", () => {
   beforeEach(() => {
+    qrMock.render.mockClear();
     Object.values(apiMock).forEach((mock) => mock.mockReset());
     Object.values(authMock).forEach((mock) => mock.mockReset());
     apiMock.profile.mockResolvedValue({ user: profile });
@@ -181,6 +196,152 @@ describe("AccountSecurity", () => {
     expect(apiMock.confirmMfa).toHaveBeenCalledWith("123456");
     expect(await screen.findByText("recovery-one")).toBeInTheDocument();
     expect(authMock.refreshSession).toHaveBeenCalledOnce();
+  });
+
+  it("guides setup using a locally rendered QR with the exact provisioning URI and manual fallback", async () => {
+    const provisioningUri = "otpauth://totp/NPA%20Vessel%20Caller:ada%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=NPA%20Vessel%20Caller";
+    apiMock.setupMfa.mockResolvedValue({ secret: "JBSWY3DPEHPK3PXP", provisioningUri });
+    const { client } = renderAccount({ guidedMfa: true });
+
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change password" })).not.toBeInTheDocument();
+    expect(screen.getByText(/the new one you just chose/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/Current password/), "new private password");
+    await userEvent.click(screen.getByRole("button", { name: "Set up authenticator" }));
+
+    const qr = await screen.findByRole("img", { name: "Scan to add NPA Vessel Caller to your authenticator" });
+    expect(qr.tagName.toLowerCase()).toBe("svg");
+    expect(qr.querySelector("path")).toBeInTheDocument();
+    expect(qr.querySelector("image")).toBeNull();
+    expect(qrMock.render.mock.lastCall?.[0].value).toBe(provisioningUri);
+    expect(screen.getByRole("link", { name: "Add to authenticator" })).toHaveAttribute("href", provisioningUri);
+    await userEvent.click(screen.getByText("Can’t scan the QR code?"));
+    expect(screen.getByText("JBSWY3DPEHPK3PXP")).toBeVisible();
+    expect(screen.getByText("Time based")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy setup key" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Enable MFA" })).toBeDisabled();
+    expect(client.getMutationCache().getAll()).toHaveLength(0);
+  });
+
+  it("preserves recovery codes across session refresh and requires saved-code acknowledgment before continuing", async () => {
+    apiMock.setupMfa.mockResolvedValue({ secret: "PRIVATESEED", provisioningUri: "otpauth://totp/test?secret=PRIVATESEED" });
+    apiMock.confirmMfa.mockResolvedValue({ recoveryCodes: ["private-recovery-one", "private-recovery-two"] });
+    authMock.refreshSession.mockImplementation(async () => { authState.mfaEnabled = true; });
+    const onComplete = vi.fn();
+    const { client } = renderAccount({ guidedMfa: true, onMfaSetupComplete: onComplete });
+    await userEvent.type(screen.getByLabelText(/Current password/), "current private password");
+    await userEvent.click(screen.getByRole("button", { name: "Set up authenticator" }));
+    await userEvent.type(await screen.findByLabelText(/Authenticator code/), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Enable MFA" }));
+
+    expect(await screen.findByRole("heading", { name: "Save your recovery codes" })).toBeInTheDocument();
+    expect(screen.getByText("private-recovery-one")).toBeVisible();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByText("PRIVATESEED")).not.toBeInTheDocument();
+    expect(authMock.refreshSession).toHaveBeenCalledOnce();
+    const continueButton = screen.getByRole("button", { name: "Continue to workspace" });
+    expect(continueButton).toBeDisabled();
+    await userEvent.click(continueButton);
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(client.getMutationCache().getAll()).toHaveLength(0);
+    await userEvent.click(screen.getByRole("checkbox", { name: "I have saved my recovery codes" }));
+    await userEvent.click(continueButton);
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(screen.queryByText("private-recovery-one")).not.toBeInTheDocument();
+  });
+
+  it("keeps enrollment retryable after setup or code failure without replacing a successful seed", async () => {
+    const { ApiError } = await import("../lib/api");
+    apiMock.setupMfa.mockRejectedValueOnce(new ApiError("Password was not accepted", 400)).mockResolvedValueOnce({ secret: "PRIVATESEED", provisioningUri: "otpauth://totp/test?secret=PRIVATESEED" });
+    apiMock.confirmMfa.mockRejectedValueOnce(new ApiError("Code has expired", 400)).mockResolvedValueOnce({ recoveryCodes: ["safe-recovery-code"] });
+    renderAccount({ guidedMfa: true });
+    await userEvent.type(screen.getByLabelText(/Current password/), "private password");
+    await userEvent.click(screen.getByRole("button", { name: "Set up authenticator" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Password was not accepted");
+    await userEvent.click(screen.getByRole("button", { name: "Set up authenticator" }));
+    const codeInput = await screen.findByLabelText(/Authenticator code/);
+    await userEvent.type(codeInput, "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Enable MFA" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Code has expired");
+    expect(screen.getByRole("img")).toBeVisible();
+    await userEvent.clear(codeInput);
+    await userEvent.type(codeInput, "654321");
+    await userEvent.click(screen.getByRole("button", { name: "Enable MFA" }));
+    expect(await screen.findByText("safe-recovery-code")).toBeInTheDocument();
+    expect(apiMock.setupMfa).toHaveBeenCalledTimes(2);
+    expect(apiMock.confirmMfa).toHaveBeenLastCalledWith("654321");
+  });
+
+  it("retries only the account refresh if enrollment already succeeded", async () => {
+    apiMock.setupMfa.mockResolvedValue({ secret: "PRIVATESEED", provisioningUri: "otpauth://totp/test?secret=PRIVATESEED" });
+    apiMock.confirmMfa.mockResolvedValue({ recoveryCodes: ["preserved-recovery-code"] });
+    authMock.refreshSession.mockRejectedValueOnce(new Error("Network unavailable")).mockResolvedValueOnce(undefined);
+    const onComplete = vi.fn();
+    renderAccount({ guidedMfa: true, onMfaSetupComplete: onComplete });
+    await userEvent.type(screen.getByLabelText(/Current password/), "current password");
+    await userEvent.click(screen.getByRole("button", { name: "Set up authenticator" }));
+    await userEvent.type(await screen.findByLabelText(/Authenticator code/), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Enable MFA" }));
+    expect(await screen.findByRole("button", { name: "Retry account refresh" })).toBeInTheDocument();
+    expect(screen.getByText("preserved-recovery-code")).toBeVisible();
+    await userEvent.click(screen.getByRole("checkbox", { name: "I have saved my recovery codes" }));
+    expect(screen.getByRole("button", { name: "Continue to workspace" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Retry account refresh" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue to workspace" })).toBeEnabled());
+    expect(apiMock.confirmMfa).toHaveBeenCalledOnce();
+    expect(screen.getByText("preserved-recovery-code")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Continue to workspace" }));
+    expect(onComplete).toHaveBeenCalledOnce();
+  });
+
+  it("prevents duplicate setup and confirmation requests and clears a cancelled seed", async () => {
+    let resolveSetup!: (value: { secret: string; provisioningUri: string }) => void;
+    let resolveConfirm!: (value: { recoveryCodes: string[] }) => void;
+    apiMock.setupMfa.mockReturnValue(new Promise((resolve) => { resolveSetup = resolve; }));
+    apiMock.confirmMfa.mockReturnValue(new Promise((resolve) => { resolveConfirm = resolve; }));
+    renderAccount({ guidedMfa: true });
+    await userEvent.type(screen.getByLabelText(/Current password/), "current password");
+    await userEvent.dblClick(screen.getByRole("button", { name: "Set up authenticator" }));
+    expect(apiMock.setupMfa).toHaveBeenCalledOnce();
+    resolveSetup({ secret: "cancelled-seed", provisioningUri: "otpauth://totp/test?secret=cancelled-seed" });
+    await screen.findByRole("img");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("cancelled-seed")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Current password/)).toHaveValue("");
+    await userEvent.type(screen.getByLabelText(/Current password/), "current password");
+    await userEvent.click(screen.getByRole("button", { name: "Set up authenticator" }));
+    await userEvent.type(await screen.findByLabelText(/Authenticator code/), "123456");
+    await userEvent.dblClick(screen.getByRole("button", { name: "Enable MFA" }));
+    expect(apiMock.confirmMfa).toHaveBeenCalledOnce();
+    resolveConfirm({ recoveryCodes: ["only-once"] });
+    expect(await screen.findByText("only-once")).toBeInTheDocument();
+  });
+
+  it("discards an outstanding setup result after leaving the screen", async () => {
+    let resolveSetup!: (value: { secret: string; provisioningUri: string }) => void;
+    apiMock.setupMfa.mockReturnValue(new Promise((resolve) => { resolveSetup = resolve; }));
+    const first = renderAccount({ guidedMfa: true });
+    await userEvent.type(screen.getByLabelText(/Current password/), "current password");
+    await userEvent.click(screen.getByRole("button", { name: "Set up authenticator" }));
+    first.unmount();
+    resolveSetup({ secret: "discarded-seed", provisioningUri: "otpauth://totp/test?secret=discarded-seed" });
+    renderAccount({ guidedMfa: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up authenticator" })).toBeInTheDocument());
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByText("discarded-seed")).not.toBeInTheDocument();
+    expect(first.client.getMutationCache().getAll()).toHaveLength(0);
+  });
+
+  it("lets an already-enrolled user continue without claiming new recovery codes were saved", async () => {
+    authState.mfaEnabled = true;
+    const onComplete = vi.fn();
+    renderAccount({ guidedMfa: true, onMfaSetupComplete: onComplete });
+    expect(screen.getByText("Authenticator already enabled")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set up authenticator" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Continue to workspace" }));
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(apiMock.setupMfa).not.toHaveBeenCalled();
   });
 
   it("lists devices, revokes a remote session, and signs out everywhere", async () => {

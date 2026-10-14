@@ -322,7 +322,27 @@ export interface MfaChallenge {
   challengeId: string;
 }
 
-export type LoginResult = AuthSession | MfaChallenge;
+export interface TemporaryPasswordChallenge {
+  passwordChangeRequired: true;
+  passwordChangeToken: string;
+  passwordChangeExpiresAt: string;
+}
+
+export interface TemporaryPasswordUserResult {
+  user: User;
+  rev: number;
+  temporaryPassword: string;
+  temporaryPasswordExpiresAt: string;
+  signInUrl: string;
+}
+
+export interface OrganizationSelection {
+  organizationSelectionRequired: true;
+  organizations: { id: string; name: string }[];
+}
+
+export type PasswordChangeResult = AuthSession | MfaChallenge;
+export type LoginResult = PasswordChangeResult | TemporaryPasswordChallenge | OrganizationSelection;
 
 export interface UserListParams {
   page?: number;
@@ -439,23 +459,31 @@ export const api = {
       suppressAuthExpired: true,
     }),
   verifyEmail: (token: string) =>
-    request<{ detail: string; approvalPending: boolean }>("/api/auth/verify-email", {
+    request<{ detail: string; approvalPending: boolean; organizationId?: string }>("/api/auth/verify-email", {
       method: "POST",
       body: JSON.stringify({ token }),
       suppressAuthExpired: true,
     }),
-  resendVerification: (email: string) =>
+  resendVerification: (email: string, organizationId?: string) =>
     request<{ detail: string }>("/api/auth/resend-verification", {
       method: "POST",
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, ...(organizationId ? { organizationId } : {}) }),
       suppressAuthExpired: true,
     }),
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, organizationId?: string) =>
     request<LoginResult>("/api/auth/login", {
       broadcastsIdentityTransition: true,
       method: "POST",
       serializesAuthCookie: true,
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...(organizationId ? { organizationId } : {}) }),
+      suppressAuthExpired: true,
+    }),
+  completeTemporaryPassword: (token: string, password: string) =>
+    request<PasswordChangeResult>("/api/auth/complete-temporary-password", {
+      broadcastsIdentityTransition: true,
+      method: "POST",
+      serializesAuthCookie: true,
+      body: JSON.stringify({ token, password }),
       suppressAuthExpired: true,
     }),
   verifyMfaChallenge: (challengeId: string, code: string) =>
@@ -477,14 +505,14 @@ export const api = {
     serializesAuthCookie: true,
     suppressAuthExpired: true,
   }),
-  forgotPassword: (email: string) =>
+  forgotPassword: (email: string, organizationId?: string) =>
     request<{ detail: string }>("/api/auth/forgot-password", {
       method: "POST",
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, ...(organizationId ? { organizationId } : {}) }),
       suppressAuthExpired: true,
     }),
   resetPassword: (token: string, password: string) =>
-    request<{ detail: string }>("/api/auth/reset-password", {
+    request<{ detail: string; organizationId?: string }>("/api/auth/reset-password", {
       advancesAuthSessionEpoch: true,
       broadcastsIdentityTransition: true,
       method: "POST",
@@ -549,6 +577,17 @@ export const api = {
       status: params.status === "all" ? undefined : params.status,
       role: params.role === "all" ? undefined : params.role,
     })}`),
+  createTemporaryPasswordUser: (data: { name: string; email: string; role: Role; replacePendingInvitation?: boolean }) =>
+    request<TemporaryPasswordUserResult>("/api/users/temporary-password", {
+      method: "POST",
+      body: JSON.stringify(data),
+      cache: "no-store",
+    }),
+  regenerateTemporaryPassword: (id: string) =>
+    request<TemporaryPasswordUserResult>(`/api/users/${encodeURIComponent(id)}/temporary-password`, {
+      method: "POST",
+      cache: "no-store",
+    }),
   roleDefinitions: () => request<{ roles: RoleDefinition[] }>("/api/roles"),
   updateUser: (id: string, patch: Partial<Pick<User, "name" | "role" | "status">>) =>
     request<{ user: User; rev: number }>(`/api/users/${encodeURIComponent(id)}`, {
@@ -569,13 +608,15 @@ export const api = {
       role: params.role === "all" ? undefined : params.role,
     })}`),
   inviteUser: (data: { name: string; email: string; role: Role }) =>
-    request<Invitation>("/api/invitations", { method: "POST", body: JSON.stringify(data) }),
+    request<{ invitation: Invitation; rev: number }>("/api/invitations", { method: "POST", body: JSON.stringify(data) })
+      .then((result) => result.invitation),
   resendInvitation: (id: string) =>
-    request<Invitation>(`/api/invitations/${encodeURIComponent(id)}/resend`, { method: "POST" }),
+    request<{ invitation: Invitation }>(`/api/invitations/${encodeURIComponent(id)}/resend`, { method: "POST" })
+      .then((result) => result.invitation),
   revokeInvitation: (id: string) =>
     request<void>(`/api/invitations/${encodeURIComponent(id)}`, { method: "DELETE" }),
   acceptInvitation: (data: { token: string; name: string; password: string }) =>
-    request<{ detail: string }>("/api/invitations/accept", {
+    request<{ detail: string; organizationId?: string }>("/api/invitations/accept", {
       method: "POST",
       body: JSON.stringify(data),
       suppressAuthExpired: true,

@@ -3,6 +3,29 @@ set -euo pipefail
 
 # The database migration ledger is the authoritative compatibility floor. The
 # local marker is only a durable cache and may be absent after a host rebuild.
+lifecycle="${1:-organization}"
+case "${lifecycle}" in
+  organization)
+    migration_app=organizations
+    migration_name=0004_organization_approval_lifecycle
+    ;;
+  temporary-password)
+    migration_app=accounts
+    migration_name=0007_user_admin_provisioned_at_user_admin_provisioned_by_and_more
+    ;;
+  organization-identity)
+    migration_app=accounts
+    migration_name=0008_organization_scoped_email
+    ;;
+  *)
+    echo "Unsupported staging lifecycle-state query." >&2
+    exit 2
+    ;;
+esac
+if [[ "$#" -gt 1 ]]; then
+  echo "The staging lifecycle-state query accepts one fixed lifecycle." >&2
+  exit 2
+fi
 config_root=/etc/vessel-caller
 runtime_env="${config_root}/staging.env"
 libpq_helper=/usr/local/lib/vessel-caller/libpq-env.sh
@@ -67,7 +90,7 @@ state="$(
     --tuples-only \
     --no-align \
     --set ON_ERROR_STOP=1 \
-    --command "SELECT CASE WHEN EXISTS (SELECT 1 FROM django_migrations WHERE app = 'organizations' AND name = '0004_organization_approval_lifecycle') THEN 'present' ELSE 'absent' END;"
+    --command "SELECT CASE WHEN EXISTS (SELECT 1 FROM django_migrations WHERE app = '${migration_app}' AND name = '${migration_name}') THEN 'present' ELSE 'absent' END;"
 )"
 case "${state}" in
   present|absent) printf '%s\n' "${state}" ;;

@@ -68,7 +68,7 @@ export function SystemOverview() {
       <div className="page-head">
         <div>
           <h1 className="hide-sr">Platform overview</h1>
-          <p className="desc">Organization lifecycle and access across Vessel Caller. Tenant operational records remain isolated.</p>
+          <p className="desc">Organization lifecycle and access across NPA Vessel Caller. Tenant operational records remain isolated.</p>
         </div>
         <Link className="btn btn-primary" to="/system/organizations">
           <Icon name="building" size={17} /> {mutationsEnabled ? "Manage organizations" : "View organizations"}

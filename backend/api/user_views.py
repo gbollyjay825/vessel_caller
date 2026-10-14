@@ -6,6 +6,11 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
+from accounts.account_scopes import (
+    account_email_unavailable,
+    organization_action_url,
+    organization_sign_in_url,
+)
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
@@ -21,6 +26,7 @@ from accounts.models import ActionToken, Invitation, User
 from accounts.notifications import queue_security_notice
 from accounts.security import EMPTY_MFA_SECRET, issue_action_token, token_hash
 from accounts.services import opaque_token, queue_email, revoke_sessions
+from accounts.temporary_passwords import provision_temporary_user, regenerate_temporary_password
 from audit.models import AuditEvent
 from audit.services import record_event
 from organizations.models import Organization
@@ -31,6 +37,7 @@ from .permissions import HasVesselPermission, role_definitions
 from .serializers import (
     InvitationAcceptSerializer,
     InvitationCreateSerializer,
+    TemporaryPasswordCreateSerializer,
     UserPatchSerializer,
     audit_data,
     invitation_data,
@@ -72,6 +79,52 @@ class UsersView(APIView):
         return paginator.get_paginated_response([user_data(item) for item in page])
 
 
+def _temporary_password_response(user, temporary_password):
+    response = Response(
+        {
+            "user": user_data(user),
+            "rev": bump_revision(user.organization_id),
+            "temporaryPassword": temporary_password,
+            "temporaryPasswordExpiresAt": user.temporary_password_expires_at.isoformat(),
+            "signInUrl": organization_sign_in_url(user.organization),
+        },
+        status=status.HTTP_201_CREATED,
+    )
+    response["Cache-Control"] = "no-store"
+    response["Pragma"] = "no-cache"
+    return response
+
+
+class TemporaryPasswordUserView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "users.manage"
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = TemporaryPasswordCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user, temporary_password = provision_temporary_user(
+            actor=request.user,
+            request=request,
+            **serializer.validated_data,
+        )
+        return _temporary_password_response(user, temporary_password)
+
+
+class TemporaryPasswordRegenerateView(APIView):
+    permission_classes = [IsAuthenticated, HasVesselPermission]
+    required_permission = "users.manage"
+
+    @transaction.atomic
+    def post(self, request, user_id):
+        user, temporary_password = regenerate_temporary_password(
+            actor=request.user,
+            user_id=user_id,
+            request=request,
+        )
+        return _temporary_password_response(user, temporary_password)
+
+
 class UserDetailView(APIView):
     permission_classes = [IsAuthenticated, HasVesselPermission]
     required_permission = "users.manage"
@@ -103,7 +156,11 @@ class UserDetailView(APIView):
         if changing_self_access:
             raise ValidationError("You cannot change your own role or status")
         before = user_data(member)
-        if member.role == User.Role.ADMIN and member.status == User.Status.ACTIVE:
+        if (
+            member.role == User.Role.ADMIN
+            and member.status == User.Status.ACTIVE
+            and not member.password_change_required
+        ):
             losing_admin = (
                 data.get("role", member.role) != User.Role.ADMIN
                 or data.get("status", member.status) != User.Status.ACTIVE
@@ -112,6 +169,7 @@ class UserDetailView(APIView):
                 organization=member.organization,
                 role=User.Role.ADMIN,
                 status=User.Status.ACTIVE,
+                password_change_required=False,
             ).count()
             if losing_admin and active_admins <= 1:
                 raise ValidationError("The organization must keep at least one active Admin")
@@ -162,11 +220,16 @@ class UserDetailView(APIView):
             raise NotFound("User not found")
         if member.pk == request.user.pk:
             raise ValidationError("You cannot remove your own account")
-        if member.role == User.Role.ADMIN and member.status == User.Status.ACTIVE:
+        if (
+            member.role == User.Role.ADMIN
+            and member.status == User.Status.ACTIVE
+            and not member.password_change_required
+        ):
             active_admins = User.objects.filter(
                 organization=member.organization,
                 role=User.Role.ADMIN,
                 status=User.Status.ACTIVE,
+                password_change_required=False,
             ).count()
             if active_admins <= 1:
                 raise ValidationError("The organization must keep at least one active Admin")
@@ -215,7 +278,11 @@ class UserPasswordResetDispatchView(APIView):
         )
         if not organization:
             raise NotFound("User not found")
-        member = organization.users.filter(pk=user_id, status=User.Status.ACTIVE).first()
+        member = organization.users.filter(
+            pk=user_id,
+            status=User.Status.ACTIVE,
+            password_change_required=False,
+        ).first()
         if not member:
             raise NotFound("User not found")
         token_obj, raw = issue_action_token(member, ActionToken.Kind.RESET_PASSWORD, hours=1)
@@ -223,7 +290,9 @@ class UserPasswordResetDispatchView(APIView):
             to_email=member.email,
             subject="Reset your Vessel Caller password",
             template="reset_password",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/reset-password?token={raw}"},
+            context={
+                "actionUrl": organization_action_url(member.organization, "/reset-password", raw)
+            },
             idempotency_key=f"reset:{token_obj.id}",
             organization=organization,
         )
@@ -302,7 +371,7 @@ class InvitationsView(APIView):
         )
         if not organization:
             raise ValidationError("This organization cannot receive invitations")
-        deliverable = not User.objects.filter(email=email).exists()
+        deliverable = not account_email_unavailable(organization, email)
         Invitation.objects.filter(
             organization=organization,
             email=email,
@@ -324,7 +393,9 @@ class InvitationsView(APIView):
                 to_email=email,
                 subject=f"Join {organization.name} on Vessel Caller",
                 template="invitation",
-                context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+                context={
+                    "actionUrl": organization_action_url(organization, "/accept-invitation", raw)
+                },
                 idempotency_key=f"invite:{invitation.id}",
                 organization=organization,
             )
@@ -372,13 +443,16 @@ class InvitationResendView(APIView):
         raw = opaque_token()
         invitation.token_hash = token_hash(raw)
         invitation.expires_at = timezone.now() + timedelta(days=7)
-        invitation.save(update_fields=("token_hash", "expires_at"))
+        invitation.deliverable = not account_email_unavailable(organization, invitation.email)
+        invitation.save(update_fields=("token_hash", "expires_at", "deliverable"))
         if invitation.deliverable:
             queue_email(
                 to_email=invitation.email,
                 subject=f"Join {organization.name} on Vessel Caller",
                 template="invitation",
-                context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+                context={
+                    "actionUrl": organization_action_url(organization, "/accept-invitation", raw)
+                },
                 idempotency_key=f"invite-resend:{invitation.id}:{secrets.token_hex(6)}",
                 organization=organization,
             )
@@ -452,7 +526,7 @@ class InvitationAcceptView(APIView):
         )
         if not invitation or invitation.expires_at <= timezone.now():
             raise ValidationError({"token": ["This invitation is invalid or expired"]})
-        if User.objects.filter(email=invitation.email).exists():
+        if account_email_unavailable(organization, invitation.email):
             raise ValidationError({"email": ["A user with this email already exists"]})
         user = User.objects.create_user(
             email=invitation.email,
@@ -491,7 +565,10 @@ class InvitationAcceptView(APIView):
             subject="A Vessel Caller invitation was accepted",
             message=f"{user.name} accepted the invitation to join {organization.name} as {user.role}.",
         )
-        return Response({"detail": "Invitation accepted"}, status=status.HTTP_201_CREATED)
+        return Response(
+            {"detail": "Invitation accepted", "organizationId": user.organization_id},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class AuditView(APIView):
@@ -542,7 +619,8 @@ class AuditExportView(APIView):
         for event in AuditEvent.objects.filter(
             organization=request.user.organization
         ).select_related("actor"):
-            writer.writerow(
+            # Every dynamic string is formula-escaped by csv_safe; the timestamp is generated.
+            writer.writerow(  # nosemgrep: python.django.security.injection.csv-writer-injection.csv-writer-injection
                 [
                     event.occurred_at.isoformat(),
                     csv_safe(event.action),

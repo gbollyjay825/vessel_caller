@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   refreshSession: vi.fn(),
   logout: vi.fn(),
   enrollmentRequired: true,
+  mfaEnabled: false,
 }));
 vi.mock("../lib/api", () => ({
   api: { profile: mocks.profile, setupMfa: mocks.setupMfa, confirmMfa: mocks.confirmMfa },
@@ -19,7 +20,7 @@ vi.mock("../lib/api", () => ({
 }));
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
-    user: { id: "u-1", name: "Ada", mfaEnabled: !mocks.enrollmentRequired, mfaEnrollmentRequired: mocks.enrollmentRequired },
+    user: { id: "u-1", name: "Ada", mfaEnabled: mocks.mfaEnabled, mfaEnrollmentRequired: mocks.enrollmentRequired },
     org: { name: "Ada Marine" },
     can: () => !mocks.enrollmentRequired,
     logout: mocks.logout,
@@ -38,6 +39,8 @@ describe("Customer account recovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.enrollmentRequired = true;
+    mocks.mfaEnabled = false;
+    window.history.replaceState(null, "", "/app/account");
     mocks.refreshSession.mockResolvedValue(undefined);
     mocks.profile.mockResolvedValue({ user: { id: "u-1", name: "Ada", email: "ada@example.com", role: "Admin" } });
     mocks.setupMfa.mockResolvedValue({ secret: "test-only-secret", provisioningUri: "otpauth://test-only" });
@@ -68,6 +71,7 @@ describe("Customer account recovery", () => {
     await waitFor(() => expect(mocks.refreshSession).toHaveBeenCalledOnce());
 
     mocks.enrollmentRequired = false;
+    mocks.mfaEnabled = true;
     view.rerender(account(queryClient));
 
     expect(screen.getByRole("heading", { name: "MFA is enabled" })).toBeInTheDocument();
@@ -81,10 +85,49 @@ describe("Customer account recovery", () => {
 
   it("keeps the regular customer profile reachable without loading the workspace", async () => {
     mocks.enrollmentRequired = false;
+    mocks.mfaEnabled = true;
     render(account(client()));
     expect(await screen.findByLabelText(/Full name/)).toHaveValue("Ada");
     expect(screen.getByRole("heading", { name: "Your account" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open workspace" })).toHaveAttribute("href", "/app");
     expect(screen.getByRole("link", { name: "Manage users" })).toHaveAttribute("href", "/app/users");
+  });
+
+  it("guides a new user during the grace period and waits for saved recovery codes before returning to their task", async () => {
+    mocks.enrollmentRequired = false;
+    window.history.replaceState({ from: "/app/measurements", passwordUpdated: true }, "", "/app/account?setup=authenticator");
+    const queryClient = client();
+    const view = render(account(queryClient));
+    expect(screen.getByRole("heading", { name: "Secure your account" })).toBeInTheDocument();
+    expect(screen.getByText("Password updated")).toBeInTheDocument();
+    expect(screen.getByAltText("Nigerian Ports Authority")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open workspace" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(mocks.profile).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByLabelText(/Current password/), "test password");
+    await userEvent.click(screen.getByRole("button", { name: "Set up authenticator" }));
+    await userEvent.type(await screen.findByLabelText(/Authenticator code/), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Enable MFA" }));
+    expect(await screen.findByText("test-only-recovery-one")).toBeInTheDocument();
+    mocks.mfaEnabled = true;
+    view.rerender(account(queryClient));
+    expect(screen.getByText("test-only-recovery-two")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue to workspace" })).toBeDisabled();
+    expect(window.location.pathname).toBe("/app/account");
+    await userEvent.click(screen.getByRole("checkbox", { name: /saved my recovery codes/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Continue to workspace" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/app/measurements"));
+  });
+
+  it("provides a safe continuation if the guide is revisited after MFA is already enabled", async () => {
+    mocks.enrollmentRequired = false;
+    mocks.mfaEnabled = true;
+    window.history.replaceState({ from: "https://untrusted.example" }, "", "/app/account?setup=authenticator");
+    render(account(client()));
+    expect(screen.queryByText("Password updated")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set up authenticator" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Continue to workspace" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/app"));
   });
 });

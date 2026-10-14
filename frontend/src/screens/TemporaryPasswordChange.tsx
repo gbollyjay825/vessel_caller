@@ -9,6 +9,7 @@ import type { AuthSession } from "../types";
 
 function destinationFor(session: AuthSession, requested: unknown): string {
   if (session.platformAccess) return session.platformAccess.mfaEnrollmentRequired ? "/system/account" : "/system";
+  if (!session.user.mfaEnabled) return "/app/account?setup=authenticator";
   if (session.user.mfaEnrollmentRequired) return "/app/account";
   if (typeof requested === "string" && /^\/app(?:\/|\?|$)/.test(requested)) return requested;
   return "/app";
@@ -50,8 +51,11 @@ export function TemporaryPasswordChange() {
     return () => window.clearInterval(timer);
   }, [passwordChangeChallenge]);
   useEffect(() => {
-    if (destination && status === "authenticated") navigate(destination, { replace: true });
-  }, [destination, navigate, status]);
+    if (destination && status === "authenticated") navigate(destination, {
+      replace: true,
+      ...(destination === "/app/account?setup=authenticator" ? { state: { from: requested, passwordUpdated: true } } : {}),
+    });
+  }, [destination, navigate, requested, status]);
 
   const cancel = () => {
     setPassword("");

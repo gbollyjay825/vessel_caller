@@ -89,6 +89,10 @@ test("the same email keeps its original access while a second organization gets 
     await recipientPage.getByLabel("New password", { exact: true }).fill(password);
     await recipientPage.getByLabel("Confirm new password", { exact: true }).fill(password);
     await recipientPage.getByRole("button", { name: "Change password and continue", exact: true }).click();
+    await expect(recipientPage).toHaveURL(/\/app\/account\?setup=authenticator$/);
+    // This journey isolates organization identity; authenticator enrollment is
+    // exercised end to end by the dedicated temporary-password journey.
+    await recipientPage.goto("/app");
     await expect(recipientPage).toHaveURL(/\/app\/dashboard$/);
     const destinationSession = await (await recipient.request.get("/api/auth/me")).json();
     expect(destinationSession.org.id).toBe(destinationOrg);

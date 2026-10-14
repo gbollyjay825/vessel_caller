@@ -1,10 +1,28 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { expect, test, type Request } from "@playwright/test";
 
 // Generated credentials must never be retained in browser traces/screenshots.
-test.use({ trace: "off", screenshot: "off" });
+test.use({ trace: "off", video: "off", screenshot: "off" });
 
-test("an Admin replaces a pending invitation with a temporary-password user before role access", async ({
+function authenticatorCode(provisioningUri: string): string {
+  const uri = new URL(provisioningUri);
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const secret = uri.searchParams.get("secret") ?? "";
+  const bits = [...secret.replace(/=+$/, "").toUpperCase()].map((character) => {
+    const value = alphabet.indexOf(character);
+    if (value < 0) throw new Error("The isolated MFA fixture returned an invalid setup key.");
+    return value.toString(2).padStart(5, "0");
+  }).join("");
+  const key = Buffer.from(Array.from({ length: Math.floor(bits.length / 8) }, (_, index) =>
+    Number.parseInt(bits.slice(index * 8, (index + 1) * 8), 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000)));
+  const digest = createHmac("sha1", key).update(counter).digest();
+  const offset = digest[digest.length - 1] & 15;
+  return ((digest.readUInt32BE(offset) & 0x7fff_ffff) % 1_000_000).toString().padStart(6, "0");
+}
+
+test("an Admin replaces an invitation and a new user chooses a password then completes guided authenticator setup", async ({
   page, context, browser, baseURL,
 }, testInfo) => {
   const databaseName = process.env.VC_DATABASE_URL
@@ -13,7 +31,7 @@ test("an Admin replaces a pending invitation with a temporary-password user befo
   const isolated = Boolean(baseURL && ["localhost", "127.0.0.1", "[::1]"].includes(new URL(baseURL).hostname)
     && /(?:^|[_-])(?:e2e|test)(?:$|[_-])/i.test(databaseName));
   test.skip(!isolated, "Credential creation is exercised only against the isolated Django test database.");
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   const adminPassword = process.env.E2E_PASSWORD;
   if (!adminPassword?.trim() || !baseURL) throw new Error("Isolated temporary-password E2E requires E2E_PASSWORD and baseURL.");
   const suffix = `${testInfo.project.name}-${randomUUID()}`;
@@ -151,7 +169,74 @@ test("an Admin replaces a pending invitation with a temporary-password user befo
     expect(completed.user.emailVerified).toBe(false);
     expect(completed.permissions).toContain("calls.view");
     expect(completed.permissions).not.toContain("users.manage");
+    await expect(recipientPage).toHaveURL(/\/app\/account\?setup=authenticator$/);
+    await expect(recipientPage.getByRole("heading", { name: "Set up your authenticator", exact: true })).toBeVisible();
+    await expect(recipientPage.getByRole("banner").getByRole("heading", { name: "Dashboard", exact: true })).toHaveCount(0);
+    await recipientPage.reload();
+    await expect(recipientPage).toHaveURL(/\/app\/account\?setup=authenticator$/);
+
+    // The setup is rendered on-device from Django's provisioning URI. Never
+    // send the authenticator seed to a remote image or QR-generation service.
+    const offOriginSetupRequests = new Set<string>();
+    const observeSetupRequest = (request: Request) => {
+      const url = new URL(request.url());
+      if (["http:", "https:"].includes(url.protocol) && url.origin !== new URL(baseURL).origin) {
+        offOriginSetupRequests.add(url.origin);
+      }
+    };
+    recipientPage.on("request", observeSetupRequest);
+    const authenticator = recipientPage.getByRole("region", { name: "Set up your authenticator", exact: true });
+    await authenticator.getByLabel(/^Current password/).fill(replacement);
+    const setupResponse = recipientPage.waitForResponse((response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname === "/api/auth/mfa/setup");
+    await authenticator.getByRole("button", { name: "Set up authenticator", exact: true }).click();
+    const setup = await setupResponse;
+    expect(setup.status()).toBe(200);
+    const enrollment: { secret: string; provisioningUri: string } = await setup.json();
+    const uri = new URL(enrollment.provisioningUri);
+    expect(uri.protocol).toBe("otpauth:");
+    expect(uri.hostname).toBe("totp");
+    expect(uri.searchParams.get("secret") === enrollment.secret).toBe(true);
+    expect(decodeURIComponent(uri.pathname).includes(email)).toBe(true);
+    await expect(authenticator.getByRole("link", { name: "Add to authenticator", exact: true }))
+      .toHaveAttribute("href", enrollment.provisioningUri);
+    const qr = authenticator.getByRole("img", { name: "Scan to add NPA Vessel Caller to your authenticator", exact: true });
+    await expect(qr).toBeVisible();
+    expect(await qr.evaluate((element) => element.tagName.toLowerCase())).toBe("svg");
+    expect(await qr.locator("path").count()).toBeGreaterThan(0);
+    expect(await qr.locator("image, use, [href], [xlink\\:href]").count()).toBe(0);
+    const qrBounds = await qr.boundingBox();
+    expect(Boolean(qrBounds && qrBounds.width >= 180 && qrBounds.height >= 180)).toBe(true);
+    expect([...offOriginSetupRequests]).toEqual([]);
+    recipientPage.off("request", observeSetupRequest);
+
+    await authenticator.getByRole("textbox", { name: "Authenticator code", exact: true })
+      .fill(authenticatorCode(enrollment.provisioningUri));
+    const confirmMfaResponse = recipientPage.waitForResponse((response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname === "/api/auth/mfa/confirm");
+    await authenticator.getByRole("button", { name: "Enable MFA", exact: true }).click();
+    const confirmedMfa = await confirmMfaResponse;
+    expect(confirmedMfa.status()).toBe(200);
+    const recovery: { recoveryCodes: string[] } = await confirmedMfa.json();
+    expect(recovery.recoveryCodes.length).toBe(10);
+    await expect(recipientPage.getByRole("heading", { name: "Save your recovery codes", exact: true })).toBeVisible();
+    for (const code of recovery.recoveryCodes) {
+      await expect(recipientPage.getByText(code, { exact: true })).toBeVisible();
+    }
+    await expect(recipientPage).toHaveURL(/\/app\/account\?setup=authenticator$/);
+    const continueToWorkspace = recipientPage.getByRole("button", { name: "Continue to workspace", exact: true });
+    await expect(continueToWorkspace).toBeDisabled();
+    await recipientPage.getByRole("checkbox", { name: "I have saved my recovery codes", exact: true }).check();
+    await expect(continueToWorkspace).toBeEnabled();
+    const enrolledSession = await (await recipient.request.get("/api/auth/me")).json();
+    expect(enrolledSession.user.mfaEnabled).toBe(true);
+    const enrolledStorage = await recipientPage.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
+    expect(enrolledStorage.includes(enrollment.secret)
+      || enrolledStorage.includes(enrollment.provisioningUri)
+      || recovery.recoveryCodes.some((code) => enrolledStorage.includes(code))).toBe(false);
+    await continueToWorkspace.click();
     await expect(recipientPage).toHaveURL(/\/app\/dashboard$/);
+    await expect(recipientPage.getByText(recovery.recoveryCodes[0], { exact: true })).toHaveCount(0);
     await recipientPage.reload();
     await expect(recipientPage.getByRole("banner").getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
     expect((await recipient.cookies()).some((cookie) => /vessel.*session/.test(cookie.name) && cookie.httpOnly)).toBe(true);
@@ -173,6 +258,9 @@ test("an Admin replaces a pending invitation with a temporary-password user befo
         data: { email, password: temporaryPassword },
       })).status()).toBe(401);
     } finally { await oldCredentialContext.close(); }
+  } catch (error) {
+    console.error("Authenticator journey failed before cleanup:", error instanceof Error ? error.message : "Unknown test failure");
+    throw error;
   } finally {
     await recipient.close();
     if (createdUserId) {

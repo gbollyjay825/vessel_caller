@@ -621,6 +621,10 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .account-workspace-header h1 { white-space: normal; }
 .account-workspace-header p { font-size: var(--fs-meta); overflow-wrap: anywhere; }
 .account-workspace-intro { padding-bottom: 0; }
+.account-onboarding-intro { width: 100%; max-width: 856px; }
+.account-onboarding-intro h1 { margin: var(--s3) 0 var(--s2); font-size: var(--fs-h1); }
+.account-onboarding-intro > p { max-width: 62ch; line-height: 1.6; }
+.account-onboarding-complete { display: flex; align-items: center; gap: var(--s2); color: var(--accent); font-size: var(--fs-meta); font-weight: 600; }
 .account-access-heading { display: flex; align-items: flex-start; gap: var(--s3); }
 .account-access-heading > svg { flex-shrink: 0; margin-top: 3px; color: var(--accent); }
 .account-access-heading h2 { font-size: var(--fs-h2); }

@@ -48,7 +48,8 @@ describe("TemporaryPasswordChange", () => {
     authMock.status = "authenticated";
     authMock.passwordChangeChallenge = null;
     view.rerender(<TemporaryPasswordChange />);
-    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe("/app/account?setup=authenticator"));
+    expect(window.history.state).toMatchObject({ passwordUpdated: true });
   });
   it("continues enrolled MFA after replacement and directs required enrollment before app access", async () => {
     authMock.completeTemporaryPassword.mockResolvedValue({ mfaRequired: true, challengeId: "mfa-fixture" });
@@ -65,7 +66,30 @@ describe("TemporaryPasswordChange", () => {
     expect(authMock.verifyMfa).toHaveBeenCalledWith("mfa-fixture", "123456");
     authMock.status = "authenticated";
     view.rerender(<TemporaryPasswordChange />);
-    await waitFor(() => expect(window.location.pathname).toBe("/app/account"));
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe("/app/account?setup=authenticator"));
+  });
+  it("guides a new Admin through enrollment even during the server MFA grace period", async () => {
+    authMock.completeTemporaryPassword.mockResolvedValue({ ...session, user: { ...session.user, role: "Admin", mfaRequired: true, mfaEnrollmentRequired: false } });
+    window.history.replaceState({ from: "/app/measurements" }, "", "/change-temporary-password");
+    const view = render(<TemporaryPasswordChange />);
+    await enterPasswords();
+    await userEvent.click(screen.getByRole("button", { name: "Change password and continue" }));
+    authMock.status = "authenticated";
+    view.rerender(<TemporaryPasswordChange />);
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe("/app/account?setup=authenticator"));
+    expect(window.history.state).toEqual({ from: "/app/measurements", passwordUpdated: true });
+    expect(window.location.href).not.toContain("password-change");
+  });
+  it("does not restart enrollment for an account that already has an authenticator", async () => {
+    authMock.completeTemporaryPassword.mockResolvedValue({ ...session, user: { ...session.user, mfaEnabled: true } });
+    window.history.replaceState({ from: "/app/measurements" }, "", "/change-temporary-password");
+    const view = render(<TemporaryPasswordChange />);
+    await enterPasswords();
+    await userEvent.click(screen.getByRole("button", { name: "Change password and continue" }));
+    authMock.status = "authenticated";
+    view.rerender(<TemporaryPasswordChange />);
+    await waitFor(() => expect(window.location.pathname).toBe("/app/measurements"));
+    expect(window.location.search).toBe("");
   });
   it("blocks an expired challenge and provides a safe route back to sign in", async () => {
     authMock.passwordChangeChallenge!.passwordChangeExpiresAt = new Date(Date.now() - 1_000).toISOString();

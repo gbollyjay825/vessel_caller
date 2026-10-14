@@ -8,20 +8,23 @@ import { ApiError } from "../lib/api";
 import type { OrganizationJoinRequest, OrganizationSignupLink } from "../lib/organizationJoin";
 
 const mocks = vi.hoisted(() => ({ links: vi.fn(), createLink: vi.fn(), revokeLink: vi.fn(), requests: vi.fn(), approve: vi.fn(), reject: vi.fn(), can: vi.fn() }));
+const identity = vi.hoisted(() => ({ organizationId: "org-npa", userId: "admin-1" }));
 vi.mock("../lib/organizationJoin", () => ({ organizationJoinApi: mocks }));
-vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ org: { id: "org-npa", name: "NPA" }, can: mocks.can }) }));
+vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ org: { id: identity.organizationId, name: "NPA" }, user: { id: identity.userId }, can: mocks.can }) }));
 
 const link: OrganizationSignupLink = { id: "link-1", organizationId: "org-npa", createdAt: "2090-10-12T19:00:00Z", expiresAt: "2090-10-19T19:00:00Z", revokedAt: null, status: "active", createdBy: { id: "admin-1", name: "Admin" } };
 const request: OrganizationJoinRequest = { id: "request-1", name: "Ada Agency", email: "ada@example.test", status: "pending", createdAt: "2026-10-12T19:00:00Z", emailVerifiedAt: "2026-10-12T19:05:00Z", reviewedAt: null };
 const page = <T,>(results: T[]) => ({ results, count: results.length, page: 1, pageSize: 20 });
 function renderAccess() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><OrganizationAccess /></QueryClientProvider>);
+  return { client, ...render(<QueryClientProvider client={client}><OrganizationAccess /></QueryClientProvider>) };
 }
 
 describe("organization sign-up link and approval", () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset());
+    identity.organizationId = "org-npa";
+    identity.userId = "admin-1";
     mocks.can.mockReturnValue(true);
     mocks.links.mockResolvedValue(page([]));
     mocks.requests.mockResolvedValue(page([]));
@@ -36,13 +39,16 @@ describe("organization sign-up link and approval", () => {
   it("creates an expiring link, displays it once and copies it", async () => {
     mocks.createLink.mockImplementation(async () => { mocks.links.mockResolvedValue(page([link])); return { link, signupUrl: "https://staging.vesselcalls.com/join-organization#token=example" }; });
     const user = userEvent.setup();
-    renderAccess();
+    const { client } = renderAccess();
     await screen.findByRole("button", { name: "Create sign-up link" });
+    expect(screen.getByLabelText("Shareable sign-up link")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("Link valid for"), "14");
     await user.click(screen.getByRole("button", { name: "Create sign-up link" }));
     expect(mocks.createLink).toHaveBeenCalledWith(14);
-    const url = await screen.findByLabelText("Shareable sign-up link");
-    expect(url).toHaveValue("https://staging.vesselcalls.com/join-organization#token=example");
+    await waitFor(() => expect(screen.getByLabelText("Shareable sign-up link")).toHaveValue("https://staging.vesselcalls.com/join-organization#token=example"));
+    expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain("#token=example");
+    expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("#token=example");
     const clipboard = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     await user.click(screen.getByRole("button", { name: "Copy link" }));
     expect(clipboard).toHaveBeenCalledWith("https://staging.vesselcalls.com/join-organization#token=example");
@@ -53,11 +59,25 @@ describe("organization sign-up link and approval", () => {
     mocks.createLink.mockResolvedValue({ link, signupUrl: "https://example.test/join-organization#token=new" });
     renderAccess();
     await userEvent.click(await screen.findByRole("button", { name: "Create replacement link" }));
+    expect(screen.getByLabelText("Shareable sign-up link")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeDisabled();
+    expect(screen.getByText(/previous link cannot be retrieved/i)).toBeInTheDocument();
     expect(screen.getByRole("alertdialog", { name: "Replace sign-up link?" })).toBeInTheDocument();
     expect(mocks.createLink).not.toHaveBeenCalled();
     expect(screen.getByText(/Verified requests remain available/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Replace link" }));
     await waitFor(() => expect(mocks.createLink).toHaveBeenCalledWith(7));
+  });
+  it("does not reveal a generated link after the Admin identity changes", async () => {
+    const url = "https://example.test/join-organization#token=previous-admin";
+    mocks.createLink.mockImplementation(async () => { mocks.links.mockResolvedValue(page([link])); return { link, signupUrl: url }; });
+    const view = renderAccess();
+    await userEvent.click(await screen.findByRole("button", { name: "Create sign-up link" }));
+    await waitFor(() => expect(screen.getByLabelText("Shareable sign-up link")).toHaveValue(url));
+    identity.userId = "admin-2";
+    view.rerender(<QueryClientProvider client={view.client}><OrganizationAccess /></QueryClientProvider>);
+    expect(screen.getByLabelText("Shareable sign-up link")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeDisabled();
   });
   it("requires confirmation to revoke and preserves review of submitted requests", async () => {
     mocks.links.mockResolvedValue(page([link]));

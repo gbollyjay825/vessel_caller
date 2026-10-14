@@ -15,7 +15,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare, salted_hmac
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
 from audit.services import record_identity_event
 from organizations.models import Organization
@@ -27,6 +27,21 @@ from .services import revoke_sessions
 TEMPORARY_PASSWORD_DAYS = 7
 PASSWORD_CHANGE_MINUTES = 5
 CHANGE_ERROR = "This password-change request is invalid or expired. Sign in again."
+
+
+class PendingInvitationConflict(APIException):
+    status_code = 409
+    default_code = "pending_invitation"
+
+    def __init__(self):
+        super().__init__(
+            {
+                "code": "pending_invitation",
+                "email": [
+                    "An email invitation is pending. Replace it with a temporary-password user to continue."
+                ],
+            }
+        )
 
 
 def _credential_version(user: User) -> str:
@@ -55,7 +70,15 @@ def _temporary_identity_available(user: User, *, now=None) -> bool:
 
 
 @transaction.atomic
-def provision_temporary_user(*, actor: User, name: str, email: str, role: str, request):
+def provision_temporary_user(
+    *,
+    actor: User,
+    name: str,
+    email: str,
+    role: str,
+    request,
+    replace_pending_invitation: bool = False,
+):
     organization = (
         Organization.objects.select_for_update()
         .filter(
@@ -73,13 +96,16 @@ def provision_temporary_user(*, actor: User, name: str, email: str, role: str, r
     if not admin.is_active or admin.role != User.Role.ADMIN or admin.is_staff or admin.is_superuser:
         raise PermissionDenied("An active organization Admin must add this user")
     email = email.strip().lower()
+    now = timezone.now()
     if (
-        User.objects.filter(email=email).exists()
+        User.objects.filter(email__iexact=email).exists()
         or Invitation.objects.filter(
-            email=email, status=Invitation.Status.PENDING, expires_at__gt=timezone.now()
-        ).exists()
+            email__iexact=email, status=Invitation.Status.PENDING, expires_at__gt=now
+        )
+        .exclude(organization=organization)
+        .exists()
         or OrganizationJoinRequest.objects.filter(
-            email=email,
+            email__iexact=email,
             status__in=(
                 OrganizationJoinRequest.Status.UNVERIFIED,
                 OrganizationJoinRequest.Status.PENDING,
@@ -89,8 +115,20 @@ def provision_temporary_user(*, actor: User, name: str, email: str, role: str, r
         raise ValidationError(
             {"email": ["A user or pending invitation with this email already exists"]}
         )
+    # Invitation creation, resend and acceptance take this same organization
+    # lifecycle lock first. A replacement cannot race acceptance into granting
+    # two different credentials or roles. Never lock or change another tenant's
+    # invitation, nor advertise its availability through the replaceable error.
+    invitations = list(
+        Invitation.objects.select_for_update().filter(
+            organization=organization,
+            email__iexact=email,
+            status=Invitation.Status.PENDING,
+        )
+    )
+    if not replace_pending_invitation and any(item.expires_at > now for item in invitations):
+        raise PendingInvitationConflict()
     raw_password = _new_temporary_password()
-    now = timezone.now()
     try:
         # Savepoint keeps the transaction usable when the global unique email
         # constraint wins a race from an Admin in a different organization.
@@ -109,6 +147,27 @@ def provision_temporary_user(*, actor: User, name: str, email: str, role: str, r
             )
     except IntegrityError as exc:
         raise ValidationError({"email": ["A user with this email already exists"]}) from exc
+    for invitation in invitations:
+        # Even an expired pending invitation must not be resurrected by resend
+        # after the user has been provisioned. Revocation and the new identity
+        # commit together, so a failed create leaves the invitation usable.
+        invitation.status = Invitation.Status.REVOKED
+        invitation.revoked_at = now
+        invitation.save(update_fields=("status", "revoked_at"))
+        record_identity_event(
+            organization=organization,
+            actor=admin,
+            action="invitation.revoked",
+            target=invitation,
+            target_label=invitation.email,
+            request=request,
+            before={"status": Invitation.Status.PENDING},
+            after={
+                "status": Invitation.Status.REVOKED,
+                "reason": "temporary_password_user_created",
+                "userId": user.id,
+            },
+        )
     record_identity_event(
         organization=organization,
         actor=admin,

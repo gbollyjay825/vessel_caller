@@ -572,7 +572,7 @@ export const api = {
       status: params.status === "all" ? undefined : params.status,
       role: params.role === "all" ? undefined : params.role,
     })}`),
-  createTemporaryPasswordUser: (data: { name: string; email: string; role: Role }) =>
+  createTemporaryPasswordUser: (data: { name: string; email: string; role: Role; replacePendingInvitation?: boolean }) =>
     request<TemporaryPasswordUserResult>("/api/users/temporary-password", {
       method: "POST",
       body: JSON.stringify(data),

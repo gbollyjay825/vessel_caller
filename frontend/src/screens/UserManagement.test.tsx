@@ -32,7 +32,15 @@ vi.mock("./OrganizationAccess", () => ({ OrganizationAccess: () => <div>Organiza
 
 vi.mock("../lib/api", () => ({
   api: apiMock,
-  ApiError: class ApiError extends Error {},
+  ApiError: class ApiError extends Error {
+    status: number;
+    errors: Record<string, string[] | string>;
+    constructor(message: string, status: number, errors: Record<string, string[] | string> = {}) {
+      super(message);
+      this.status = status;
+      this.errors = errors;
+    }
+  },
 }));
 
 vi.mock("../auth/AuthContext", () => ({
@@ -387,7 +395,24 @@ describe("UserManagement", () => {
     expect(screen.getByRole("button", { name: "Suspend Ada Admin" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Remove Ada Admin" })).toBeDisabled();
   });
-  it("creates a user with a one-time password without caching or sending an invitation", async () => {
+  it("shows the generated-password slot before creation without accepting a manual password", async () => {
+    renderManagement();
+    await userEvent.click(screen.getByRole("button", { name: "Add user" }));
+    const password = screen.getByLabelText("Temporary password");
+    expect(password).toHaveAttribute("readonly");
+    expect(password).toHaveAttribute("placeholder", "Generated when you create this user");
+    expect(password).toHaveValue("");
+    await userEvent.type(password, "manual-password");
+    expect(password).toHaveValue("");
+    expect(apiMock.createTemporaryPasswordUser).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("radio", { name: /Email invitation/ }));
+    expect(screen.queryByLabelText("Temporary password")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: /Temporary password/ }));
+    expect(screen.getByLabelText("Temporary password")).toHaveValue("");
+  });
+
+  it("creates a user with a visible one-time password to copy without caching or sending an invitation", async () => {
+    const user = userEvent.setup();
     const credential = "fixture-temporary-password-42";
     apiMock.createTemporaryPasswordUser.mockResolvedValue({ user: { ...userFixture, passwordChangeRequired: true }, rev: 2, temporaryPassword: credential, temporaryPasswordExpiresAt: "2026-10-20T10:00:00Z", signInUrl: "https://staging.vesselcalls.com/login" });
     const view = renderManagement();
@@ -401,15 +426,27 @@ describe("UserManagement", () => {
     expect(apiMock.createTemporaryPasswordUser).toHaveBeenCalledExactlyOnceWith({ name: "Grace Finance", email: "grace@example.com", role: "Finance" });
     expect(apiMock.inviteUser).not.toHaveBeenCalled();
     const password = screen.getByLabelText("Temporary password");
-    expect(password).toHaveAttribute("type", "password");
+    expect(password).toHaveAttribute("type", "text");
     expect(password).toHaveAttribute("readonly");
     expect(password).toHaveValue(credential);
     expect(screen.getByLabelText("Sign-in page")).toHaveValue("https://staging.vesselcalls.com/login");
     expect(JSON.stringify(view.client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(credential);
     expect(JSON.stringify(view.client.getMutationCache().getAll().map((mutation) => mutation.state.data))).not.toContain(credential);
     expect(window.location.href).not.toContain(credential);
+    await userEvent.click(screen.getByRole("button", { name: "Hide password" }));
+    expect(password).toHaveAttribute("type", "password");
     await userEvent.click(screen.getByRole("button", { name: "Show password" }));
     expect(password).toHaveAttribute("type", "text");
+    const clipboard = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    await user.click(screen.getByRole("button", { name: "Copy password" }));
+    expect(clipboard).toHaveBeenLastCalledWith(credential);
+    expect(await screen.findByText("Temporary password copied. Share it directly with this user.")).toBeInTheDocument();
+    expect(screen.getAllByRole("status").every((element) => !element.textContent?.includes(credential))).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Copy sign-in details" }));
+    expect(clipboard).toHaveBeenLastCalledWith(expect.stringContaining(`Temporary password: ${credential}`));
+    expect(clipboard).toHaveBeenLastCalledWith(expect.stringContaining("Sign in: https://staging.vesselcalls.com/login"));
+    expect(screen.getByText("Sign-in details copied. Share them directly with this user.")).toBeInTheDocument();
+    expect(screen.getAllByRole("status").every((element) => !element.textContent?.includes(credential))).toBe(true);
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByLabelText("Temporary password")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Add user" }));
@@ -424,10 +461,10 @@ describe("UserManagement", () => {
     await userEvent.type(screen.getByLabelText(/Full name/), "Grace Finance");
     await userEvent.type(screen.getByLabelText(/^Email\*?$/), "grace@example.com");
     await userEvent.click(screen.getByRole("button", { name: "Create user" }));
-    await screen.findByLabelText("Temporary password");
+    await screen.findByRole("dialog", { name: "User ready to sign in" });
     authMock.userId = "admin-2";
     view.rerenderManagement();
-    expect(screen.queryByLabelText("Temporary password")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Temporary password")).toHaveValue("");
     expect(screen.queryByDisplayValue("fixture-credential-only")).not.toBeInTheDocument();
   });
 
@@ -447,6 +484,85 @@ describe("UserManagement", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("This email already belongs to an account.");
     expect(screen.getByLabelText(/^Email\*?$/)).toHaveValue("grace@example.com");
     expect(screen.getByRole("button", { name: "Create user" })).toBeEnabled();
+  });
+
+  it("replaces a pending email invitation only after explicit confirmation in the same form", async () => {
+    apiMock.createTemporaryPasswordUser
+      .mockRejectedValueOnce(new ApiError("The request could not be completed", 409, { code: "pending_invitation", email: ["An email invitation is pending."] }))
+      .mockResolvedValueOnce({ user: { ...userFixture, role: "Admin", passwordChangeRequired: true }, rev: 2, temporaryPassword: "fixture-converted-password", temporaryPasswordExpiresAt: "2026-10-20T10:00:00Z", signInUrl: "https://staging.vesselcalls.com/login" });
+    const view = renderManagement();
+    const invalidate = vi.spyOn(view.client, "invalidateQueries");
+    await userEvent.click(screen.getByRole("button", { name: "Add user" }));
+    await userEvent.type(screen.getByLabelText(/Full name/), "Grace Finance");
+    await userEvent.type(screen.getByLabelText(/^Email\*?$/), "grace@example.com");
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "Admin");
+    await userEvent.click(screen.getByRole("button", { name: "Create user" }));
+    const replace = await screen.findByRole("checkbox", { name: "Replace pending invitation" });
+    expect(replace).not.toBeChecked();
+    expect(screen.getByText(/old email invitation will stop working/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Full name/)).toHaveValue("Grace Finance");
+    expect(screen.getByLabelText("Role")).toHaveValue("Admin");
+    expect(screen.getByRole("button", { name: "Create user" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("form", { name: "New user details" }));
+    expect(apiMock.createTemporaryPasswordUser).toHaveBeenCalledTimes(1);
+    expect(apiMock.createTemporaryPasswordUser).toHaveBeenNthCalledWith(1, { name: "Grace Finance", email: "grace@example.com", role: "Admin" });
+    await userEvent.click(replace);
+    await userEvent.click(screen.getByRole("button", { name: "Create user" }));
+    expect(await screen.findByRole("dialog", { name: "User ready to sign in" })).toBeInTheDocument();
+    expect(apiMock.createTemporaryPasswordUser).toHaveBeenNthCalledWith(2, { name: "Grace Finance", email: "grace@example.com", role: "Admin", replacePendingInvitation: true });
+    expect(screen.getByLabelText("Temporary password")).toHaveValue("fixture-converted-password");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["invitations"] });
+    expect(apiMock.inviteUser).not.toHaveBeenCalled();
+  });
+
+  it.each(["email", "sign-in method"])("clears pending-invitation consent when the %s changes", async (changedField) => {
+    apiMock.createTemporaryPasswordUser.mockRejectedValueOnce(new ApiError("The request could not be completed", 409, { code: "pending_invitation" }));
+    renderManagement();
+    await userEvent.click(screen.getByRole("button", { name: "Add user" }));
+    await userEvent.type(screen.getByLabelText(/Full name/), "Grace Finance");
+    await userEvent.type(screen.getByLabelText(/^Email\*?$/), "grace@example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Create user" }));
+    await userEvent.click(await screen.findByRole("checkbox", { name: "Replace pending invitation" }));
+    if (changedField === "email") {
+      await userEvent.clear(screen.getByLabelText(/^Email\*?$/));
+      await userEvent.type(screen.getByLabelText(/^Email\*?$/), "new@example.com");
+    } else {
+      await userEvent.click(screen.getByRole("radio", { name: /Email invitation/ }));
+      await userEvent.click(screen.getByRole("radio", { name: /Temporary password/ }));
+    }
+    expect(screen.queryByRole("checkbox", { name: "Replace pending invitation" })).not.toBeInTheDocument();
+    apiMock.createTemporaryPasswordUser.mockRejectedValueOnce(new ApiError("Could not create user", 400));
+    await userEvent.click(screen.getByRole("button", { name: "Create user" }));
+    expect(apiMock.createTemporaryPasswordUser).toHaveBeenLastCalledWith({ name: "Grace Finance", email: changedField === "email" ? "new@example.com" : "grace@example.com", role: "Operations" });
+  });
+
+  it.each([400, 409])("never offers invitation replacement for a generic %i account conflict", async (status) => {
+    apiMock.createTemporaryPasswordUser.mockRejectedValue(new ApiError("A user or pending request already exists", status));
+    renderManagement();
+    await userEvent.click(screen.getByRole("button", { name: "Add user" }));
+    await userEvent.type(screen.getByLabelText(/Full name/), "Grace Finance");
+    await userEvent.type(screen.getByLabelText(/^Email\*?$/), "grace@example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Create user" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("A user or pending request already exists");
+    expect(screen.queryByRole("checkbox", { name: "Replace pending invitation" })).not.toBeInTheDocument();
+    expect(apiMock.createTemporaryPasswordUser).toHaveBeenCalledExactlyOnceWith({ name: "Grace Finance", email: "grace@example.com", role: "Operations" });
+  });
+
+  it("retains the visible password for manual copying if clipboard access fails", async () => {
+    const user = userEvent.setup();
+    apiMock.createTemporaryPasswordUser.mockResolvedValue({ user: userFixture, rev: 2, temporaryPassword: "fixture-copy-password", temporaryPasswordExpiresAt: "2026-10-20T10:00:00Z", signInUrl: "https://staging.vesselcalls.com/login" });
+    renderManagement();
+    await userEvent.click(screen.getByRole("button", { name: "Add user" }));
+    await userEvent.type(screen.getByLabelText(/Full name/), "Grace Finance");
+    await userEvent.type(screen.getByLabelText(/^Email\*?$/), "grace@example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Create user" }));
+    await screen.findByRole("dialog", { name: "User ready to sign in" });
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValueOnce(new Error("Clipboard unavailable"));
+    await user.click(screen.getByRole("button", { name: "Copy password" }));
+    expect(await screen.findByText("Could not copy automatically. Select and copy the sign-in fields above.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Temporary password")).toHaveValue("fixture-copy-password");
+    expect(screen.getByLabelText("Temporary password")).toHaveAttribute("type", "text");
+    expect(screen.getAllByRole("status").every((element) => !element.textContent?.includes("fixture-copy-password"))).toBe(true);
   });
 
   it("regenerates only a pending temporary account and clears the replacement when closed", async () => {

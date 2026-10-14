@@ -32,6 +32,7 @@ from .permissions import HasVesselPermission, role_definitions
 from .serializers import (
     InvitationAcceptSerializer,
     InvitationCreateSerializer,
+    TemporaryPasswordCreateSerializer,
     UserPatchSerializer,
     audit_data,
     invitation_data,
@@ -95,7 +96,7 @@ class TemporaryPasswordUserView(APIView):
 
     @transaction.atomic
     def post(self, request):
-        serializer = InvitationCreateSerializer(data=request.data)
+        serializer = TemporaryPasswordCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user, temporary_password = provision_temporary_user(
             actor=request.user,

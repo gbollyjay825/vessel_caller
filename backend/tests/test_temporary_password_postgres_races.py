@@ -13,6 +13,12 @@ from audit.models import AuditEvent
 from organizations.models import Organization
 
 from .conftest import authenticated
+from .test_temporary_password_invitation_conversion import (
+    EMAIL,
+    accept_invitation,
+    create_member,
+    invitation_for,
+)
 from .test_temporary_passwords import NEW_PASSWORD, challenge, complete, provision
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -87,6 +93,76 @@ def test_duplicate_creation_is_single_user_and_single_audit(admin, cross_tenant)
             action="user.admin_provisioned", target_label="concurrent@example.test"
         ).count()
         == 1
+    )
+
+
+def test_pending_invitation_replacement_and_acceptance_have_one_identity_winner(admin):
+    invitation = invitation_for(admin)
+    outcomes = parallel_calls(
+        lambda: create_member(
+            User.objects.get(pk=admin.pk), replacePendingInvitation=True
+        ).status_code,
+        lambda: accept_invitation().status_code,
+    )
+    assert sorted(outcomes.values()) == [201, 400], outcomes
+    member = User.objects.get(email=EMAIL)
+    invitation.refresh_from_db()
+    if outcomes["first"] == 201:
+        assert invitation.status == "revoked" and invitation.revoked_at
+        assert member.role == "Viewer" and member.password_change_required
+        assert member.admin_provisioned_by_id == admin.id and member.email_verified_at is None
+        assert not member.is_active
+    else:
+        assert invitation.status == "accepted" and invitation.revoked_at is None
+        assert member.role == "Operations" and not member.password_change_required
+        assert member.admin_provisioned_at is None and member.email_verified_at
+        assert member.check_password(NEW_PASSWORD)
+    assert User.objects.filter(email=EMAIL).count() == 1
+    assert not UserSession.objects.filter(user=member).exists()
+
+
+def test_pending_invitation_replacement_cannot_be_resurrected_by_concurrent_resend(admin):
+    invitation = invitation_for(admin)
+
+    def resend():
+        return (
+            authenticated(User.objects.get(pk=admin.pk))
+            .post(f"/api/invitations/{invitation.pk}/resend", {}, format="json")
+            .status_code
+        )
+
+    outcomes = parallel_calls(
+        lambda: create_member(
+            User.objects.get(pk=admin.pk), replacePendingInvitation=True
+        ).status_code,
+        resend,
+    )
+    assert outcomes["first"] == 201 and outcomes["second"] in {200, 404}, outcomes
+    invitation.refresh_from_db()
+    assert invitation.status == "revoked" and invitation.revoked_at
+    assert User.objects.filter(email=EMAIL, password_change_required=True).count() == 1
+    assert accept_invitation().status_code == 400
+    assert resend() == 404
+
+
+def test_duplicate_pending_invitation_replacement_only_creates_one_password_user(admin):
+    invitation = invitation_for(admin)
+
+    def convert():
+        return create_member(
+            User.objects.get(pk=admin.pk), replacePendingInvitation=True
+        ).status_code
+
+    outcomes = parallel_calls(convert, convert)
+    assert sorted(outcomes.values()) == [201, 400], outcomes
+    invitation.refresh_from_db()
+    assert invitation.status == "revoked" and invitation.revoked_at
+    assert User.objects.filter(email=EMAIL).count() == 1
+    assert (
+        AuditEvent.objects.filter(action="invitation.revoked", target_id=invitation.pk).count() == 1
+    )
+    assert (
+        AuditEvent.objects.filter(action="user.admin_provisioned", target_label=EMAIL).count() == 1
     )
 
 

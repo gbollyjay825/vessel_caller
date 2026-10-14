@@ -567,19 +567,19 @@ function UserDrawer({ member, onClose }: { member: User; onClose: () => void }) 
 function TemporaryUserCredentials({ result }: { result: TemporaryPasswordUserResult }) {
   const formId = useId();
   const mounted = useRef(true);
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(true);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
-  const copy = async () => {
+  const copy = async (passwordOnly = false) => {
     const details = `NPA Vessel Caller\nName: ${result.user.name}\nEmail: ${result.user.email}\nRole: ${result.user.role}\nSign in: ${result.signInUrl}\nTemporary password: ${result.temporaryPassword}\nExpires: ${fmtDateTime(result.temporaryPasswordExpiresAt)}\nYou must choose your own password on first sign-in.`;
     try {
-      await navigator.clipboard.writeText(details);
-      if (mounted.current) setCopyNotice("Sign-in details copied. Share them directly with this user.");
+      await navigator.clipboard.writeText(passwordOnly ? result.temporaryPassword : details);
+      if (mounted.current) setCopyNotice(passwordOnly ? "Temporary password copied. Share it directly with this user." : "Sign-in details copied. Share them directly with this user.");
     } catch {
-      if (mounted.current) setCopyNotice("Could not copy automatically. Use Show password, then select and copy the sign-in fields.");
+      if (mounted.current) setCopyNotice(showPassword ? "Could not copy automatically. Select and copy the sign-in fields above." : "Could not copy automatically. Use Show password, then select and copy the sign-in fields.");
     }
   };
   return (<div className="temporary-user-result">
@@ -592,6 +592,7 @@ function TemporaryUserCredentials({ result }: { result: TemporaryPasswordUserRes
           </div>
           <div className="hint" id={`${formId}-credential-hint`}>Expires {fmtDateTime(result.temporaryPasswordExpiresAt)}. The user must replace it on first sign-in.</div>
         </div>
+        <button className="btn btn-secondary" type="button" onClick={() => void copy(true)}><Icon name="clipboard" size={16} /> Copy password</button>
         <button className="btn btn-primary" type="button" onClick={() => void copy()}><Icon name="clipboard" size={16} /> Copy sign-in details</button>
         {copyNotice && <p className="temporary-copy-notice" role="status">{copyNotice}</p>}
       </div>);
@@ -609,6 +610,8 @@ function AddUserDrawer({ onClose, onCreated, onUserCreated, onReviewUsers }: { o
   const [role, setRole] = useState<Role>("Operations");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [pendingInvitationEmail, setPendingInvitationEmail] = useState<string | null>(null);
+  const [replacePendingInvitation, setReplacePendingInvitation] = useState(false);
   // A one-time credential must never enter the React Query mutation cache.
   const [result, setResult] = useState<TemporaryPasswordUserResult | null>(null);
   useEffect(() => {
@@ -628,6 +631,11 @@ function AddUserDrawer({ onClose, onCreated, onUserCreated, onReviewUsers }: { o
       .find((member) => member.email.toLowerCase() === normalizedEmail);
   };
   const existingMember = findExistingMember();
+  const pendingInvitation = method === "temporary" && pendingInvitationEmail === email.trim().toLowerCase();
+  const clearInvitationReplacement = () => {
+    setPendingInvitationEmail(null);
+    setReplacePendingInvitation(false);
+  };
   const mutation = useMutation({
     mutationFn: (payload: { name: string; email: string; role: Role }) => api.inviteUser(payload),
     onSuccess: () => {
@@ -644,26 +652,35 @@ function AddUserDrawer({ onClose, onCreated, onUserCreated, onReviewUsers }: { o
       onClose={close} guard={() => pending || submitInFlight.current}
       footer={result ? <button className="btn btn-primary" type="button" onClick={close}>Done</button> : <>
         <button className="btn btn-secondary" type="button" disabled={pending} onClick={close}>Cancel</button>
-        <button className="btn btn-primary" type="submit" form={formId} disabled={pending || !name.trim() || !email.trim() || Boolean(existingMember)}>
+        <button className="btn btn-primary" type="submit" form={formId} disabled={pending || !name.trim() || !email.trim() || Boolean(existingMember) || (pendingInvitation && !replacePendingInvitation)}>
           {pending ? method === "temporary" ? "Creating user…" : "Creating invitation…" : method === "temporary" ? "Create user" : "Send invitation"}
         </button>
       </>}>
       {result ? <TemporaryUserCredentials result={result} /> : <form id={formId} className="user-invitation-form" aria-label="New user details" onSubmit={async (event) => {
         event.preventDefault();
-        if (!can("users.manage") || pending || submitInFlight.current || !event.currentTarget.checkValidity() || !name.trim() || findExistingMember()) return;
+        if (!can("users.manage") || pending || submitInFlight.current || !event.currentTarget.checkValidity() || !name.trim() || findExistingMember() || (pendingInvitation && !replacePendingInvitation)) return;
         const payload = { name: name.trim(), email: email.trim().toLowerCase(), role };
         submitInFlight.current = true;
         setCreateError(null);
         if (method === "email") { mutation.mutate(payload); return; }
         setCreating(true);
         try {
-          const created = await api.createTemporaryPasswordUser(payload);
+          const created = await api.createTemporaryPasswordUser({ ...payload, ...(pendingInvitation && replacePendingInvitation ? { replacePendingInvitation: true } : {}) });
           if (!mounted.current) return;
           setResult(created);
           void queryClient.invalidateQueries({ queryKey: ["users"] });
+          if (pendingInvitation && replacePendingInvitation) void queryClient.invalidateQueries({ queryKey: ["invitations"] });
           onUserCreated();
         } catch (error) {
-          if (mounted.current) setCreateError(errorMessage(error, "Could not create the user. Please try again."));
+          if (mounted.current) {
+            if (error instanceof ApiError && error.status === 409 && error.errors?.code === "pending_invitation") {
+              setPendingInvitationEmail(payload.email);
+              setReplacePendingInvitation(false);
+            } else {
+              clearInvitationReplacement();
+              setCreateError(errorMessage(error, "Could not create the user. Please try again."));
+            }
+          }
         } finally {
           submitInFlight.current = false;
           if (mounted.current) setCreating(false);
@@ -671,17 +688,23 @@ function AddUserDrawer({ onClose, onCreated, onUserCreated, onReviewUsers }: { o
       }}>
         <p className="user-invitation-scope">Access to <strong>{org?.name || "your organization"}</strong>. This role applies across the organization.</p>
         <fieldset className="user-first-signin"><legend>First sign-in</legend>
-          <label><input type="radio" name={`${formId}-method`} checked={method === "temporary"} onChange={() => { setMethod("temporary"); setCreateError(null); mutation.reset(); }} disabled={pending} /><span><strong>Temporary password</strong><small>Create the user now and share their sign-in details yourself.</small></span></label>
-          <label><input type="radio" name={`${formId}-method`} checked={method === "email"} onChange={() => { setMethod("email"); setCreateError(null); mutation.reset(); }} disabled={pending} /><span><strong>Email invitation</strong><small>Send a link so the user can choose their own password.</small></span></label>
+          <label><input type="radio" name={`${formId}-method`} checked={method === "temporary"} onChange={() => { setMethod("temporary"); setCreateError(null); clearInvitationReplacement(); mutation.reset(); }} disabled={pending} /><span><strong>Temporary password</strong><small>Create the user now and share their sign-in details yourself.</small></span></label>
+          <label><input type="radio" name={`${formId}-method`} checked={method === "email"} onChange={() => { setMethod("email"); setCreateError(null); clearInvitationReplacement(); mutation.reset(); }} disabled={pending} /><span><strong>Email invitation</strong><small>Send a link so the user can choose their own password.</small></span></label>
         </fieldset>
         {(createError || mutation.isError) && <div className="auth-error" role="alert">{createError || errorMessage(mutation.error, "Could not create the invitation. Please try again.")}</div>}
         <Field label="Full name" required><input type="text" value={name} onChange={(event) => setName(event.target.value)} required disabled={pending} autoComplete="name" /></Field>
         <Field label="Email" required hint={method === "temporary" ? "Used to sign in. You will share the temporary password directly; no email is sent." : "The recipient chooses their own password after opening the secure link."} error={existingMember ? "This email already belongs to a user in your organization. Review their existing access." : undefined}>
-          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={pending} autoComplete="email" />
+          <input type="email" value={email} onChange={(event) => { setEmail(event.target.value); clearInvitationReplacement(); setCreateError(null); }} required disabled={pending} autoComplete="email" />
         </Field>
         {existingMember && <button className="link-btn" type="button" onClick={onReviewUsers}>Review existing users</button>}
+        {pendingInvitation && <div className="pending-invitation-replacement" role="group" aria-labelledby={`${formId}-replacement-title`}>
+          <p id={`${formId}-replacement-title`} role="status"><strong>An email invitation is already pending for this address.</strong></p>
+          <p className="user-management-tab-copy" id={`${formId}-replacement-hint`}>Replace it to create this user with the role selected below. The old email invitation will stop working; the user will sign in with the temporary password instead.</p>
+          <label className="organization-admin-confirm"><input type="checkbox" checked={replacePendingInvitation} disabled={pending} aria-describedby={`${formId}-replacement-hint`} onChange={(event) => setReplacePendingInvitation(event.target.checked)} /><span>Replace pending invitation</span></label>
+        </div>}
         <Field label="Role" hint={ROLE_HELP[role]}><select value={role} onChange={(event) => setRole(event.target.value as Role)} disabled={pending}>{ROLES.map((option) => <option key={option}>{option}</option>)}</select></Field>
-        {method === "temporary" && <p className="user-management-tab-copy">A strong password is generated for this new account. It expires in seven days and must be changed before workspace access.</p>}
+        {method === "temporary" && <Field label="Temporary password" hint="Generated automatically after you create the user. You do not need to enter a password."><input type="text" value="" readOnly placeholder="Generated when you create this user" autoComplete="off" data-1p-ignore="true" /></Field>}
+        {method === "temporary" && <p className="user-management-tab-copy">You will see and can copy the generated password after creating this user. It expires in seven days and must be changed before workspace access.</p>}
       </form>}
     </Drawer>
   );

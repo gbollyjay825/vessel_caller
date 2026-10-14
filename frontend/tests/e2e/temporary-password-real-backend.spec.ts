@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 // Generated credentials must never be retained in browser traces/screenshots.
 test.use({ trace: "off", screenshot: "off" });
 
-test("an Admin creates a user who must replace the temporary password before role access", async ({
+test("an Admin replaces a pending invitation with a temporary-password user before role access", async ({
   page, context, browser, baseURL,
 }, testInfo) => {
   const databaseName = process.env.VC_DATABASE_URL
@@ -30,17 +30,36 @@ test("an Admin creates a user who must replace the temporary password before rol
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL(/\/app\/dashboard$/);
     await page.goto("/app/users");
+    const adminCsrf = await (await context.request.get("/api/auth/csrf")).json();
+    const invited = await context.request.post("/api/invitations", {
+      headers: { "X-CSRFToken": adminCsrf.csrfToken, Referer: new URL("/app/users", baseURL).href },
+      data: { name, email, role: "Operations" },
+    });
+    expect(invited.status()).toBe(201);
+    const invitationId: string = (await invited.json()).invitation.id;
     await page.getByRole("button", { name: "Add user", exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "Add user", exact: true });
     await expect(drawer.getByRole("radio", { name: /Temporary password/ })).toBeChecked();
+    await expect(drawer.getByLabel("Temporary password", { exact: true })).toHaveValue("");
+    await expect(drawer.getByLabel("Temporary password", { exact: true })).toHaveAttribute("readonly", "");
     await drawer.getByRole("textbox", { name: "Full name", exact: true }).fill(name);
     await drawer.getByRole("textbox", { name: "Email", exact: true }).fill(email);
     await drawer.getByLabel("Role", { exact: true }).selectOption("Viewer");
+    const conflictResponse = page.waitForResponse((response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname === "/api/users/temporary-password");
+    await drawer.getByRole("button", { name: "Create user", exact: true }).click();
+    const conflict = await conflictResponse;
+    expect(conflict.status()).toBe(409);
+    expect((await conflict.json()).errors.code).toBe("pending_invitation");
+    await expect(drawer.getByRole("checkbox", { name: "Replace pending invitation", exact: true })).not.toBeChecked();
+    await expect(drawer.getByRole("button", { name: "Create user", exact: true })).toBeDisabled();
+    await drawer.getByRole("checkbox", { name: "Replace pending invitation", exact: true }).check();
     const creationResponse = page.waitForResponse((response) => response.request().method() === "POST"
       && new URL(response.url()).pathname === "/api/users/temporary-password");
     await drawer.getByRole("button", { name: "Create user", exact: true }).click();
     const created = await creationResponse;
     expect(created.status()).toBe(201);
+    expect(created.request().postDataJSON().replacePendingInvitation).toBe(true);
     expect(created.headers()["cache-control"]).toContain("no-store");
     const result = await created.json();
     createdUserId = result.user.id;
@@ -51,7 +70,11 @@ test("an Admin creates a user who must replace the temporary password before rol
     expect(result.user.adminProvisioned).toBe(true);
     expect(result.user.role).toBe("Viewer");
     const credentials = page.getByRole("dialog", { name: "User ready to sign in", exact: true });
-    await expect(credentials.getByLabel("Temporary password", { exact: true })).toHaveAttribute("type", "password");
+    await expect(credentials.getByLabel("Temporary password", { exact: true })).toHaveAttribute("type", "text");
+    expect(await credentials.getByLabel("Temporary password", { exact: true }).inputValue() === temporaryPassword).toBe(true);
+    await expect(credentials.getByRole("button", { name: "Copy password", exact: true })).toBeVisible();
+    const invitations = await (await context.request.get(`/api/invitations?search=${encodeURIComponent(email)}`)).json();
+    expect(invitations.results.find((item: { id: string }) => item.id === invitationId)?.status).toBe("revoked");
     await expect(credentials.getByText("No email is sent.", { exact: false })).toBeVisible();
     await credentials.getByRole("button", { name: "Done", exact: true }).click();
     await expect(page.getByLabel("Temporary password", { exact: true })).toHaveCount(0);

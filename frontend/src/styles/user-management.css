@@ -40,5 +40,9 @@
 .temporary-password-control { display: flex; gap: 8px; align-items: stretch; }
 .temporary-password-control input { min-width: 0; flex: 1; font-family: var(--mono, monospace); }
 .temporary-password-control button { white-space: nowrap; }
+.temporary-user-result > .btn { display: flex; width: 100%; justify-content: center; margin-top: 10px; }
+.pending-invitation-replacement { padding: 16px; margin: 0 0 20px; border: 1px solid var(--brand-accent-border); border-radius: 8px; background: var(--brand-accent-faint); }
+.pending-invitation-replacement > p:first-child { margin: 0 0 10px; color: var(--ink); font-size: 13px; line-height: 1.6; }
+.pending-invitation-replacement .organization-admin-confirm { margin-bottom: 0; padding: 0; border: 0; background: transparent; }
 .temporary-copy-notice { color: var(--brand-accent); font-size: 13px; line-height: 1.6; }
 @media (max-width: 480px) { .temporary-password-control { flex-direction: column; } .temporary-password-control button { align-self: flex-start; } }

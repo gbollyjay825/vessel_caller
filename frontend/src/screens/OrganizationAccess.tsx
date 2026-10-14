@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "../auth/AuthContext";
@@ -26,10 +26,10 @@ function linkIsActive(link: OrganizationSignupLink) {
 }
 
 export function OrganizationAccess() {
-  const { can, org } = useAuth();
+  const { can, org, user } = useAuth();
   if (!can("users.manage")) return <EmptyState icon="users" title="Admin access required" body="An Admin can create sign-up links and approve requests to join this organization." />;
   return <div className="organization-access">
-    <SignupLinkPanel organizationId={org?.id || ""} />
+    <SignupLinkPanel key={`${user?.id || ""}:${org?.id || ""}`} organizationId={org?.id || ""} />
     <JoinRequestsPanel organizationId={org?.id || ""} />
   </div>;
 }
@@ -43,27 +43,32 @@ function SignupLinkPanel({ organizationId }: { organizationId: string }) {
   const [intent, setIntent] = useState<"replace" | "revoke" | null>(null);
   const [generated, setGenerated] = useState<{ url: string; id: string; expiresAt: string } | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [pending, setPending] = useState(false);
+  const [operationError, setOperationError] = useState<unknown>(null);
   const inFlight = useRef(false);
-  const mutation = useMutation({
-    mutationFn: async (action: "create" | "revoke") => {
-      if (action === "revoke") {
-        if (activeLink) await organizationJoinApi.revokeLink(activeLink.id);
-        return null;
-      }
-      return organizationJoinApi.createLink(days);
-    },
-    onSuccess: (result) => {
+  const generation = useRef(0);
+  useEffect(() => () => { generation.current += 1; }, []);
+  const perform = async (action: "create" | "revoke") => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const current = generation.current;
+    setPending(true);
+    setOperationError(null);
+    try {
+      // The bearer URL belongs only in this component's short-lived state,
+      // never in React Query's mutation cache or browser persistence.
+      const result = action === "create" ? await organizationJoinApi.createLink(days) : null;
+      if (action === "revoke" && activeLink) await organizationJoinApi.revokeLink(activeLink.id);
+      if (current !== generation.current) return;
       setIntent(null);
       setCopyState("idle");
       setGenerated(result ? { url: result.signupUrl, id: result.link.id, expiresAt: result.link.expiresAt } : null);
       void queryClient.invalidateQueries({ queryKey });
-    },
-  });
-  const perform = async (action: "create" | "revoke") => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    try { await mutation.mutateAsync(action); } catch { /* The mutation error is shown below. */ }
-    finally { inFlight.current = false; }
+    } catch (error) {
+      if (current === generation.current) setOperationError(error);
+    } finally {
+      if (current === generation.current) { inFlight.current = false; setPending(false); }
+    }
   };
   const copy = async () => {
     if (!generated) return;
@@ -75,12 +80,11 @@ function SignupLinkPanel({ organizationId }: { organizationId: string }) {
     <div className="organization-access-heading"><div><h2 id="organization-signup-title">Share a sign-up link</h2><p>People can request to join your organization. You approve each verified request and choose their role.</p></div><span className="organization-access-policy">Admin approval required</span></div>
     {links.isPending ? <p role="status">Loading sign-up link…</p> : links.isError ? <div className="auth-error" role="alert">Could not load the sign-up link. <button type="button" className="link-btn" onClick={() => void links.refetch()}>Try again</button></div> : <>
       {activeLink ? <div className="organization-active-link"><Icon name="external" size={18} /><div><strong>Sign-up link active</strong><p>Expires {fmtDateTime(activeLink.expiresAt)}</p></div></div> : <p className="organization-access-empty">No active sign-up link. Create one to share with colleagues.</p>}
-      {visibleGenerated && <div className="organization-generated-link"><label htmlFor="organization-signup-url">Shareable sign-up link</label><div className="organization-copy-row"><input id="organization-signup-url" type="text" readOnly value={visibleGenerated.url} onFocus={(event) => event.target.select()} /><button className="btn btn-primary" type="button" onClick={() => void copy()}><Icon name="clipboard" size={15} />{copyState === "copied" ? "Copied" : "Copy link"}</button></div><p>Copy this link now. For security, it is only displayed when created.</p>{copyState === "copied" && <span role="status">Link copied.</span>}{copyState === "failed" && <span role="alert">Could not copy the link. Select the link above and copy it manually.</span>}</div>}
-      {activeLink && !visibleGenerated && <p className="organization-access-hint">The existing link is hidden for security. Create a replacement if you need a new copy.</p>}
-      <div className="organization-link-controls"><label>Link valid for<select value={days} disabled={mutation.isPending} onChange={(event) => setDays(Number(event.target.value))}>{[1, 7, 14, 30].map((value) => <option key={value} value={value}>{value} {value === 1 ? "day" : "days"}</option>)}</select></label><button type="button" className="btn btn-secondary" disabled={mutation.isPending} onClick={() => activeLink ? setIntent("replace") : void perform("create")}>{mutation.isPending && intent !== "revoke" ? "Creating…" : activeLink ? "Create replacement link" : "Create sign-up link"}</button>{activeLink && <button className="link-btn danger" type="button" disabled={mutation.isPending} onClick={() => setIntent("revoke")}>Revoke link</button>}</div>
-      {intent && <div className="organization-link-confirm" role="alertdialog" aria-label={intent === "replace" ? "Replace sign-up link?" : "Revoke sign-up link?"}><strong>{intent === "replace" ? "Replace the active sign-up link?" : "Revoke the active sign-up link?"}</strong><p>The old link will stop accepting new requests. Verified requests remain available for review. People who have not verified their email will need the new link.</p><div className="organization-access-actions"><button type="button" className="btn btn-secondary btn-sm" disabled={mutation.isPending} onClick={() => setIntent(null)}>Cancel</button><button type="button" className={`btn btn-sm ${intent === "revoke" ? "btn-danger" : "btn-primary"}`} disabled={mutation.isPending} onClick={() => void perform(intent === "revoke" ? "revoke" : "create")}>{mutation.isPending ? "Saving…" : intent === "revoke" ? "Confirm revoke" : "Replace link"}</button></div></div>}
+      <div className="organization-generated-link"><label htmlFor="organization-signup-url">Shareable sign-up link</label><div className="organization-copy-row"><input id="organization-signup-url" type="text" readOnly value={visibleGenerated?.url || ""} placeholder={activeLink ? "Create a replacement link to get a copy" : "Your generated link will appear here"} onFocus={(event) => event.target.select()} aria-describedby="organization-signup-link-help" /><button className="btn btn-primary" type="button" disabled={!visibleGenerated || pending} onClick={() => void copy()}><Icon name="clipboard" size={15} />{copyState === "copied" ? "Copied" : "Copy link"}</button></div><p id="organization-signup-link-help">{visibleGenerated ? "Copy and save this link before leaving this page. It cannot be retrieved later." : activeLink ? "The previous link cannot be retrieved. Create a replacement to copy and share; the previous link will stop working." : "Create a link below, then copy it from this field and send it to your colleagues."}</p>{visibleGenerated && copyState === "copied" && <span role="status">Link copied.</span>}{visibleGenerated && copyState === "failed" && <span role="alert">Could not copy the link. Select the link above and copy it manually.</span>}</div>
+      <div className="organization-link-controls"><label>Link valid for<select value={days} disabled={pending} onChange={(event) => setDays(Number(event.target.value))}>{[1, 7, 14, 30].map((value) => <option key={value} value={value}>{value} {value === 1 ? "day" : "days"}</option>)}</select></label><button type="button" className={`btn ${visibleGenerated ? "btn-secondary" : "btn-primary"}`} disabled={pending} onClick={() => activeLink ? setIntent("replace") : void perform("create")}>{pending && intent !== "revoke" ? "Creating…" : activeLink ? "Create replacement link" : "Create sign-up link"}</button>{activeLink && <button className="link-btn danger" type="button" disabled={pending} onClick={() => setIntent("revoke")}>Revoke link</button>}</div>
+      {intent && <div className="organization-link-confirm" role="alertdialog" aria-label={intent === "replace" ? "Replace sign-up link?" : "Revoke sign-up link?"}><strong>{intent === "replace" ? "Replace the active sign-up link?" : "Revoke the active sign-up link?"}</strong><p>The old link will stop accepting new requests. Verified requests remain available for review. People who have not verified their email will need the new link.</p><div className="organization-access-actions"><button type="button" className="btn btn-secondary btn-sm" disabled={pending} onClick={() => setIntent(null)}>Cancel</button><button type="button" className={`btn btn-sm ${intent === "revoke" ? "btn-danger" : "btn-primary"}`} disabled={pending} onClick={() => void perform(intent === "revoke" ? "revoke" : "create")}>{pending ? "Saving…" : intent === "revoke" ? "Confirm revoke" : "Replace link"}</button></div></div>}
     </>}
-    {mutation.isError && <div className="auth-error" role="alert">{errorMessage(mutation.error, "Could not update the sign-up link. Please try again.")}</div>}
+    {operationError != null && <div className="auth-error" role="alert">{errorMessage(operationError, "Could not update the sign-up link. Please try again.")}</div>}
   </section>;
 }
 

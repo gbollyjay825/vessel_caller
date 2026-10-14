@@ -401,6 +401,12 @@ class InvitationCreateSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=User.Role.values)
 
 
+class TemporaryPasswordCreateSerializer(InvitationCreateSerializer):
+    replacePendingInvitation = serializers.BooleanField(
+        source="replace_pending_invitation", default=False
+    )
+
+
 class TemporaryPasswordCompleteSerializer(serializers.Serializer):
     token = serializers.CharField(max_length=256, trim_whitespace=False)
     password = PasswordField(max_length=128)

@@ -105,6 +105,7 @@ def test_replacement_revokes_old_link_and_returns_selected_role_credentials_once
     assert member.password_change_required and not member.is_active
     assert member.email_verified_at is None and member.mfa_grace_ends_at is None
     assert not member.is_staff and not member.is_superuser
+    assert member.temporary_password_expires_at is not None
     assert member.temporary_password_expires_at > timezone.now() + timedelta(days=6, hours=23)
     assert response["Cache-Control"] == "no-store" and response["Pragma"] == "no-cache"
     assert response.data["signInUrl"].endswith("/login")

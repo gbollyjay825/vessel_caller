@@ -13,6 +13,10 @@ case "${lifecycle}" in
     migration_app=accounts
     migration_name=0007_user_admin_provisioned_at_user_admin_provisioned_by_and_more
     ;;
+  organization-identity)
+    migration_app=accounts
+    migration_name=0008_organization_scoped_email
+    ;;
   *)
     echo "Unsupported staging lifecycle-state query." >&2
     exit 2

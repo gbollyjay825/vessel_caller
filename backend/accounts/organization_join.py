@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.conf import settings
+from .account_scopes import account_email_unavailable, organization_sign_in_url
 from django.contrib.auth.hashers import make_password
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -113,9 +114,9 @@ def submit_join_request(*, raw: str, name: str, email: str, request=None):
     organization, link = _locked_link(raw)
     email = email.strip().lower()
     now = timezone.now()
-    # Existing accounts cannot be transferred between organizations through a
-    # public request. Return the same public response as a first submission.
-    if User.objects.filter(email__iexact=email).exists():
+    # Accounts already in this organization cannot be recreated. An account
+    # in another organization has independent credentials and is never changed.
+    if account_email_unavailable(organization, email):
         return None
     # A stale unverified request cannot reserve an address forever. Verified
     # pending requests are retained until their organization's Admin decides.
@@ -124,6 +125,7 @@ def submit_join_request(*, raw: str, name: str, email: str, request=None):
         | Q(signup_link__revoked_at__isnull=False)
         | Q(signup_link__expires_at__lte=now),
         email=email,
+        organization=organization,
         status=OrganizationJoinRequest.Status.UNVERIFIED,
     ).update(
         status=OrganizationJoinRequest.Status.EXPIRED,
@@ -132,6 +134,7 @@ def submit_join_request(*, raw: str, name: str, email: str, request=None):
     )
     if OrganizationJoinRequest.objects.filter(
         email=email,
+        organization=organization,
         status__in=[
             OrganizationJoinRequest.Status.UNVERIFIED,
             OrganizationJoinRequest.Status.PENDING,
@@ -152,8 +155,8 @@ def submit_join_request(*, raw: str, name: str, email: str, request=None):
                 verification_expires_at=min(link.expires_at, now + timedelta(hours=24)),
             )
     except IntegrityError:
-        # The partial unique email constraint resolves simultaneous submissions
-        # across organizations without revealing the existing request.
+        # The scoped partial unique constraint resolves simultaneous retries
+        # without reserving another organization's email address.
         return None
     queue_email(
         to_email=email,
@@ -259,7 +262,7 @@ def review_join_request(
         raise JoinFlowError("Choose a valid role")
     now = timezone.now()
     if approve:
-        if User.objects.filter(email__iexact=member_request.email).exists():
+        if account_email_unavailable(organization, member_request.email):
             raise JoinFlowError(
                 "An account already uses this email. Review existing users instead."
             )
@@ -291,7 +294,7 @@ def review_join_request(
             subject=f"Your access to {organization.name} is approved",
             template="security_notice",
             context={
-                "actionUrl": f"{settings.FRONTEND_URL.rstrip('/')}/login",
+                "actionUrl": organization_sign_in_url(organization),
                 "message": f"Your administrator approved access to {organization.name} as {role}. Sign in with the password you chose when verifying your email.",
             },
             idempotency_key=f"organization-join-approved:{member_request.id}",

@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import ActionToken, Invitation, MFAChallenge, User
+from accounts.account_scopes import organization_action_url
 from accounts.notifications import queue_security_notice
 from accounts.platform_access import (
     active_platform_grant,
@@ -615,7 +616,7 @@ class SystemOrganizationInvitationResendView(APIView):
             to_email=invitation.email,
             subject=f"Join {organization.name} on Vessel Caller",
             template="invitation",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+            context={"actionUrl": organization_action_url(organization, "/accept-invitation", raw)},
             idempotency_key=f"system-admin-invite-resend:{invitation.id}:{invitation.expires_at.isoformat()}",
             organization=organization,
         )
@@ -698,7 +699,7 @@ class SystemOrganizationUserPasswordResetView(APIView):
             to_email=member.email,
             subject="Reset your Vessel Caller password",
             template="reset_password",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/reset-password?token={raw}"},
+            context={"actionUrl": organization_action_url(organization, "/reset-password", raw)},
             idempotency_key=f"reset:{token_obj.id}",
             organization=organization,
         )

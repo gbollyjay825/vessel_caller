@@ -72,6 +72,23 @@ describe("session API client", () => {
     });
   });
 
+  it("sends organization scope for sign-in and recovery without placing credentials in URLs", async () => {
+    document.cookie = "csrftoken=csrf-cookie; path=/";
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ organizationSelectionRequired: true, organizations: [{ id: "org-one", name: "First Harbour" }, { id: "org-two", name: "Second Harbour" }] }, 202))
+      .mockResolvedValueOnce(jsonResponse({ mfaRequired: true, challengeId: "challenge-scoped" }, 202))
+      .mockResolvedValueOnce(jsonResponse({ detail: "Instructions queued" }, 202))
+      .mockResolvedValueOnce(jsonResponse({ detail: "Instructions queued" }, 202));
+    await expect(api.login("same@example.com", "fixture scoped password")).resolves.toMatchObject({ organizationSelectionRequired: true });
+    await expect(api.login("same@example.com", "fixture scoped password", "org-two")).resolves.toMatchObject({ mfaRequired: true });
+    await api.forgotPassword("same@example.com", "org-two");
+    await api.resendVerification("same@example.com", "org-two");
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/auth/login", "/api/auth/login", "/api/auth/forgot-password", "/api/auth/resend-verification"]);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ email: "same@example.com", password: "fixture scoped password" });
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ email: "same@example.com", password: "fixture scoped password", organizationId: "org-two" });
+    for (const call of fetchMock.mock.calls.slice(2)) expect(JSON.parse(String(call[1]?.body))).toEqual({ email: "same@example.com", organizationId: "org-two" });
+  });
+
   it("preserves registration approval lifecycle flags", async () => {
     document.cookie = "csrftoken=csrf-cookie; path=/";
     vi.spyOn(globalThis, "fetch")

@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from .managers import UserManager
@@ -59,7 +60,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         related_name="users",
     )
     name = models.CharField(max_length=255)
-    email = models.EmailField(unique=True)
+    email = models.EmailField()
     pending_email = models.EmailField(blank=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.VIEWER)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.INVITED)
@@ -91,6 +92,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     class Meta:
         ordering = ("created_at", "id")
         constraints = [
+            models.UniqueConstraint(
+                Lower("email"), "organization", name="accounts_user_org_email_ci_unique"
+            ),
             models.CheckConstraint(
                 condition=models.Q(role__in=["Admin", "Operations", "Finance", "Viewer"]),
                 name="accounts_user_valid_role",
@@ -247,9 +251,10 @@ class OrganizationJoinRequest(models.Model):
         ordering = ("-created_at", "id")
         constraints = [
             models.UniqueConstraint(
-                fields=("email",),
+                Lower("email"),
+                "organization",
                 condition=models.Q(status__in=["unverified", "pending"]),
-                name="accounts_one_open_join_request_email",
+                name="accounts_one_open_join_request_org_email",
             ),
             models.CheckConstraint(
                 condition=models.Q(

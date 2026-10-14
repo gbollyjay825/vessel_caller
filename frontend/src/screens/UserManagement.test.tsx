@@ -414,7 +414,7 @@ describe("UserManagement", () => {
   it("creates a user with a visible one-time password to copy without caching or sending an invitation", async () => {
     const user = userEvent.setup();
     const credential = "fixture-temporary-password-42";
-    apiMock.createTemporaryPasswordUser.mockResolvedValue({ user: { ...userFixture, passwordChangeRequired: true }, rev: 2, temporaryPassword: credential, temporaryPasswordExpiresAt: "2026-10-20T10:00:00Z", signInUrl: "https://staging.vesselcalls.com/login" });
+    apiMock.createTemporaryPasswordUser.mockResolvedValue({ user: { ...userFixture, passwordChangeRequired: true }, rev: 2, temporaryPassword: credential, temporaryPasswordExpiresAt: "2026-10-20T10:00:00Z", signInUrl: "https://staging.vesselcalls.com/login?organizationId=org-1" });
     const view = renderManagement();
     await userEvent.click(screen.getByRole("button", { name: "Add user" }));
     expect(screen.getByRole("radio", { name: /Temporary password/ })).toBeChecked();
@@ -429,7 +429,8 @@ describe("UserManagement", () => {
     expect(password).toHaveAttribute("type", "text");
     expect(password).toHaveAttribute("readonly");
     expect(password).toHaveValue(credential);
-    expect(screen.getByLabelText("Sign-in page")).toHaveValue("https://staging.vesselcalls.com/login");
+    expect(screen.getByLabelText("Sign-in page")).toHaveValue("https://staging.vesselcalls.com/login?organizationId=org-1");
+    expect(within(screen.getByRole("dialog", { name: "User ready to sign in" })).getByText("NPA Test Organization")).toBeInTheDocument();
     expect(JSON.stringify(view.client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(credential);
     expect(JSON.stringify(view.client.getMutationCache().getAll().map((mutation) => mutation.state.data))).not.toContain(credential);
     expect(window.location.href).not.toContain(credential);
@@ -444,7 +445,8 @@ describe("UserManagement", () => {
     expect(screen.getAllByRole("status").every((element) => !element.textContent?.includes(credential))).toBe(true);
     await user.click(screen.getByRole("button", { name: "Copy sign-in details" }));
     expect(clipboard).toHaveBeenLastCalledWith(expect.stringContaining(`Temporary password: ${credential}`));
-    expect(clipboard).toHaveBeenLastCalledWith(expect.stringContaining("Sign in: https://staging.vesselcalls.com/login"));
+    expect(clipboard).toHaveBeenLastCalledWith(expect.stringContaining("Sign in: https://staging.vesselcalls.com/login?organizationId=org-1"));
+    expect(clipboard).toHaveBeenLastCalledWith(expect.stringContaining("Organization: NPA Test Organization"));
     expect(screen.getByText("Sign-in details copied. Share them directly with this user.")).toBeInTheDocument();
     expect(screen.getAllByRole("status").every((element) => !element.textContent?.includes(credential))).toBe(true);
     await userEvent.click(screen.getByRole("button", { name: "Done" }));

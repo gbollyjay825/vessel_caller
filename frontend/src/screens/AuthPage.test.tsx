@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthSession } from "../types";
 import { AuthPage } from "./AuthPage";
+import { ApiError } from "../lib/api";
 
 const authMock = vi.hoisted(() => ({
   login: vi.fn(),
@@ -158,6 +159,80 @@ describe("AuthPage", () => {
     expect(window.location.href).not.toContain("limited-test-token");
     expect(JSON.stringify(window.history.state)).not.toContain("limited-test-token");
     expect(screen.getByLabelText("Password")).toHaveValue("");
+  });
+
+  it("uses the organization-specific sign-in link and keeps recovery in the same organization", async () => {
+    window.history.replaceState(null, "", "/login?organizationId=org-target");
+    authMock.login.mockResolvedValue({ mfaRequired: true, challengeId: "target-challenge" });
+    render(<AuthPage mode="login" />);
+    expect(screen.getByText("Sign in with the password shared for this organization.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Forgot your password?" })).toHaveAttribute("href", "/forgot-password?organizationId=org-target");
+    await userEvent.type(screen.getByLabelText("Email"), "same@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "target organization password");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(authMock.login).toHaveBeenCalledExactlyOnceWith("same@example.com", "target organization password", "org-target");
+    expect(await screen.findByLabelText("Verification code")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use a different account" })).toBeInTheDocument();
+  });
+
+  it("lets a password-proven user choose an organization before continuing through its normal MFA gate", async () => {
+    authMock.login.mockResolvedValueOnce({ organizationSelectionRequired: true, organizations: [{ id: "org-one", name: "First Harbour" }, { id: "org-two", name: "Second Harbour" }] })
+      .mockResolvedValueOnce({ mfaRequired: true, challengeId: "second-challenge" });
+    render(<AuthPage mode="login" />);
+    expect(screen.queryByText("First Harbour")).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Email"), "same@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "shared test password");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("heading", { name: "Choose your organization" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue to organization" })).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText("Organization"), "org-two");
+    await userEvent.click(screen.getByRole("button", { name: "Continue to organization" }));
+    expect(authMock.login).toHaveBeenNthCalledWith(2, "same@example.com", "shared test password", "org-two");
+    expect(await screen.findByLabelText("Verification code")).toBeInTheDocument();
+    expect(window.location.href).not.toContain("shared");
+    expect(JSON.stringify(window.history.state)).not.toContain("shared test password");
+    await userEvent.click(screen.getByRole("button", { name: "Use a different account" }));
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+  });
+
+  it("discards password and organization choices when the user chooses another account", async () => {
+    authMock.login.mockResolvedValue({ organizationSelectionRequired: true, organizations: [{ id: "org-one", name: "First Harbour" }, { id: "org-two", name: "Second Harbour" }] });
+    render(<AuthPage mode="login" />);
+    await userEvent.type(screen.getByLabelText("Email"), "same@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "shared test password");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Use a different account" }));
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.queryByLabelText("Organization")).not.toBeInTheDocument();
+    expect(screen.queryByText("First Harbour")).not.toBeInTheDocument();
+  });
+
+  it("asks for the password again if an organization-specific retry fails", async () => {
+    authMock.login.mockResolvedValueOnce({ organizationSelectionRequired: true, organizations: [{ id: "org-one", name: "First Harbour" }, { id: "org-two", name: "Second Harbour" }] })
+      .mockRejectedValueOnce(new ApiError("Invalid email or password", 401));
+    render(<AuthPage mode="login" />);
+    await userEvent.type(screen.getByLabelText("Email"), "same@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "changed test password");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await userEvent.selectOptions(await screen.findByLabelText("Organization"), "org-two");
+    await userEvent.click(screen.getByRole("button", { name: "Continue to organization" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Invalid email or password");
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.queryByLabelText("Organization")).not.toBeInTheDocument();
+  });
+
+  it("preserves organization scope when a temporary password needs to be changed", async () => {
+    window.history.replaceState(null, "", "/login?organizationId=org-target");
+    authMock.login.mockResolvedValue({ passwordChangeRequired: true, passwordChangeToken: "limited-test-token", passwordChangeExpiresAt: "2026-10-20T10:00:00Z" });
+    render(<AuthPage mode="login" />);
+    await userEvent.type(screen.getByLabelText("Email"), "same@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "fixture temporary password");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/change-temporary-password"));
+    expect(window.history.state.organizationId).toBe("org-target");
+    expect(JSON.stringify(window.history.state)).not.toContain("limited-test-token");
+    expect(JSON.stringify(window.history.state)).not.toContain("fixture temporary password");
   });
 
 });

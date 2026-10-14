@@ -86,7 +86,7 @@ def test_simultaneous_approvals_create_one_user_notice_and_audit(admin):
     )
 
 
-def test_simultaneous_cross_tenant_signup_cannot_reserve_email_twice(admin):
+def test_simultaneous_cross_tenant_signup_has_independent_requests(admin):
     _, first_raw, _ = create_link(admin)
     other_org = Organization.objects.create(
         name="Other", email="other@example.test", registered=True
@@ -120,8 +120,8 @@ def test_simultaneous_cross_tenant_signup_cannot_reserve_email_twice(admin):
 
     outcomes = parallel_calls(lambda: submit(first_raw), lambda: submit(second_raw))
     assert outcomes == {"first": 202, "second": 202}
-    assert OrganizationJoinRequest.objects.filter(email="concurrent@example.test").count() == 1
-    assert EmailOutbox.objects.filter(to_email="concurrent@example.test").count() == 1
+    assert OrganizationJoinRequest.objects.filter(email="concurrent@example.test").count() == 2
+    assert EmailOutbox.objects.filter(to_email="concurrent@example.test").count() == 2
     assert not User.objects.filter(email="concurrent@example.test").exists()
 
 

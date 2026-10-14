@@ -21,6 +21,7 @@ from audit.services import record_identity_event
 from organizations.models import Organization
 
 from .models import ActionToken, Invitation, MFAChallenge, OrganizationJoinRequest, User
+from .account_scopes import account_email_unavailable
 from .security import token_hash
 from .services import revoke_sessions
 
@@ -98,13 +99,9 @@ def provision_temporary_user(
     email = email.strip().lower()
     now = timezone.now()
     if (
-        User.objects.filter(email__iexact=email).exists()
-        or Invitation.objects.filter(
-            email__iexact=email, status=Invitation.Status.PENDING, expires_at__gt=now
-        )
-        .exclude(organization=organization)
-        .exists()
+        account_email_unavailable(organization, email)
         or OrganizationJoinRequest.objects.filter(
+            organization=organization,
             email__iexact=email,
             status__in=(
                 OrganizationJoinRequest.Status.UNVERIFIED,
@@ -130,8 +127,8 @@ def provision_temporary_user(
         raise PendingInvitationConflict()
     raw_password = _new_temporary_password()
     try:
-        # Savepoint keeps the transaction usable when the global unique email
-        # constraint wins a race from an Admin in a different organization.
+        # The organization lock and scoped database constraint prevent duplicate
+        # identities without reserving another organization's email address.
         with transaction.atomic():
             user = User.objects.create_user(
                 email=email,
@@ -241,8 +238,15 @@ def regenerate_temporary_password(*, actor: User, user_id: str, request):
 
 
 @transaction.atomic
-def temporary_password_challenge(*, email: str, password: str, request):
-    candidate = User.objects.filter(email=email, password_change_required=True).first()
+def temporary_password_challenge(*, email: str, password: str, request, organization_id=None):
+    from .account_scopes import scoped_account_queryset
+
+    candidates = list(
+        scoped_account_queryset(
+            User.objects.filter(email__iexact=email, password_change_required=True), organization_id
+        ).order_by("id")[:2]
+    )
+    candidate = candidates[0] if len(candidates) == 1 else None
     if candidate is None:
         return None
     organization = (

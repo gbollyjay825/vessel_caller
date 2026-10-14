@@ -565,6 +565,7 @@ function UserDrawer({ member, onClose }: { member: User; onClose: () => void }) 
 }
 
 function TemporaryUserCredentials({ result }: { result: TemporaryPasswordUserResult }) {
+  const { org } = useAuth();
   const formId = useId();
   const mounted = useRef(true);
   const [showPassword, setShowPassword] = useState(true);
@@ -574,7 +575,7 @@ function TemporaryUserCredentials({ result }: { result: TemporaryPasswordUserRes
     return () => { mounted.current = false; };
   }, []);
   const copy = async (passwordOnly = false) => {
-    const details = `NPA Vessel Caller\nName: ${result.user.name}\nEmail: ${result.user.email}\nRole: ${result.user.role}\nSign in: ${result.signInUrl}\nTemporary password: ${result.temporaryPassword}\nExpires: ${fmtDateTime(result.temporaryPasswordExpiresAt)}\nYou must choose your own password on first sign-in.`;
+    const details = `NPA Vessel Caller\nOrganization: ${org?.name || "Your organization"}\nName: ${result.user.name}\nEmail: ${result.user.email}\nRole: ${result.user.role}\nSign in: ${result.signInUrl}\nTemporary password: ${result.temporaryPassword}\nExpires: ${fmtDateTime(result.temporaryPasswordExpiresAt)}\nYou must choose your own password on first sign-in. Use this organization’s sign-in link and password; your accounts in other organizations stay separate.`;
     try {
       await navigator.clipboard.writeText(passwordOnly ? result.temporaryPassword : details);
       if (mounted.current) setCopyNotice(passwordOnly ? "Temporary password copied. Share it directly with this user." : "Sign-in details copied. Share them directly with this user.");
@@ -584,8 +585,9 @@ function TemporaryUserCredentials({ result }: { result: TemporaryPasswordUserRes
   };
   return (<div className="temporary-user-result">
         <div className="user-access-note"><Icon name="check" size={17} /><div><strong>Share these sign-in details</strong><p>No email is sent. This password is shown only here and cannot be retrieved after you close this panel.</p></div></div>
-        <dl className="temporary-user-summary"><div><dt>Name</dt><dd>{result.user.name}</dd></div><div><dt>Email</dt><dd>{result.user.email}</dd></div><div><dt>Role</dt><dd>{result.user.role}</dd></div></dl>
+        <dl className="temporary-user-summary"><div><dt>Organization</dt><dd>{org?.name || "Your organization"}</dd></div><div><dt>Name</dt><dd>{result.user.name}</dd></div><div><dt>Email</dt><dd>{result.user.email}</dd></div><div><dt>Role</dt><dd>{result.user.role}</dd></div></dl>
         <Field label="Sign-in page"><input type="url" readOnly autoFocus value={result.signInUrl} onFocus={(event) => event.currentTarget.select()} /></Field>
+        <p className="hint">Share this organization’s sign-in link with the password. Accounts in other organizations keep their own passwords and access.</p>
         <div className="field"><label htmlFor={`${formId}-temporary-password`}>Temporary password</label>
           <div className="temporary-password-control"><input id={`${formId}-temporary-password`} aria-describedby={`${formId}-credential-hint`} type={showPassword ? "text" : "password"} readOnly value={result.temporaryPassword} autoComplete="off" data-1p-ignore="true" onFocus={(event) => event.currentTarget.select()} />
             <button className="btn btn-secondary btn-sm" type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword}>{showPassword ? "Hide" : "Show"} password</button>

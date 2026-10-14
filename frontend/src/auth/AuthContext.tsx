@@ -100,7 +100,7 @@ interface AuthValue {
   homePath: "/app" | "/app/account" | "/system" | "/system/account";
   passwordChangeChallenge: TemporaryPasswordChallenge | null;
   completeTemporaryPassword: (password: string) => Promise<PasswordChangeResult>;
-  login: (email: string, password: string) => Promise<LoginResult>;
+  login: (email: string, password: string, organizationId?: string) => Promise<LoginResult>;
   verifyMfa: (challengeId: string, code: string) => Promise<AuthSession>;
   register: (data: RegisterPayload) => Promise<{ detail: string; approvalRequired: boolean }>;
   logout: () => Promise<void>;
@@ -428,7 +428,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [platformAccess?.assuranceExpiresAt, platformAccess?.stepUpRequired]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, organizationId?: string) => {
     passwordChangeChallengeRef.current = null;
     setPasswordChangeChallenge(null);
     const request = beginIdentityRequest();
@@ -440,7 +440,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new DOMException("The sign-in attempt was superseded", "AbortError");
     }
     try {
-      const result = await api.login(email, password);
+      const result = await api.login(email, password, organizationId);
       if ("passwordChangeRequired" in result) {
         if (authGenerationRef.current !== request.generation) {
           throw new DOMException("The sign-in attempt was superseded", "AbortError");
@@ -448,6 +448,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearSessionState(false);
         passwordChangeChallengeRef.current = result;
         setPasswordChangeChallenge(result);
+      } else if ("organizationSelectionRequired" in result) {
+        if (authGenerationRef.current !== request.generation) {
+          throw new DOMException("The sign-in attempt was superseded", "AbortError");
+        }
+        clearSessionState(false);
       } else if (isMfaChallenge(result)) {
         settleIdentityAttemptWithoutSession(request.generation);
       } else {

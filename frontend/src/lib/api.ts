@@ -336,8 +336,13 @@ export interface TemporaryPasswordUserResult {
   signInUrl: string;
 }
 
+export interface OrganizationSelection {
+  organizationSelectionRequired: true;
+  organizations: { id: string; name: string }[];
+}
+
 export type PasswordChangeResult = AuthSession | MfaChallenge;
-export type LoginResult = PasswordChangeResult | TemporaryPasswordChallenge;
+export type LoginResult = PasswordChangeResult | TemporaryPasswordChallenge | OrganizationSelection;
 
 export interface UserListParams {
   page?: number;
@@ -454,23 +459,23 @@ export const api = {
       suppressAuthExpired: true,
     }),
   verifyEmail: (token: string) =>
-    request<{ detail: string; approvalPending: boolean }>("/api/auth/verify-email", {
+    request<{ detail: string; approvalPending: boolean; organizationId?: string }>("/api/auth/verify-email", {
       method: "POST",
       body: JSON.stringify({ token }),
       suppressAuthExpired: true,
     }),
-  resendVerification: (email: string) =>
+  resendVerification: (email: string, organizationId?: string) =>
     request<{ detail: string }>("/api/auth/resend-verification", {
       method: "POST",
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, ...(organizationId ? { organizationId } : {}) }),
       suppressAuthExpired: true,
     }),
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, organizationId?: string) =>
     request<LoginResult>("/api/auth/login", {
       broadcastsIdentityTransition: true,
       method: "POST",
       serializesAuthCookie: true,
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...(organizationId ? { organizationId } : {}) }),
       suppressAuthExpired: true,
     }),
   completeTemporaryPassword: (token: string, password: string) =>
@@ -500,14 +505,14 @@ export const api = {
     serializesAuthCookie: true,
     suppressAuthExpired: true,
   }),
-  forgotPassword: (email: string) =>
+  forgotPassword: (email: string, organizationId?: string) =>
     request<{ detail: string }>("/api/auth/forgot-password", {
       method: "POST",
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, ...(organizationId ? { organizationId } : {}) }),
       suppressAuthExpired: true,
     }),
   resetPassword: (token: string, password: string) =>
-    request<{ detail: string }>("/api/auth/reset-password", {
+    request<{ detail: string; organizationId?: string }>("/api/auth/reset-password", {
       advancesAuthSessionEpoch: true,
       broadcastsIdentityTransition: true,
       method: "POST",
@@ -611,7 +616,7 @@ export const api = {
   revokeInvitation: (id: string) =>
     request<void>(`/api/invitations/${encodeURIComponent(id)}`, { method: "DELETE" }),
   acceptInvitation: (data: { token: string; name: string; password: string }) =>
-    request<{ detail: string }>("/api/invitations/accept", {
+    request<{ detail: string; organizationId?: string }>("/api/invitations/accept", {
       method: "POST",
       body: JSON.stringify(data),
       suppressAuthExpired: true,

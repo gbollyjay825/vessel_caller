@@ -12,6 +12,14 @@ if TYPE_CHECKING:
 class UserManager(BaseUserManager["User"]):
     use_in_migrations = True
 
+    def get_by_natural_key(self, username):
+        # Django integrations without an organization hint must fail closed.
+        # Product authentication uses EmailBackend's password-proven selector.
+        accounts = list(self.filter(email__iexact=username.strip()).order_by("pk")[:2])
+        if len(accounts) != 1:
+            raise self.model.DoesNotExist
+        return accounts[0]
+
     def _create_user(self, email, password, **extra_fields):
         if not email:
             raise ValueError("Email is required")

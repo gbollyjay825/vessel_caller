@@ -71,7 +71,10 @@ def test_creation_returns_password_once_without_proving_email_or_sending_email(a
     assert user.email_verified_at is None
     assert user.temporary_password_expires_at > timezone.now() + timedelta(days=6, hours=23)
     assert response["Cache-Control"] == "no-store"
-    assert response.data["signInUrl"] == settings.FRONTEND_URL + "/login"
+    assert (
+        response.data["signInUrl"]
+        == settings.FRONTEND_URL + f"/login?organizationId={admin.organization_id}"
+    )
     assert response.data["user"]["emailVerified"] is False
     assert response.data["user"]["adminProvisioned"] is True
     assert not EmailOutbox.objects.exists()

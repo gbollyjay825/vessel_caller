@@ -52,6 +52,10 @@ read_staging_temporary_password_lifecycle_state() {
   /usr/local/lib/vessel-caller/staging-lifecycle-state.sh temporary-password
 }
 
+read_staging_organization_identity_state() {
+  /usr/local/lib/vessel-caller/staging-lifecycle-state.sh organization-identity
+}
+
 persist_staging_compatibility_marker() {
   local marker="${1}"
   local capability="${2:-organizationApprovalLifecycle}"
@@ -59,7 +63,7 @@ persist_staging_compatibility_marker() {
   local temporary_marker
 
   case "${capability}" in
-    organizationApprovalLifecycle|temporaryPasswordLifecycle) ;;
+    organizationApprovalLifecycle|temporaryPasswordLifecycle|organizationScopedIdentity) ;;
     *) return 2 ;;
   esac
   marker_dir="$(dirname -- "${marker}")"
@@ -224,10 +228,75 @@ enforce_staging_temporary_password_compatibility_floor() {
   persist_staging_compatibility_marker "${marker}" temporaryPasswordLifecycle
 }
 
+# Legacy authentication assumes that an email identifies a single User. Once
+# accounts0008 is applied, such a writer can select the wrong organization or
+# fail on a duplicate email. Establish this floor before schema preparation.
+enforce_staging_organization_identity_floor() {
+  local archive="${1:-}"
+  local marker="${2:-/var/lib/vessel-caller/staging-organization-scoped-identity.cutover}"
+  local archive_name release_name manifest marker_dir lifecycle_state
+  local supports_lifecycle=false
+
+  archive_name="$(basename -- "${archive}")"
+  release_name="${archive_name%.tar.gz}"
+  if [[ ! -f "${archive}" || "${release_name}" == "${archive_name}" \
+    || "${release_name}" != vessel-caller-v* ]]; then
+    echo "Organization identity policy received an invalid archive name." >&2
+    return 2
+  fi
+  if ! manifest="$(tar -xOf "${archive}" "${release_name}/RELEASE.json")"; then
+    echo "Organization identity policy could not read the authenticated manifest." >&2
+    return 1
+  fi
+  if jq -e \
+    '.schemaVersion == 1 and .application == "vessel-caller" and .organizationScopedIdentity == true' \
+    <<<"${manifest}" >/dev/null; then
+    supports_lifecycle=true
+  fi
+  marker_dir="$(dirname -- "${marker}")"
+  if [[ ! -d "${marker_dir}" || -L "${marker_dir}" ]] \
+    || [[ "$(stat -c '%U:%G:%a' "${marker_dir}")" != root:root:755 ]]; then
+    echo "The organization identity marker directory is not trusted." >&2
+    return 1
+  fi
+  if [[ -e "${marker}" || -L "${marker}" ]]; then
+    if [[ ! -f "${marker}" || -L "${marker}" ]] \
+      || [[ "$(stat -c '%U:%G:%a' "${marker}")" != root:root:644 ]] \
+      || [[ "$(<"${marker}")" != "organizationScopedIdentity=true" ]]; then
+      echo "The organization identity marker is not trusted." >&2
+      return 1
+    fi
+    if [[ "${supports_lifecycle}" != true ]]; then
+      echo "Staging requires organization-scoped identity; this legacy release is blocked." >&2
+      return 1
+    fi
+    return 0
+  fi
+  if ! lifecycle_state="$(read_staging_organization_identity_state)"; then
+    echo "The authoritative organization identity state could not be established." >&2
+    return 1
+  fi
+  case "${lifecycle_state}" in
+    absent)
+      if [[ "${supports_lifecycle}" != true ]]; then return 0; fi ;;
+    present)
+      if [[ "${supports_lifecycle}" != true ]]; then
+        echo "Staging requires organization-scoped identity; this legacy release is blocked." >&2
+        return 1
+      fi ;;
+    *)
+      echo "The authoritative organization identity state is invalid." >&2
+      return 1 ;;
+  esac
+  persist_staging_compatibility_marker "${marker}" organizationScopedIdentity
+}
+
 enforce_staging_compatibility_floor() {
   local archive="${1:-}"
   local organization_marker="${2:-/var/lib/vessel-caller/staging-organization-approval-lifecycle.cutover}"
   local temporary_password_marker="${3:-$(dirname -- "${organization_marker}")/staging-temporary-password-lifecycle.cutover}"
+  local organization_identity_marker="${4:-$(dirname -- "${organization_marker}")/staging-organization-scoped-identity.cutover}"
   enforce_staging_organization_compatibility_floor "${archive}" "${organization_marker}" || return
-  enforce_staging_temporary_password_compatibility_floor "${archive}" "${temporary_password_marker}"
+  enforce_staging_temporary_password_compatibility_floor "${archive}" "${temporary_password_marker}" || return
+  enforce_staging_organization_identity_floor "${archive}" "${organization_identity_marker}"
 }

@@ -108,7 +108,7 @@ def test_replacement_revokes_old_link_and_returns_selected_role_credentials_once
     assert member.temporary_password_expires_at is not None
     assert member.temporary_password_expires_at > timezone.now() + timedelta(days=6, hours=23)
     assert response["Cache-Control"] == "no-store" and response["Pragma"] == "no-cache"
-    assert response.data["signInUrl"].endswith("/login")
+    assert response.data["signInUrl"].endswith(f"/login?organizationId={admin.organization_id}")
     invitation.refresh_from_db()
     assert invitation.status == Invitation.Status.REVOKED and invitation.revoked_at
     assert invitation.accepted_at is None and invitation.role == User.Role.OPERATIONS
@@ -181,10 +181,8 @@ def test_other_tenant_pending_invitation_is_not_disclosed_or_modified(
         else None
     )
     response = create_member(admin, replacePendingInvitation=replacement)
-    assert response.status_code == 400
-    assert response.json()["errors"] == {
-        "email": ["A user or pending invitation with this email already exists"]
-    }
+    expected = 409 if own_pending_invitation and not replacement else 201
+    assert response.status_code == expected
     assert other.name not in json.dumps(response.json()) and str(other.id) not in json.dumps(
         response.json()
     )
@@ -192,8 +190,12 @@ def test_other_tenant_pending_invitation_is_not_disclosed_or_modified(
     assert foreign.status == "pending" and foreign.revoked_at is None
     if own:
         own.refresh_from_db()
-        assert own.status == "pending" and own.revoked_at is None
-    assert not User.objects.filter(email=EMAIL).exists() and not AuditEvent.objects.exists()
+        assert own.status == ("revoked" if replacement else "pending")
+        assert bool(own.revoked_at) == replacement
+    assert User.objects.filter(organization=admin.organization, email=EMAIL).count() == (
+        expected == 201
+    )
+    assert not AuditEvent.objects.filter(organization=other).exists()
 
 
 @pytest.mark.parametrize("status", User.Status.values)
@@ -215,11 +217,18 @@ def test_existing_user_is_never_overwritten_or_transferred(admin, status, cross_
     )
     previous = User.objects.filter(pk=member.pk).values().get()
     response = create_member(admin, role=User.Role.ADMIN, replacePendingInvitation=True)
-    assert response.status_code == 400 and "code" not in response.json()["errors"]
+    assert response.status_code == (201 if cross_tenant else 400)
     assert User.objects.filter(pk=member.pk).values().get() == previous
     invitation.refresh_from_db()
-    assert invitation.status == "pending" and invitation.revoked_at is None
-    assert not AuditEvent.objects.exists() and not EmailOutbox.objects.exists()
+    assert invitation.status == ("revoked" if cross_tenant else "pending")
+    assert bool(invitation.revoked_at) == cross_tenant
+    if cross_tenant:
+        created = User.objects.get(pk=response.data["user"]["id"])
+        assert created.organization == admin.organization and created.pk != member.pk
+        assert not AuditEvent.objects.filter(organization=organization).exists()
+    else:
+        assert not AuditEvent.objects.exists()
+    assert not EmailOutbox.objects.exists()
 
 
 @pytest.mark.parametrize("join_status", ["unverified", "pending"])

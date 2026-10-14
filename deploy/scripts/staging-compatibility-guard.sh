@@ -8,17 +8,23 @@ marker="${1:-/var/lib/vessel-caller/staging-organization-approval-lifecycle.cuto
 current_link="${2:-/opt/vessel-caller/slots/staging/current}"
 release_root="${3:-/opt/vessel-caller/releases}"
 temporary_password_marker="${4:-$(dirname -- "${marker}")/staging-temporary-password-lifecycle.cutover}"
+organization_identity_marker="${5:-$(dirname -- "${marker}")/staging-organization-scoped-identity.cutover}"
 require_organization=false
 require_temporary_password=false
+require_organization_identity=false
 
-for lifecycle in organization temporary-password; do
-  if [[ "${lifecycle}" == organization ]]; then
-    lifecycle_marker="${marker}"
-    capability=organizationApprovalLifecycle
-  else
-    lifecycle_marker="${temporary_password_marker}"
-    capability=temporaryPasswordLifecycle
-  fi
+for lifecycle in organization temporary-password organization-identity; do
+  case "${lifecycle}" in
+    organization)
+      lifecycle_marker="${marker}"
+      capability=organizationApprovalLifecycle ;;
+    temporary-password)
+      lifecycle_marker="${temporary_password_marker}"
+      capability=temporaryPasswordLifecycle ;;
+    organization-identity)
+      lifecycle_marker="${organization_identity_marker}"
+      capability=organizationScopedIdentity ;;
+  esac
   if [[ ! -e "${lifecycle_marker}" && ! -L "${lifecycle_marker}" ]]; then
     if ! lifecycle_state="$(/usr/local/lib/vessel-caller/staging-lifecycle-state.sh "${lifecycle}")"; then
       echo "The authoritative staging ${lifecycle} lifecycle state could not be established." >&2
@@ -43,14 +49,15 @@ for lifecycle in organization temporary-password; do
       exit 1
     fi
   fi
-  if [[ "${lifecycle}" == organization ]]; then
-    require_organization=true
-  else
-    require_temporary_password=true
-  fi
+  case "${lifecycle}" in
+    organization) require_organization=true ;;
+    temporary-password) require_temporary_password=true ;;
+    organization-identity) require_organization_identity=true ;;
+  esac
 done
 
-if [[ "${require_organization}" != true && "${require_temporary_password}" != true ]]; then exit 0; fi
+if [[ "${require_organization}" != true && "${require_temporary_password}" != true \
+  && "${require_organization_identity}" != true ]]; then exit 0; fi
 
 if [[ ! -L "${current_link}" ]] \
   || [[ "$(stat -c '%U' "${current_link}")" != root ]]; then
@@ -83,9 +90,11 @@ fi
 if ! jq --exit-status \
   --argjson require_organization "${require_organization}" \
   --argjson require_temporary_password "${require_temporary_password}" \
+  --argjson require_organization_identity "${require_organization_identity}" \
   '.schemaVersion == 1 and .application == "vessel-caller" and
    ($require_organization == false or .organizationApprovalLifecycle == true) and
-   ($require_temporary_password == false or .temporaryPasswordLifecycle == true)' \
+   ($require_temporary_password == false or .temporaryPasswordLifecycle == true) and
+   ($require_organization_identity == false or .organizationScopedIdentity == true)' \
   "${manifest}" >/dev/null; then
   echo "The staging release predates a required lifecycle." >&2
   exit 1

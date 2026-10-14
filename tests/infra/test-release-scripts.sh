@@ -122,7 +122,7 @@ mkdir -p "${payload}/backend/requirements" "${payload}/frontend/dist"
 printf 'fixture\n' > "${payload}/backend/manage.py"
 printf 'fixture\n' > "${payload}/backend/requirements/production.txt"
 printf '<!doctype html><title>fixture</title>\n' > "${payload}/frontend/dist/index.html"
-printf '{"schemaVersion":1,"application":"vessel-caller","release":"%s","organizationApprovalLifecycle":true,"temporaryPasswordLifecycle":true,"stagingOnlySchemaCutover":true,"immutable":true}\n' "${release_tag}" > "${payload}/RELEASE.json"
+printf '{"schemaVersion":1,"application":"vessel-caller","release":"%s","organizationApprovalLifecycle":true,"temporaryPasswordLifecycle":true,"organizationScopedIdentity":true,"stagingOnlySchemaCutover":true,"immutable":true}\n' "${release_tag}" > "${payload}/RELEASE.json"
 checksum_file="${fixture_root}/SHA256SUMS.tmp"
 (
   cd "${payload}"
@@ -167,6 +167,9 @@ read_staging_lifecycle_state() {
   printf 'absent\n'
 }
 read_staging_temporary_password_lifecycle_state() {
+  printf 'absent\n'
+}
+read_staging_organization_identity_state() {
   printf 'absent\n'
 }
 policy_bin="${fixture_root}/policy-bin"
@@ -300,19 +303,65 @@ if PATH="${policy_bin}:${PATH}" enforce_staging_temporary_password_compatibility
   echo "Unavailable temporary-password migration state failed open." >&2; exit 1
 fi
 
+# The email-scoped identity cutover blocks the previous temporary-password
+# backend before schema changes and reconstructs the floor from accounts0008.
+identity_prior_tag=v1.2.2-staging.identity
+identity_prior_name="vessel-caller-${identity_prior_tag}"
+identity_prior_root="${fixture_root}/identity-prior/${identity_prior_name}"
+identity_prior_archive="${fixture_root}/${identity_prior_name}.tar.gz"
+mkdir -p "${identity_prior_root}"
+printf '{"schemaVersion":1,"application":"vessel-caller","release":"%s","organizationApprovalLifecycle":true,"temporaryPasswordLifecycle":true,"stagingOnlySchemaCutover":true}\n' \
+  "${identity_prior_tag}" > "${identity_prior_root}/RELEASE.json"
+tar -C "${fixture_root}/identity-prior" -czf "${identity_prior_archive}" "${identity_prior_name}"
+identity_root="${fixture_root}/identity-floor"
+identity_marker="${identity_root}/cutover"
+mkdir -p "${identity_root}"
+PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${identity_prior_archive}" "${identity_marker}"
+[[ ! -e "${identity_marker}" ]]
+PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${archive}" "${identity_marker}"
+[[ "$(<"${identity_marker}")" == "organizationScopedIdentity=true" ]]
+PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${archive}" "${identity_marker}"
+if PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${identity_prior_archive}" "${identity_marker}" >/dev/null 2>&1; then
+  echo "Organization identity cutover accepted an email-global backend." >&2; exit 1
+fi
+read_staging_organization_identity_state() { printf 'present\n'; }
+if PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${identity_prior_archive}" "${identity_root}/rebuilt" >/dev/null 2>&1; then
+  echo "Rebuilt host accepted an email-global backend after accounts0008." >&2; exit 1
+fi
+PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${archive}" "${identity_root}/rebuilt"
+[[ "$(<"${identity_root}/rebuilt")" == "organizationScopedIdentity=true" ]]
+if FAKE_UNTRUSTED_STAT_TARGET="${identity_marker}" PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${archive}" "${identity_marker}" >/dev/null 2>&1; then
+  echo "Untrusted organization identity marker accepted." >&2; exit 1
+fi
+ln -s "${identity_marker}" "${identity_root}/symlink"
+if PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${archive}" "${identity_root}/symlink" >/dev/null 2>&1; then
+  echo "Symlink organization identity marker accepted." >&2; exit 1
+fi
+read_staging_organization_identity_state() { printf 'unknown\n'; }
+if PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${archive}" "${identity_root}/unknown" >/dev/null 2>&1; then
+  echo "Unknown organization identity state failed open." >&2; exit 1
+fi
+read_staging_organization_identity_state() { return 1; }
+if PATH="${policy_bin}:${PATH}" enforce_staging_organization_identity_floor "${archive}" "${identity_root}/unavailable" >/dev/null 2>&1; then
+  echo "Unavailable organization identity state failed open." >&2; exit 1
+fi
+
 # Exercise the real process-start guard with a fixture-only state helper. This
 # proves that a manually restored old symlink cannot bypass the durable floor.
 guard_root="${fixture_root}/process-guard"
 mkdir -p "${guard_root}/releases/${prior_tag}/staging" "${guard_root}/releases/${release_tag}/staging" "${guard_root}/markers"
+mkdir -p "${guard_root}/releases/${identity_prior_tag}/staging"
 guard_root="$(cd "${guard_root}" && pwd -P)"
 cp "${prior_root}/RELEASE.json" "${guard_root}/releases/${prior_tag}/staging/RELEASE.json"
 cp "${payload}/RELEASE.json" "${guard_root}/releases/${release_tag}/staging/RELEASE.json"
+cp "${identity_prior_root}/RELEASE.json" "${guard_root}/releases/${identity_prior_tag}/staging/RELEASE.json"
 cat > "${guard_root}/state.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 case "${1:-organization}" in
   organization) printf '%s\n' "${FAKE_ORGANIZATION_LIFECYCLE:-present}" ;;
   temporary-password) printf '%s\n' "${FAKE_TEMPORARY_PASSWORD_LIFECYCLE:-absent}" ;;
+  organization-identity) printf '%s\n' "${FAKE_ORGANIZATION_IDENTITY_LIFECYCLE:-absent}" ;;
   *) exit 1 ;;
 esac
 EOF
@@ -327,10 +376,11 @@ source = source.replace('/usr/local/lib/vessel-caller/staging-lifecycle-state.sh
 PY
 guard_organization_marker="${guard_root}/markers/organization"
 guard_temporary_marker="${guard_root}/markers/temporary"
+guard_identity_marker="${guard_root}/markers/identity"
 ln -s "${guard_root}/releases/${prior_tag}/staging" "${guard_root}/current"
 run_start_guard() {
   PATH="${policy_bin}:${PATH}" bash "${guard_root}/guard.sh" "${guard_organization_marker}" \
-    "${guard_root}/current" "${guard_root}/releases" "${guard_temporary_marker}"
+    "${guard_root}/current" "${guard_root}/releases" "${guard_temporary_marker}" "${guard_identity_marker}"
 }
 run_start_guard
 if FAKE_TEMPORARY_PASSWORD_LIFECYCLE=present run_start_guard >/dev/null 2>&1; then
@@ -351,6 +401,24 @@ fi
 if FAKE_ORGANIZATION_LIFECYCLE=unknown run_start_guard >/dev/null 2>&1; then
   echo "Process guard weakened the original organization lifecycle floor." >&2; exit 1
 fi
+rm "${guard_root}/current"
+ln -s "${guard_root}/releases/${identity_prior_tag}/staging" "${guard_root}/current"
+run_start_guard
+if FAKE_ORGANIZATION_IDENTITY_LIFECYCLE=present run_start_guard >/dev/null 2>&1; then
+  echo "Email-global backend bypassed accounts0008 ledger floor." >&2; exit 1
+fi
+printf 'organizationScopedIdentity=true\n' > "${guard_identity_marker}"
+if run_start_guard >/dev/null 2>&1; then
+  echo "Email-global backend bypassed organization identity marker." >&2; exit 1
+fi
+rm "${guard_root}/current"
+ln -s "${guard_root}/releases/${release_tag}/staging" "${guard_root}/current"
+run_start_guard
+rm "${guard_identity_marker}"
+FAKE_ORGANIZATION_IDENTITY_LIFECYCLE=present run_start_guard
+if FAKE_ORGANIZATION_IDENTITY_LIFECYCLE=unknown run_start_guard >/dev/null 2>&1; then
+  echo "Process guard accepted unknown organization identity state." >&2; exit 1
+fi
 
 # Exercise both fixed migration queries in the actual ledger helper. Replaced
 # fixture paths and a psql stub ensure this test never opens a real database.
@@ -366,6 +434,7 @@ case "${!#}" in
   *"to_regclass('django_migrations')"*) printf '%s\n' "${FAKE_LEDGER_TABLE_STATE:-present}" ;;
   *"app = 'organizations' AND name = '0004_organization_approval_lifecycle'"*) printf '%s\n' "${FAKE_ORGANIZATION_LIFECYCLE:-present}" ;;
   *"app = 'accounts' AND name = '0007_user_admin_provisioned_at_user_admin_provisioned_by_and_more'"*) printf '%s\n' "${FAKE_TEMPORARY_PASSWORD_LIFECYCLE:-absent}" ;;
+  *"app = 'accounts' AND name = '0008_organization_scoped_email'"*) printf '%s\n' "${FAKE_ORGANIZATION_IDENTITY_LIFECYCLE:-absent}" ;;
   *) echo 'Unexpected SQL query' >&2; exit 1 ;;
 esac
 EOF
@@ -389,6 +458,12 @@ run_ledger_state() { PATH="${policy_bin}:${PATH}" bash "${guard_root}/ledger-sta
 [[ "$(run_ledger_state temporary-password)" == absent ]]
 [[ "$(FAKE_TEMPORARY_PASSWORD_LIFECYCLE=present run_ledger_state temporary-password)" == present ]]
 [[ "$(FAKE_LEDGER_TABLE_STATE=absent run_ledger_state temporary-password)" == absent ]]
+[[ "$(run_ledger_state organization-identity)" == absent ]]
+[[ "$(FAKE_ORGANIZATION_IDENTITY_LIFECYCLE=present run_ledger_state organization-identity)" == present ]]
+[[ "$(FAKE_LEDGER_TABLE_STATE=absent run_ledger_state organization-identity)" == absent ]]
+if FAKE_ORGANIZATION_IDENTITY_LIFECYCLE=unknown run_ledger_state organization-identity >/dev/null 2>&1; then
+  echo "Ledger helper accepted invalid organization identity state." >&2; exit 1
+fi
 if FAKE_TEMPORARY_PASSWORD_LIFECYCLE=unknown run_ledger_state temporary-password >/dev/null 2>&1; then
   echo "Ledger helper accepted invalid temporary-password migration state." >&2; exit 1
 fi

@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { AuthCard } from "../components/AuthCard";
 import { ApiError } from "../lib/api";
 import { Link, useLocation, useNavigate } from "../lib/navigation";
+import { organizationAuthPath } from "../lib/organizationAuth";
 import type { AuthSession } from "../types";
 
 function destinationFor(session: AuthSession, requested: unknown): string {
@@ -24,6 +25,8 @@ export function TemporaryPasswordChange() {
   const navigate = useNavigate();
   const location = useLocation();
   const requested = location.state && typeof location.state === "object" && "from" in location.state ? location.state.from : null;
+  const organizationId = location.state && typeof location.state === "object" && "organizationId" in location.state && typeof location.state.organizationId === "string" ? location.state.organizationId : undefined;
+  const signInPath = organizationAuthPath("/login", organizationId);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
@@ -55,7 +58,7 @@ export function TemporaryPasswordChange() {
     setConfirmation("");
     setCode("");
     void logout();
-    navigate("/login", { replace: true });
+    navigate(signInPath, { replace: true });
   };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -84,7 +87,7 @@ export function TemporaryPasswordChange() {
 
   if (!passwordChangeChallenge && !mfaChallenge && !destination && !busy) {
     return <AuthCard title="Sign in to continue" subtitle="Sign in again with your current password. If you have already replaced the temporary password, use your new password.">
-      <Link className="auth-submit auth-submit-link" to="/login">Return to sign in</Link>
+      <Link className="auth-submit auth-submit-link" to={signInPath}>Return to sign in</Link>
     </AuthCard>;
   }
   return (

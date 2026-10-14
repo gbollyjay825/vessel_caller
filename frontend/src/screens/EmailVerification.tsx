@@ -3,12 +3,15 @@ import { Link, useSearchParams } from "../lib/navigation";
 
 import { AuthCard } from "../components/AuthCard";
 import { ApiError, api } from "../lib/api";
+import { organizationAuthPath } from "../lib/organizationAuth";
 
 type VerificationState = "idle" | "verifying" | "verified" | "error";
 
 export function EmailVerification() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
+  const [organizationId, setOrganizationId] = useState(searchParams.get("organizationId") || undefined);
+  const signInPath = organizationAuthPath("/login", organizationId);
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
   const [state, setState] = useState<VerificationState>(token ? "verifying" : "idle");
   const [message, setMessage] = useState<string | null>(null);
@@ -22,6 +25,7 @@ export function EmailVerification() {
       .then((result) => {
         if (!active) return;
         setState("verified");
+        if (result.organizationId) setOrganizationId(result.organizationId);
         setApprovalPending(result.approvalPending === true);
         setMessage(result.detail || "Your email is verified. You can now sign in.");
       })
@@ -40,7 +44,9 @@ export function EmailVerification() {
     setSending(true);
     setMessage(null);
     try {
-      const result = await api.resendVerification(email.trim().toLowerCase());
+      const result = organizationId
+        ? await api.resendVerification(email.trim().toLowerCase(), organizationId)
+        : await api.resendVerification(email.trim().toLowerCase());
       setMessage(result.detail || "If the account is pending, a new verification email has been sent.");
     } catch (error) {
       setMessage(error instanceof ApiError ? error.message : "Could not send a verification email.");
@@ -73,7 +79,7 @@ export function EmailVerification() {
     }
     return (
       <AuthCard title="Email verified" subtitle={message ?? "Your account is ready."}>
-        <Link className="auth-submit auth-submit-link" to="/login">Sign in</Link>
+        <Link className="auth-submit auth-submit-link" to={signInPath}>Sign in</Link>
       </AuthCard>
     );
   }
@@ -101,7 +107,7 @@ export function EmailVerification() {
           {sending ? "Sending…" : "Send a new verification email"}
         </button>
       </form>
-      <p className="auth-alt"><Link to="/login">Return to sign in</Link></p>
+      <p className="auth-alt"><Link to={signInPath}>Return to sign in</Link></p>
     </AuthCard>
   );
 }

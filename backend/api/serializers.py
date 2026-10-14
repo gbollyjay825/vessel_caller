@@ -376,6 +376,7 @@ class RegisterSerializer(serializers.Serializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(trim_whitespace=False)
+    organizationId = serializers.CharField(max_length=32, required=False, allow_blank=False)
 
 
 class TokenSerializer(serializers.Serializer):
@@ -384,6 +385,7 @@ class TokenSerializer(serializers.Serializer):
 
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    organizationId = serializers.CharField(max_length=32, required=False, allow_blank=False)
 
 
 class ResetPasswordSerializer(TokenSerializer):

@@ -10,11 +10,12 @@ from typing import cast
 import redis
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Subquery
+from django.db.models import Exists, OuterRef
 from django.db.models.functions import Lower
 from django.utils import timezone
 
 from accounts.models import EmailOutbox, Invitation, User
+from organizations.models import Organization
 
 
 CELERY_PRIORITY_QUEUE_KEYS = (
@@ -105,8 +106,9 @@ class Command(BaseCommand):
         historical_fingerprint = _sha256(
             json.dumps(canonical_history, separators=(",", ":"), ensure_ascii=True)
         )
-        existing_emails = User.objects.annotate(normalized_email=Lower("email")).values(
-            "normalized_email"
+        existing_identity = User.objects.annotate(normalized_email=Lower("email")).filter(
+            organization_id=OuterRef("organization_id"),
+            normalized_email=OuterRef("normalized_email"),
         )
         invitation_collision_ids = [
             str(invitation_id)
@@ -115,12 +117,30 @@ class Command(BaseCommand):
                 deliverable=True,
             )
             .annotate(normalized_email=Lower("email"))
-            .filter(normalized_email__in=Subquery(existing_emails))
+            .annotate(identity_exists=Exists(existing_identity))
+            .filter(identity_exists=True)
             .order_by("id")
             .values_list("id", flat=True)
         ]
         invitation_collision_fingerprint = _sha256(
             json.dumps(invitation_collision_ids, separators=(",", ":"), ensure_ascii=True)
+        )
+        # A platform operator must remain a dedicated identity even though
+        # customer email addresses can now be reused in another organization.
+        other_identity = (
+            User.objects.annotate(normalized_email=Lower("email"))
+            .filter(normalized_email=OuterRef("normalized_email"))
+            .exclude(pk=OuterRef("pk"))
+        )
+        platform_collision_ids = list(
+            User.objects.filter(organization__kind=Organization.Kind.PLATFORM)
+            .annotate(normalized_email=Lower("email"), identity_exists=Exists(other_identity))
+            .filter(identity_exists=True)
+            .order_by("id")
+            .values_list("id", flat=True)
+        )
+        platform_collision_fingerprint = _sha256(
+            json.dumps(platform_collision_ids, separators=(",", ":"), ensure_ascii=True)
         )
 
         client = redis.Redis.from_url(settings.CELERY_BROKER_URL)
@@ -140,7 +160,7 @@ class Command(BaseCommand):
             "pendingInvitationEmailCollisions": len(invitation_collision_ids),
             **broker_counts,
         }
-        passed = all(value == 0 for value in counts.values())
+        passed = all(value == 0 for value in counts.values()) and not platform_collision_ids
         evidence = {
             "environment": settings.ENVIRONMENT,
             "release": {
@@ -157,6 +177,10 @@ class Command(BaseCommand):
             "pendingInvitationEmailCollisions": {
                 "count": len(invitation_collision_ids),
                 "sha256": invitation_collision_fingerprint,
+            },
+            "platformIdentityEmailCollisions": {
+                "count": len(platform_collision_ids),
+                "sha256": platform_collision_fingerprint,
             },
         }
         payload = (json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n").encode(

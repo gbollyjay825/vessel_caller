@@ -644,6 +644,23 @@ describe("AuthProvider", () => {
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous"));
   });
 
+  it("keeps organization selection anonymous and clears the prior account data", async () => {
+    apiMock.me.mockResolvedValueOnce(session);
+    apiMock.login.mockResolvedValueOnce({
+      organizationSelectionRequired: true,
+      organizations: [{ id: "org-one", name: "First Harbour" }, { id: "org-two", name: "Second Harbour" }],
+    });
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await screen.findByText("Ada Admin");
+    queryClient.setQueryData(["users"], { private: true });
+    await userEvent.click(screen.getByRole("button", { name: "Log in next identity" }));
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous"));
+    expect(screen.getByTestId("name")).toHaveTextContent("none");
+    expect(screen.getByTestId("can-users")).toHaveTextContent("false");
+    expect(screen.getByTestId("password-change-pending")).toHaveTextContent("false");
+    expect(queryClient.getQueryData(["users"])).toBeUndefined();
+  });
+
   it("keeps the current platform session through a transient background refresh failure", async () => {
     apiMock.me.mockResolvedValueOnce(platformSession).mockRejectedValueOnce(new Error("network"));
     render(<AuthProvider><Probe /></AuthProvider>);

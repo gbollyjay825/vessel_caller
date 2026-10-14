@@ -265,11 +265,15 @@ assert 'organizationApprovalLifecycle == true' in compatibility_guard
 assert 'temporaryPasswordLifecycle == true' in compatibility_guard
 assert 'staging-organization-approval-lifecycle.cutover' in compatibility_guard
 assert 'staging-temporary-password-lifecycle.cutover' in compatibility_guard
+assert 'staging-organization-scoped-identity.cutover' in compatibility_guard
+assert 'organizationScopedIdentity' in compatibility_guard
 assert "staging-lifecycle-state.sh" in compatibility_guard
 assert "django_migrations" in lifecycle_state
 assert "to_regclass('django_migrations')" in lifecycle_state
 assert "0004_organization_approval_lifecycle" in lifecycle_state
 assert "0007_user_admin_provisioned_at_user_admin_provisioned_by_and_more" in lifecycle_state
+assert "0008_organization_scoped_email" in lifecycle_state
+assert "organization-identity)" in lifecycle_state
 assert 'lifecycle="${1:-organization}"' in lifecycle_state
 assert "temporary-password)" in lifecycle_state
 assert "PGCONNECT_TIMEOUT=5" in lifecycle_state
@@ -300,6 +304,9 @@ assert "staging-temporary-password-lifecycle.cutover" in target_policy
 assert "temporaryPasswordLifecycle=true" in target_policy
 assert "read_staging_temporary_password_lifecycle_state" in target_policy
 assert "enforce_staging_temporary_password_compatibility_floor" in target_policy
+assert "enforce_staging_organization_identity_floor" in target_policy
+assert "read_staging_organization_identity_state" in target_policy
+assert 'staging-organization-scoped-identity.cutover' in target_policy
 assert target_policy.index('sync -f "${temporary_marker}"') < target_policy.index(
     'mv -f -- "${temporary_marker}" "${marker}"'
 ) < target_policy.index('sync -f "${marker_dir}"')

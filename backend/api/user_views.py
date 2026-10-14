@@ -6,6 +6,11 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
+from accounts.account_scopes import (
+    account_email_unavailable,
+    organization_action_url,
+    organization_sign_in_url,
+)
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
@@ -81,7 +86,7 @@ def _temporary_password_response(user, temporary_password):
             "rev": bump_revision(user.organization_id),
             "temporaryPassword": temporary_password,
             "temporaryPasswordExpiresAt": user.temporary_password_expires_at.isoformat(),
-            "signInUrl": f"{settings.FRONTEND_URL}/login",
+            "signInUrl": organization_sign_in_url(user.organization),
         },
         status=status.HTTP_201_CREATED,
     )
@@ -285,7 +290,9 @@ class UserPasswordResetDispatchView(APIView):
             to_email=member.email,
             subject="Reset your Vessel Caller password",
             template="reset_password",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/reset-password?token={raw}"},
+            context={
+                "actionUrl": organization_action_url(member.organization, "/reset-password", raw)
+            },
             idempotency_key=f"reset:{token_obj.id}",
             organization=organization,
         )
@@ -364,7 +371,7 @@ class InvitationsView(APIView):
         )
         if not organization:
             raise ValidationError("This organization cannot receive invitations")
-        deliverable = not User.objects.filter(email=email).exists()
+        deliverable = not account_email_unavailable(organization, email)
         Invitation.objects.filter(
             organization=organization,
             email=email,
@@ -386,7 +393,9 @@ class InvitationsView(APIView):
                 to_email=email,
                 subject=f"Join {organization.name} on Vessel Caller",
                 template="invitation",
-                context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+                context={
+                    "actionUrl": organization_action_url(organization, "/accept-invitation", raw)
+                },
                 idempotency_key=f"invite:{invitation.id}",
                 organization=organization,
             )
@@ -434,13 +443,16 @@ class InvitationResendView(APIView):
         raw = opaque_token()
         invitation.token_hash = token_hash(raw)
         invitation.expires_at = timezone.now() + timedelta(days=7)
-        invitation.save(update_fields=("token_hash", "expires_at"))
+        invitation.deliverable = not account_email_unavailable(organization, invitation.email)
+        invitation.save(update_fields=("token_hash", "expires_at", "deliverable"))
         if invitation.deliverable:
             queue_email(
                 to_email=invitation.email,
                 subject=f"Join {organization.name} on Vessel Caller",
                 template="invitation",
-                context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+                context={
+                    "actionUrl": organization_action_url(organization, "/accept-invitation", raw)
+                },
                 idempotency_key=f"invite-resend:{invitation.id}:{secrets.token_hex(6)}",
                 organization=organization,
             )
@@ -514,7 +526,7 @@ class InvitationAcceptView(APIView):
         )
         if not invitation or invitation.expires_at <= timezone.now():
             raise ValidationError({"token": ["This invitation is invalid or expired"]})
-        if User.objects.filter(email=invitation.email).exists():
+        if account_email_unavailable(organization, invitation.email):
             raise ValidationError({"email": ["A user with this email already exists"]})
         user = User.objects.create_user(
             email=invitation.email,
@@ -553,7 +565,10 @@ class InvitationAcceptView(APIView):
             subject="A Vessel Caller invitation was accepted",
             message=f"{user.name} accepted the invitation to join {organization.name} as {user.role}.",
         )
-        return Response({"detail": "Invitation accepted"}, status=status.HTTP_201_CREATED)
+        return Response(
+            {"detail": "Invitation accepted", "organizationId": user.organization_id},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class AuditView(APIView):

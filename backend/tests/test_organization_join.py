@@ -504,13 +504,14 @@ def test_existing_user_and_cross_org_request_are_private_and_never_transferred(a
         email_verified_at=timezone.now(),
     )
     _, other_raw, _ = create_link(other)
-    blocked = submit(other_raw)
-    assert existing.json() == blocked.json()
-    assert (
-        OrganizationJoinRequest.objects.get(email="applicant@example.test").organization_id
-        == admin.organization_id
-    )
-    assert not EmailOutbox.objects.filter(organization=other_org).exists()
+    independent = submit(other_raw)
+    assert existing.json() == independent.json()
+    assert set(
+        OrganizationJoinRequest.objects.filter(email="applicant@example.test").values_list(
+            "organization_id", flat=True
+        )
+    ) == {admin.organization_id, other_org.id}
+    assert EmailOutbox.objects.filter(organization=other_org).count() == 1
 
 
 def test_approval_replay_does_not_change_role_or_duplicate_user_notice_audit(admin):
@@ -568,7 +569,8 @@ def test_rejection_clears_password_and_replay_is_safe(admin):
     )
 
 
-def test_approval_conflict_with_later_existing_account_preserves_identity(admin):
+@pytest.mark.parametrize("cross_tenant", [False, True])
+def test_approval_conflict_is_scoped_and_existing_account_preserved(admin, cross_tenant):
     _, _, join_request = verified_request(admin)
     other_org = Organization.objects.create(
         name="Other", email="other@example.test", registered=True
@@ -577,21 +579,27 @@ def test_approval_conflict_with_later_existing_account_preserves_identity(admin)
         email=join_request.email,
         password=PASSWORD,
         name="Existing",
-        organization=other_org,
+        organization=other_org if cross_tenant else admin.organization,
         role="Viewer",
         status="active",
         email_verified_at=timezone.now(),
     )
+    original_organization_id = member.organization_id
     response = authenticated(admin).post(
         f"/api/organization-join-requests/{join_request.id}/approve",
         {"role": "Admin"},
         format="json",
     )
-    assert response.status_code == 400
+    assert response.status_code == (200 if cross_tenant else 400)
     member.refresh_from_db()
-    assert member.organization_id == other_org.id and member.role == "Viewer"
+    assert member.organization_id == original_organization_id and member.role == "Viewer"
     join_request.refresh_from_db()
-    assert join_request.status == "pending" and join_request.user_id is None
+    assert join_request.status == ("approved" if cross_tenant else "pending")
+    if cross_tenant:
+        assert join_request.user_id != member.pk
+        assert join_request.user.organization_id == admin.organization_id
+    else:
+        assert join_request.user_id is None
 
 
 def test_revoking_link_is_idempotent_and_does_not_cancel_verified_pending_review(admin):

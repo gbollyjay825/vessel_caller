@@ -220,9 +220,10 @@ class Command(BaseCommand):
         seen_emails = set()
         for row in rows["users"]:
             email = (row["email"] or "").strip().lower()
-            if email in seen_emails:
-                raise CommandError(f"Legacy data contains duplicate global email: {email}")
-            seen_emails.add(email)
+            identity = (row["org_id"], email)
+            if identity in seen_emails:
+                raise CommandError("Legacy data contains a duplicate organization email")
+            seen_emails.add(identity)
             created = aware_datetime(row.get("created_at")) or timezone.now()
             user, _ = User.objects.update_or_create(
                 id=row["id"],

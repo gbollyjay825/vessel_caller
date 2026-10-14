@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "../lib/navigation";
 
 import { useAuth } from "../auth/AuthContext";
-import { ApiError } from "../lib/api";
+import { ApiError, type OrganizationSelection } from "../lib/api";
+import { organizationAuthPath } from "../lib/organizationAuth";
 import type { AuthSession } from "../types";
 import { ProductBrand } from "../components/ProductBrand";
 
@@ -16,6 +17,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const { login, register, verifyMfa, status } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const organizationId = mode === "login" ? new URLSearchParams(location.search).get("organizationId") || undefined : undefined;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -23,6 +25,9 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [redirectAfterAuth, setRedirectAfterAuth] = useState<string | null>(null);
+  const [organizationChoices, setOrganizationChoices] = useState<OrganizationSelection["organizations"] | null>(null);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const submitInFlight = useRef(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,6 +77,9 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (submitInFlight.current) return;
+    if (organizationChoices && !organizationChoices.some((org) => org.id === selectedOrganizationId)) return;
+    submitInFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -81,10 +89,19 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
         return;
       }
       if (mode === "login") {
-        const result = await login(email.trim().toLowerCase(), password);
+        const loginOrganizationId = organizationChoices ? selectedOrganizationId : organizationId;
+        const result = loginOrganizationId
+          ? await login(email.trim().toLowerCase(), password, loginOrganizationId)
+          : await login(email.trim().toLowerCase(), password);
+        if ("organizationSelectionRequired" in result) {
+          setOrganizationChoices(result.organizations);
+          setSelectedOrganizationId("");
+          return;
+        }
+        setOrganizationChoices(null);
         if ("passwordChangeRequired" in result) {
           setPassword("");
-          navigate("/change-temporary-password", { replace: true, state: { from: safeRequestedDestination } });
+          navigate("/change-temporary-password", { replace: true, state: { from: safeRequestedDestination, organizationId: loginOrganizationId } });
           return;
         }
         if ("mfaRequired" in result) {
@@ -92,6 +109,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           setPassword("");
           return;
         }
+        setPassword("");
         setRedirectAfterAuth(destinationFor(result));
         return;
       }
@@ -107,7 +125,13 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
       setPassword("");
     } catch (caught) {
       setError(errorMessage(caught));
+      if (organizationChoices) {
+        setOrganizationChoices(null);
+        setSelectedOrganizationId("");
+        setPassword("");
+      }
     } finally {
+      submitInFlight.current = false;
       setBusy(false);
     }
   };
@@ -143,14 +167,18 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
       <form className="auth-card" onSubmit={submit}>
         <ProductBrand className="auth-brand" />
         <h1 className="auth-title">
-          {challengeId ? "Two-factor verification" : mode === "login" ? "Sign in" : "Register your organization"}
+          {challengeId ? "Two-factor verification" : organizationChoices ? "Choose your organization" : mode === "login" ? "Sign in" : "Register your organization"}
         </h1>
         <p className="auth-sub">
           {challengeId
             ? "Enter the six-digit code from your authenticator app, or a recovery code."
-            : mode === "login"
-              ? "Access your voyage readings and reconciliation workspace."
-              : "Create your agency and its first Admin account."}
+            : organizationChoices
+              ? "Your sign-in details match more than one organization. Choose where to continue."
+              : mode === "login"
+                ? organizationId
+                  ? "Sign in with the password shared for this organization."
+                  : "Access your voyage readings and reconciliation workspace."
+                : "Create your agency and its first Admin account."}
         </p>
 
         {sessionExpired && !error && (
@@ -171,6 +199,17 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
               autoFocus
             />
           </label>
+        ) : organizationChoices ? (
+          <>
+            <p className="auth-sub">{email.trim().toLowerCase()}</p>
+            <label className="auth-field">
+              <span>Organization</span>
+              <select value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)} required disabled={busy} autoFocus>
+                <option value="" disabled>Select an organization</option>
+                {organizationChoices.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+              </select>
+            </label>
+          </>
         ) : (
           <>
             {mode === "register" && (
@@ -207,6 +246,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
                 onChange={(event) => setEmail(event.target.value)}
                 required
                 autoComplete="email"
+                disabled={busy}
               />
             </label>
             <label className="auth-field">
@@ -218,36 +258,44 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
                 required
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
                 minLength={mode === "register" ? 12 : undefined}
+                disabled={busy}
               />
             </label>
           </>
         )}
 
-        <button className="auth-submit" type="submit" disabled={busy}>
+        <button className="auth-submit" type="submit" disabled={busy || Boolean(organizationChoices && !selectedOrganizationId)}>
           {busy
             ? "Please wait…"
             : challengeId
               ? "Verify and sign in"
-              : mode === "login"
-                ? "Sign in"
-                : "Create organization"}
+              : organizationChoices
+                ? "Continue to organization"
+                : mode === "login"
+                  ? "Sign in"
+                  : "Create organization"}
         </button>
 
-        {challengeId ? (
+        {challengeId || organizationChoices ? (
           <button
             type="button"
             className="auth-link-button"
+            disabled={busy}
             onClick={() => {
               setChallengeId(null);
               setCode("");
               setError(null);
+              setPassword("");
+              setOrganizationChoices(null);
+              setSelectedOrganizationId("");
             }}
           >
             Use a different account
           </button>
         ) : mode === "login" ? (
           <>
-            <p className="auth-alt"><Link to="/forgot-password">Forgot your password?</Link></p>
+            <p className="auth-alt"><Link to={organizationAuthPath("/forgot-password", organizationId)}>Forgot your password?</Link></p>
+            {organizationId && <p className="auth-alt"><Link to="/login">Sign in to another organization</Link></p>}
             <p className="auth-alt">New here? <Link to="/register">Register an organization</Link></p>
           </>
         ) : (

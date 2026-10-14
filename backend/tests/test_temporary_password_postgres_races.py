@@ -86,13 +86,14 @@ def test_duplicate_creation_is_single_user_and_single_audit(admin, cross_tenant)
         )
 
     outcomes = parallel_calls(lambda: create(admin.pk), lambda: create(second_id))
-    assert sorted(outcomes.values()) == [201, 400]
-    assert User.objects.filter(email="concurrent@example.test").count() == 1
+    assert sorted(outcomes.values()) == ([201, 201] if cross_tenant else [201, 400])
+    expected = 2 if cross_tenant else 1
+    assert User.objects.filter(email="concurrent@example.test").count() == expected
     assert (
         AuditEvent.objects.filter(
             action="user.admin_provisioned", target_label="concurrent@example.test"
         ).count()
-        == 1
+        == expected
     )
 
 

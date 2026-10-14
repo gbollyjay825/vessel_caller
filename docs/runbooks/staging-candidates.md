@@ -27,3 +27,21 @@ to the candidate's built frontend after backend readiness passes. Verify the
 public `/ui-release.json`, assets and API readiness match the candidate. For an
 additive migration, retain added tables when returning to a compatible previous
 release; do not reverse migrations or replace the database as routine rollback.
+
+The `accounts.0008_organization_scoped_email` migration removes global email
+uniqueness while retaining a case-insensitive email constraint within each
+organization. Its signed capability is `organizationScopedIdentity=true`.
+Before applying it, install the reviewed lifecycle-state, target-policy and
+process-start guard changes, stop staging writers, and persist the
+`staging-organization-scoped-identity.cutover` marker. Both the migration ledger
+and the root-owned marker block releases that assume one global account per
+email. A failed cutover must stay closed until a compatible signed release is
+ready; do not return to a previous global-email backend or reverse the schema
+after organization-specific accounts exist. Keep the other lifecycle floors,
+production blocks, signature pins, no-seed preparation and encrypted backup.
+
+Existing User and Invitation field projections must be identical before and
+after schema preparation. The migration ledger gains only accounts0008. Account
+creation is a separate, authenticated Admin action after deployment validation;
+never provision credentials in a release wrapper or use database access to
+impersonate the Admin.

@@ -1,5 +1,5 @@
-.authenticator-onboarding { max-width: 856px; }
-.authenticator-panel-guided { max-width: none; width: 100%; }
+.content-inner.authenticator-onboarding { max-width: 856px; width: 100%; }
+.authenticator-panel.authenticator-panel-guided { max-width: none; width: 100%; }
 .authenticator-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .authenticator-heading h2 { margin: 0; }
 .authenticator-heading .account-copy { max-width: 60ch; margin-bottom: 0; line-height: 1.6; }

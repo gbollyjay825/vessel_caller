@@ -221,9 +221,9 @@ for (const role of ["Admin", "Finance"] as const) {
     // The session refresh restores permissions. It must not redirect or remount
     // this page before the customer can save their one-time recovery codes.
     await expect.poll(() => requests.refreshedSession).toBeGreaterThan(0);
-    await expect(authenticator.getByText("Two-factor authentication protects this account at sign-in.")).toBeVisible();
+    await expect(authenticator.getByText("Your authenticator protects this account at sign-in.")).toBeVisible();
     await expect(page).toHaveURL(/\/app\/account$/);
-    await expect(page.getByText("Save these recovery codes now")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Save your recovery codes", exact: true })).toBeVisible();
     for (const code of recoveryCodes) await expect(page.getByText(code, { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Copy codes" })).toBeVisible();
     expect(requests.setup).toBe(1);

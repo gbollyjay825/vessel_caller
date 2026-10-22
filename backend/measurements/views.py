@@ -11,7 +11,7 @@ from api.permissions import HasVesselPermission
 from api.serializers import invoice_data
 from operations.models import VesselCall
 
-from .models import MeasurementPlan
+from .models import AgencyLink, MeasurementPlan
 from .serializers import (
     ApprovalSerializer,
     AssessmentSerializer,
@@ -124,9 +124,13 @@ class PlanDetailView(MeasurementView):
             plan.status = "cancelled"
             plan.cancellation_reason = data["reason"]
         if "participants" in data or "lines" in data:
-            if plan.submissions.exists() or plan.reconciliations.exists():
+            if (
+                plan.submissions.exists()
+                or plan.reconciliations.exists()
+                or AgencyLink.objects.filter(participant__plan=plan).exists()
+            ):
                 raise Conflict(
-                    "Participants and cargo lines are locked once returns or reconciliations exist"
+                    "Participants and cargo lines are locked once agency links, returns or reconciliations exist"
                 )
             if len(data.get("participants", [])) > 30 or len(data.get("lines", [])) > 100:
                 raise ValidationError("Maximum 30 participants and 100 cargo lines per plan")

@@ -81,11 +81,13 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   const title = `Containers discharge tally · ${vesselName} · ROT-MEASURE-${suffix}`;
   const cargo = "20 foot laden containers";
   const cargoLabel = `${cargo} · import · 20 ft · laden`;
+  const agentName = `Test Ship Agent ${suffix}`;
+  const terminalName = `Test Terminal ${suffix}`;
   const evidenceName = `synthetic-paper-tally-${suffix}.pdf`;
 
   await signIn(page, "admin@e2e.vesselcalls.test");
   await page.goto("/app/settings/agencies");
-  for (const [name, role, representative] of [["Test Ship Agent", "Agent", "Agent Representative"], ["Test Terminal", "Terminal operator", "Terminal Representative"]]) {
+  for (const [name, role, representative] of [[agentName, "Agent", "Agent Representative"], [terminalName, "Terminal operator", "Terminal Representative"]]) {
     await page.getByLabel("Agency name", { exact: true }).fill(name);
     await page.getByRole("combobox", { name: "Agency role", exact: true }).selectOption(role);
     await page.getByLabel("Default representative", { exact: true }).fill(representative);
@@ -114,19 +116,19 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await page.getByLabel("Manifest quantity 1").fill("100");
   await page.getByLabel("Manifest / baseline reference 1", { exact: true }).fill("SYNTHETIC-MANIFEST-100");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Select agency Test Ship Agent", exact: true }).check();
-  await page.getByRole("checkbox", { name: "Select agency Test Terminal", exact: true }).check();
+  await page.getByRole("checkbox", { name: `Select agency ${agentName}`, exact: true }).check();
+  await page.getByRole("checkbox", { name: `Select agency ${terminalName}`, exact: true }).check();
   await expect(page.getByRole("button", { name: "Finish", exact: true })).toBeDisabled();
   const createdPlanResponse = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/measurement-plans");
-  await page.getByRole("group", { name: "Agency Test Ship Agent", exact: true }).getByRole("button", { name: "Enter reading", exact: true }).click();
+  await page.getByRole("group", { name: `Agency ${agentName}`, exact: true }).getByRole("button", { name: "Enter reading", exact: true }).click();
   const createdPlan = await createdPlanResponse;
   expect(createdPlan.status(), await createdPlan.text()).toBe(201);
   const planId: string = (await createdPlan.json()).plan.id;
   const planPath = `/app/measurements/${planId}`;
-  await expect(page.getByRole("dialog", { name: "Test Ship Agent reading", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: `${agentName} reading`, exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/app\/measurements\/new\?callId=/);
   await page.getByRole("button", { name: "Close reading", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Test Ship Agent reading", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: `${agentName} reading`, exact: true })).toHaveCount(0);
   await expect(page.getByRole("tablist", { name: "Measurement workspaces", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Finish", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/measurements$/);
@@ -139,7 +141,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await returnsTab.press("Enter");
   await expect(returnsTab).toBeFocused();
   await assertMeasurementWorkspace(page, /Agency readings/);
-  for (const [index, party] of ["Test Ship Agent", "Test Terminal"].entries()) {
+  for (const [index, party] of [agentName, terminalName].entries()) {
     await page.getByRole("button", { name: "Record return", exact: true }).click();
     await page.getByRole("combobox", { name: "Reporting agency", exact: true }).selectOption({ label: `${party} · ${index ? "Terminal operator" : "Agent"}` });
     await page.getByLabel("Source document reference", { exact: true }).fill(`SYNTHETIC-RETURN-${index + 1}`);
@@ -163,7 +165,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   await page.getByLabel(`Decision rationale · ${cargoLabel}`, { exact: true }).fill("Terminal recount accepted against the recorded tally evidence.");
   await page.getByRole("button", { name: "Create reconciliation proposal", exact: true }).click();
   await expect(page.getByText("Reconciliation proposal saved", { exact: true })).toBeVisible();
-  for (const [index, party] of ["Test Ship Agent", "Test Terminal"].entries()) {
+  for (const [index, party] of [agentName, terminalName].entries()) {
     await page.getByRole("button", { name: "Record acknowledgement", exact: true }).click();
     await page.getByRole("combobox", { name: "Acknowledging stakeholder", exact: true }).selectOption({ label: `${party} · ${index ? "Terminal operator" : "Agent"}` });
     await page.getByLabel("Signed document reference / date", { exact: true }).fill(`SYNTHETIC-SIGNED-AGREEMENT-${index + 1}`);
@@ -239,7 +241,7 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   const evidenceLink = page.getByRole("link", { name: "Open file", exact: true });
   await expect(evidenceLink).toBeVisible();
   const evidenceUrl = new URL((await evidenceLink.getAttribute("href"))!);
-  if (process.env.PLAYWRIGHT_BASE_URL?.startsWith("http://")) {
+  if (new URL(page.url()).protocol === "http:" && ["localhost", "127.0.0.1"].includes(new URL(page.url()).hostname)) {
     expect(evidenceUrl.origin).toBe(new URL(page.url()).origin);
   } else {
     expect(evidenceUrl.protocol).toBe("https:");

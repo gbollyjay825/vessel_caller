@@ -452,6 +452,22 @@ class SystemOrganizationDetailView(RecentMutationPermissionsMixin):
         )
 
 
+def public_lifecycle_error(error):
+    # Only fixed domain messages are returned; never echo unexpected exception details.
+    messages = {
+        "Only customer organizations can be approved": "Only customer organizations can be approved",
+        "Only organizations pending approval can be approved": "Only organizations pending approval can be approved",
+        "Email verification must be completed before organization approval": "Email verification must be completed before organization approval",
+        "Only customer organizations can be suspended": "Only customer organizations can be suspended",
+        "Only active customer organizations can be suspended": "Only active customer organizations can be suspended",
+        "Only customer organizations can be reactivated": "Only customer organizations can be reactivated",
+        "Only suspended customer organizations can be reactivated": "Only suspended customer organizations can be reactivated",
+    }
+    return messages.get(
+        str(error), "This organization cannot make the requested lifecycle transition"
+    )
+
+
 class SystemOrganizationSuspendView(APIView):
     permission_classes = [IsAuthenticated, IsRecentSystemAdminMFA]
 
@@ -473,7 +489,7 @@ class SystemOrganizationSuspendView(APIView):
                     request=request,
                 )
             except ValueError as exc:
-                raise ValidationError(str(exc)) from exc
+                raise ValidationError(public_lifecycle_error(exc)) from exc
         return Response(
             {"organization": system_organization_data(organization), "rev": organization.revision}
         )
@@ -499,7 +515,7 @@ class SystemOrganizationApproveView(APIView):
                 request=request,
             )
         except ValueError as exc:
-            raise ValidationError(str(exc)) from exc
+            raise ValidationError(public_lifecycle_error(exc)) from exc
         return Response(
             {"organization": system_organization_data(organization), "rev": organization.revision}
         )
@@ -526,7 +542,7 @@ class SystemOrganizationReactivateView(APIView):
                     request=request,
                 )
             except ValueError as exc:
-                raise ValidationError(str(exc)) from exc
+                raise ValidationError(public_lifecycle_error(exc)) from exc
         return Response(
             {"organization": system_organization_data(organization), "rev": organization.revision}
         )

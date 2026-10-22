@@ -106,7 +106,10 @@ TEMPLATES = [
 
 DATABASES = {
     "default": database_from_url(
-        env("VC_DATABASE_URL", f"sqlite:///{BASE_DIR / 'vessel_caller.sqlite3'}")
+        env(
+            "VC_DATABASE_URL",
+            "postgresql://vessel_caller:local-development-only@127.0.0.1:5432/vessel_caller",
+        )
     )
 }
 

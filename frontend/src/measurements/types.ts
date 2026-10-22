@@ -1,6 +1,6 @@
 export type QuantityUnit = "tonnes" | "count" | "m3";
 export interface Actor { id: string; name: string }
-export interface ParticipantInput { name: string; role: string; representative: string; requiredSubmission: boolean; requiredApproval: boolean }
+export interface ParticipantInput { agencyId?: string | null; name: string; role: string; representative: string; requiredSubmission: boolean; requiredApproval: boolean }
 export interface Participant extends ParticipantInput { id: string }
 export interface CargoLineInput { description: string; category: string; direction: string; containerSize: string; loadStatus: string; unit: QuantityUnit; basis: string; manifestQuantity: string | null; baselineReference: string }
 export interface CargoLine extends CargoLineInput { id: string }

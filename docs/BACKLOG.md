@@ -1,7 +1,8 @@
 # Vessel Caller production backlog
 
-This is the canonical backlog until GitHub Issues/Projects are available. Each
-story must link a pull request and retain test, staging, migration, and operator
+The E00–E15 epics are now available in GitHub Issues. This file retains the
+historical acceptance evidence; use the dated update below for the latest build-out.
+Each story must link a pull request and retain test, staging, migration, and operator
 evidence. `Done` means the stated exit evidence exists; merged code alone is not
 enough.
 
@@ -182,3 +183,9 @@ DigitalOcean team, project, region, and VPC as the FlexSchools Droplet:
 This advances E10-S02 and E12-S01 but does not complete them. Credential
 authentication, Django migrations, privilege/connection-limit audit, PITR
 evidence, backup restore, and the separate production cluster remain gated.
+
+## 22 October 2026 collection backend increment
+
+See [Django/PostgreSQL build-out](BACKEND_BUILDOUT.md) for the current agency, guest-link,
+optional-evidence, readings PDF, activity API and security work. This advances E03, E06,
+E07 and E08; it does not close the broader production epics or certify deployment.

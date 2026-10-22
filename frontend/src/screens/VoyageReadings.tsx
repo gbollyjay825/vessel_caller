@@ -28,6 +28,7 @@ export function VoyageReadings() {
     <VoyageWorkflowNav callId={callId} active="readings" />
     <ErrorMessage error={records.error} />
     {records.isPending ? <div className="measurement-loading" role="status">Loading voyage readings…</div> : !records.error && <>
+      {plans.length > 0 && <a className="btn btn-secondary" href={measurementApi.readingsDocumentUrl(callId)}><Icon name="download" size={16} /> Download readings PDF</a>}
       <VoyageReadingsReport callId={callId} plans={plans} />
       {!plans.length && canStart && <Link className="btn btn-primary" to={`/app/measurements/new?callId=${encodeURIComponent(callId)}`}>Start owner declaration</Link>}
       {plans.length > 0 && can("measurements.manage") && <div className="readings-collection-links">{plans.map(plan => <Link key={plan.id} className="link-btn" to={`/app/measurements/${encodeURIComponent(plan.id)}`}><span>{plans.length === 1 ? "Continue agency readings" : `Open ${plan.title}`}{plans.length > 1 && <small>{reportIdentity(plan, plans)}</small>}</span><Icon name="chevronRight" size={14} /></Link>)}</div>}

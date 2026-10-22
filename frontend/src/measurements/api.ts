@@ -7,6 +7,7 @@ const root = "/api/measurement-plans";
 const path = (id: string) => `${root}/${encodeURIComponent(id)}`;
 const post = <T,>(url: string, body: unknown) => request<T>(url, { method: "POST", body: JSON.stringify(body) });
 export const measurementApi = {
+  readingsDocumentUrl: (callId: string) => `${(import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "")}/api/voyages/${encodeURIComponent(callId)}/readings/document`,
   list: (callId?: string) => request<{ plans: MeasurementPlan[] }>(`${root}${callId ? `?callId=${encodeURIComponent(callId)}` : ""}`),
   detail: (id: string) => request<{ plan: MeasurementPlan }>(path(id)),
   create: (body: PlanInput) => post<PlanMutation>(root, body),

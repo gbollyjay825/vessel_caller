@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 
 class ParticipantSerializer(serializers.Serializer):
+    agencyId = serializers.CharField(max_length=32, allow_null=True, required=False)
     name = serializers.CharField(max_length=255)
     role = serializers.CharField(max_length=100)
     representative = serializers.CharField(max_length=255, allow_blank=True, default="")
@@ -103,7 +104,10 @@ class SubmissionLineSerializer(serializers.Serializer):
         return attrs
 
 
-class SubmissionSerializer(EvidenceReferencesSerializer):
+class SubmissionSerializer(VersionSerializer):
+    evidenceIds = serializers.ListField(
+        child=serializers.CharField(max_length=32), max_length=30, default=list
+    )
     participantId = serializers.CharField(max_length=32)
     observedAt = serializers.DateTimeField()
     sourceReference = serializers.CharField(max_length=255)
@@ -186,6 +190,7 @@ def participant_data(item):
         "name": item.name,
         "role": item.role,
         "representative": item.representative,
+        "agencyId": item.agency_id,
         "requiredSubmission": item.required_submission,
         "requiredApproval": item.required_approval,
     }
@@ -215,7 +220,10 @@ def submission_data(item):
         "sourceReference": item.source_reference,
         "notes": item.notes,
         "reason": item.reason,
-        "recordedBy": actor_data(item.recorded_by),
+        "recordedBy": actor_data(item.recorded_by)
+        or {"id": f"agency:{item.participant_id}", "name": item.representative},
+        "source": item.source,
+        "representative": item.representative,
         "recordedAt": date_string(item.recorded_at),
         "lines": [
             {

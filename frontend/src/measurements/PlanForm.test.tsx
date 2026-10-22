@@ -177,8 +177,8 @@ describe("voyage declaration wizard", () => {
     const plan = onSave.mock.calls[0][0];
     expect(plan.lines.map(line => [line.category, line.unit, line.manifestQuantity])).toEqual([["Bulk", "tonnes", "400"], ["Vehicle", "count", "5"]]);
     expect(plan.participants).toEqual([
-      { name: "Harbour Agency", role: "Agent", representative: "Voyage delegate", requiredSubmission: true, requiredApproval: true },
-      { name: "Port Terminal", role: "Terminal operator", representative: "Grace Terminal", requiredSubmission: true, requiredApproval: true },
+      { agencyId: "agency-1", name: "Harbour Agency", role: "Agent", representative: "Voyage delegate", requiredSubmission: true, requiredApproval: true },
+      { agencyId: "agency-2", name: "Port Terminal", role: "Terminal operator", representative: "Grace Terminal", requiredSubmission: true, requiredApproval: true },
     ]);
     expect(agency.representative).toBe("Ada Agent");
   });
@@ -286,13 +286,13 @@ describe("voyage declaration wizard", () => {
     const { user, rerender, props } = setup({ agencyCatalog: [] });
     await next(user); await user.type(screen.getByLabelText("Cargo description 1"), "Wheat"); await next(user);
     expect(screen.getByText("No agencies in the directory yet")).toBeInTheDocument();
-    expect(screen.getByText(/Entries are not shared with other browsers or devices/)).toBeInTheDocument();
+    expect(screen.getByText(/Agencies are shared across your organization/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create voyage sheet" })).toBeDisabled();
     expect(screen.getByRole("link", { name: /Manage agencies/ })).toHaveAttribute("target", "_blank");
     expect(screen.getByRole("link", { name: /Manage agencies/ })).toHaveAttribute("href", "/app/settings/agencies");
     rerender(<PlanForm {...props} canManageAgencies={false} />);
     expect(screen.queryByRole("link", { name: /Manage agencies/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Ask an administrator/)).toHaveTextContent("Agencies saved on another device will not appear here.");
+    expect(screen.getByText(/Ask an administrator/)).toHaveTextContent("Ask an administrator to add agencies to your organization, then return to this step.");
     rerender(<PlanForm {...props} agencyCatalog={catalog} />);
     await user.click(screen.getByRole("checkbox", { name: "Select agency Harbour Agency" }));
     await previous(user);
@@ -407,7 +407,7 @@ describe("voyage declaration wizard", () => {
     await user.click(card.getByRole("button", { name: "Enter reading" }));
     await waitFor(() => expect(onAgencyAction).toHaveBeenCalledOnce());
     const input = onAgencyAction.mock.calls[0][2];
-    expect(onAgencyAction).toHaveBeenCalledWith("agency-1", "reading", expect.objectContaining({ callId: vessel.id, lines: [expect.objectContaining({ description: "Wheat", manifestQuantity: "0", baselineReference: "OWNER-NIL", direction: "import" })], participants: [{ name: "Harbour Agency", role: "Agent", representative: "Voyage delegate", requiredSubmission: true, requiredApproval: true }] }), input.participants[0]);
+    expect(onAgencyAction).toHaveBeenCalledWith("agency-1", "reading", expect.objectContaining({ callId: vessel.id, lines: [expect.objectContaining({ description: "Wheat", manifestQuantity: "0", baselineReference: "OWNER-NIL", direction: "import" })], participants: [{ agencyId: "agency-1", name: "Harbour Agency", role: "Agent", representative: "Voyage delegate", requiredSubmission: true, requiredApproval: true }] }), input.participants[0]);
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled();
     rerender(<PlanForm {...props} agencyCatalog={catalog.map(profile => profile.id === "agency-1" ? { ...profile, name: "Renamed directory agency", representative: "New directory contact" } : profile)} onAgencyAction={onAgencyAction} onFinish={onFinish} savedPlan={measurementFixture()} renderAgencyAction={id => id === "agency-1" ? <div role="status">Agency link panel</div> : null} />);
@@ -449,7 +449,7 @@ describe("voyage declaration wizard", () => {
     await user.type(screen.getByLabelText("Vessel declaration reference"), "OWNER-3");
     await next(user); await user.click(screen.getByRole("button", { name: "Enter reading" }));
     await waitFor(() => expect(onAgencyAction).toHaveBeenCalledTimes(2));
-    expect(onAgencyAction).toHaveBeenLastCalledWith("agency-1", "reading", expect.objectContaining({ lines: [expect.objectContaining({ manifestQuantity: "3", baselineReference: "OWNER-3" })] }), expect.objectContaining({ name: "Harbour Agency", role: "Agent", representative: "Ada Agent" }));
+    expect(onAgencyAction).toHaveBeenLastCalledWith("agency-1", "reading", expect.objectContaining({ lines: [expect.objectContaining({ manifestQuantity: "3", baselineReference: "OWNER-3" })] }), expect.objectContaining({ agencyId: "agency-1", name: "Harbour Agency", role: "Agent", representative: "Ada Agent" }));
     expect(onSave).not.toHaveBeenCalled();
   });
 

@@ -18,6 +18,7 @@ from api.tenant_lifecycle import TenantLifecycleAPIView as APIView
 from api.permissions import HasVesselPermission
 
 from .models import Reconciliation
+from .reports import PDFDownloadNegotiation
 from .serializers import reconciliation_data
 
 
@@ -224,6 +225,7 @@ def reconciliation_pdf(reconciliation):
 
 
 class ReconciliationDocumentView(APIView):
+    content_negotiation_class = PDFDownloadNegotiation
     permission_classes = [IsAuthenticated, HasVesselPermission]
     required_permission = "measurements.view"
 

@@ -9,7 +9,7 @@ const mocked = vi.hoisted(() => ({ list: vi.fn(), can: vi.fn(), calls: [] as Ves
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ org: { id: "org-1" }, can: mocked.can }) }));
 vi.mock("../app/store", () => ({ useStore: () => ({ calls: mocked.calls }) }));
 vi.mock("../lib/navigation", async importOriginal => ({ ...await importOriginal<typeof import("../lib/navigation")>(), useParams: () => ({ callId: "call-1" }) }));
-vi.mock("../measurements/api", () => ({ measurementApi: { list: mocked.list } }));
+vi.mock("../measurements/api", () => ({ measurementApi: { list: mocked.list, readingsDocumentUrl: (id: string) => `/api/voyages/${id}/readings/document` } }));
 const call: VesselCall = { id: "call-1", reference: "VOY-001", vesselName: "MV Atlas", flag: "NG", type: "Bulk", nrt: 12000, eta: "2026-10-01T09:00:00Z", sailingEta: "", berth: "Berth 3", berthDate: null, status: "in-progress", notes: "", version: 1, registered: "2026-09-29" };
 function renderScreen() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

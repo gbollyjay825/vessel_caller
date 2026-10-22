@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installTestAgencyStorage } from "./agencyDirectory.test-support";
-import { agencyDirectoryStorageKey, useAgencyDirectory, type AgencyProfile } from "./agencyDirectory";
+import { agencyDirectoryStorageKey, useLocalAgencyDirectory as useAgencyDirectory, type AgencyProfile } from "./localAgencyDirectory";
 
 const entry = { name: "Port Agency", role: "Agent", representative: "Ada", active: true };
 const key = (org = "org-1") => agencyDirectoryStorageKey(org)!;

@@ -447,3 +447,13 @@ def test_receipt_snapshot_preserves_voyage_context_after_later_edits(operations,
         "/api/agency-portal/receipt", {"contextId": cid}, HTTP_ACCEPT="application/pdf"
     )
     assert response.status_code == 200
+
+
+def test_modified_guest_cookie_is_rejected(operations, plan_payload):
+    plan = create_plan(operations, plan_payload)
+    _, token = make_link(operations, plan)
+    client, cid, _ = exchange(token)
+    from measurements.portal import COOKIE
+
+    client.cookies[COOKIE] = client.cookies[COOKIE].value + "tampered"
+    assert client.get("/api/agency-portal/context", {"contextId": cid}).status_code == 404

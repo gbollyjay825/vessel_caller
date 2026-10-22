@@ -79,6 +79,21 @@ def join_request_data(item):
     }
 
 
+def public_join_error(error):
+    messages = {
+        "This sign-up link is invalid, expired or revoked": "This sign-up link is invalid, expired or revoked",
+        "This verification link is invalid or expired": "This verification link is invalid or expired",
+        "Only an active organization Admin can create a sign-up link": "Only an active organization Admin can create a sign-up link",
+        "Choose a link lifetime of 1, 7, 14 or 30 days": "Choose a link lifetime of 1, 7, 14 or 30 days",
+        "Only an active organization Admin can review join requests": "Only an active organization Admin can review join requests",
+        "This request was already approved with a different role": "This request was already approved with a different role",
+        "Only a verified request awaiting review can be reviewed": "Only a verified request awaiting review can be reviewed",
+        "Choose a valid role": "Choose a valid role",
+        "An account already uses this email. Review existing users instead.": "An account already uses this email. Review existing users instead.",
+    }
+    return messages.get(str(error), "The organization join request could not be completed")
+
+
 class OrganizationSignupLinksView(APIView):
     permission_classes = [IsAuthenticated, HasVesselPermission]
     required_permission = "users.manage"
@@ -103,7 +118,7 @@ class OrganizationSignupLinksView(APIView):
                 request=request,
             )
         except JoinFlowError as exc:
-            raise ValidationError(str(exc)) from exc
+            raise ValidationError(public_join_error(exc)) from exc
         return Response(
             {
                 "link": signup_link_data(link),
@@ -156,7 +171,7 @@ class PublicOrganizationJoinResolveView(APIView):
         try:
             organization, link = resolve_signup_link(raw)
         except JoinFlowError as exc:
-            raise ValidationError({"token": [str(exc)]}) from exc
+            raise ValidationError({"token": [public_join_error(exc)]}) from exc
         return Response(
             {"organization": {"name": organization.name}, "expiresAt": iso(link.expires_at)}
         )
@@ -183,7 +198,7 @@ class PublicOrganizationJoinView(APIView):
                 raw=data["token"], name=data["name"], email=data["email"], request=request
             )
         except JoinFlowError as exc:
-            raise ValidationError({"token": [str(exc)]}) from exc
+            raise ValidationError({"token": [public_join_error(exc)]}) from exc
         return Response(response, status=status.HTTP_202_ACCEPTED)
 
 
@@ -207,7 +222,7 @@ class PublicOrganizationJoinVerifyView(APIView):
                 raw=raw, password=serializer.validated_data["password"], request=request
             )
         except JoinFlowError as exc:
-            raise ValidationError({"token": [str(exc)]}) from exc
+            raise ValidationError({"token": [public_join_error(exc)]}) from exc
         return Response(
             {"detail": "Email verified. Your request is awaiting administrator approval."}
         )
@@ -246,8 +261,8 @@ class OrganizationJoinRequestApproveView(APIView):
             )
         except JoinFlowError as exc:
             if str(exc) == "Join request not found":
-                raise NotFound(str(exc)) from exc
-            raise ValidationError(str(exc)) from exc
+                raise NotFound("Join request not found") from exc
+            raise ValidationError(public_join_error(exc)) from exc
         revision = (
             bump_revision(request.user.organization_id)
             if changed
@@ -273,8 +288,8 @@ class OrganizationJoinRequestRejectView(APIView):
             )
         except JoinFlowError as exc:
             if str(exc) == "Join request not found":
-                raise NotFound(str(exc)) from exc
-            raise ValidationError(str(exc)) from exc
+                raise NotFound("Join request not found") from exc
+            raise ValidationError(public_join_error(exc)) from exc
         revision = (
             bump_revision(request.user.organization_id)
             if changed

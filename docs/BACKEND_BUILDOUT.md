@@ -14,7 +14,7 @@ Implemented in this increment:
   staff reading; optimistic versions and case-insensitive name/role uniqueness. Selection
   copies a voyage-specific snapshot rather than rewriting historical readings.
 - Agency-specific expiring/revocable links. Raw invitation secrets are returned once and
-  stored only as SHA-256 digests. Exchange creates a separate HttpOnly browser capability;
+  stored only as SHA-256 digests. Exchange creates a separate signed, HttpOnly browser capability;
   it does not sign in as a staff user or modify the staff login session.
 - Independent guest submissions, bound to a specific agency and cargo structure, protected
   by CSRF, request throttling, organization lifecycle checks and PostgreSQL transactions.
@@ -71,7 +71,7 @@ and its migration/compatibility controls reviewed before deployment.
 
 ## Local verification
 
-- 415 Django tests passed against an isolated PostgreSQL database, with no skipped tests.
+- 416 Django tests passed against an isolated PostgreSQL database, with no skipped tests.
   Independent coverage thresholds passed: 95.95% lines and 87.29% branches.
 - Ruff, mypy, Django system checks and migration-drift checks passed.
 - 612 frontend tests passed; coverage thresholds, ESLint, TypeScript and the production
@@ -87,3 +87,11 @@ The browser test found and fixed PDF content negotiation that returned 406 for a
 `Accept: application/pdf`. It also now uses unique server agency names per test run instead
 of relying on separate browser-local directories. Local evidence is retained outside Git
 under `/tmp/vessel-*-20261022*`; the sample receipt is in `output/pdf/`.
+
+
+A hosted CodeQL follow-up additionally replaced organization-join exception echoes
+with fixed public messages and added integrity protection for guest cookies. Its
+password-hashing warning traced to test code rehashing the randomly generated
+`passwordChangeToken`, not to a user's password. Those tests now inspect the active
+challenge by user and purpose and still prove token acceptance/rejection through HTTP;
+application password hashing and existing token digests are unchanged.

@@ -234,12 +234,12 @@ def get_context(request):
         if request.method == "GET"
         else request.data.get("contextId")
     )
-    secret = request.COOKIES.get(COOKIE, "")
+    browser_nonce = request.get_signed_cookie(COOKIE, default="", max_age=30 * 24 * 60 * 60)
     context = (
         AgencyPortalSession.objects.filter(
-            pk=context_id, browser_digest=digest(secret), expires_at__gt=timezone.now()
+            pk=context_id, browser_digest=digest(browser_nonce), expires_at__gt=timezone.now()
         ).first()
-        if secret
+        if browser_nonce
         else None
     )
     if not context:
@@ -327,14 +327,16 @@ class PortalExchangeView(PortalView):
             assert_open(plan)
             if fingerprint(plan) != link.input_fingerprint:
                 raise Conflict("This voyage changed. Ask the coordinator for a new agency link.")
-        secret = request.COOKIES.get(COOKIE) or secrets.token_urlsafe(48)
+        browser_nonce = request.get_signed_cookie(
+            COOKIE, default="", max_age=30 * 24 * 60 * 60
+        ) or secrets.token_urlsafe(48)
         context = AgencyPortalSession.objects.create(
-            link=link, browser_digest=digest(secret), expires_at=link.expires_at
+            link=link, browser_digest=digest(browser_nonce), expires_at=link.expires_at
         )
         response = Response({"contextId": context.pk})
-        response.set_cookie(
+        response.set_signed_cookie(
             COOKIE,
-            secret,
+            browser_nonce,
             max_age=30 * 24 * 60 * 60,
             httponly=True,
             secure=settings.SESSION_COOKIE_SECURE,

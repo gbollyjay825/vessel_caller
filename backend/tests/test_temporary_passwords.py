@@ -13,7 +13,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import ActionToken, EmailOutbox, User, UserSession
-from accounts.security import encrypt_secret, issue_action_token, token_hash
+from accounts.security import encrypt_secret, issue_action_token
 from accounts.services import InactiveAccountError, start_mfa_challenge, start_session
 from audit.models import AuditEvent
 from organizations.models import Organization
@@ -119,7 +119,11 @@ def test_first_login_has_no_workspace_session_then_changes_password_and_obeys_ro
         ).status_code
         == 403
     )
-    token_obj = ActionToken.objects.get(token_hash=token_hash(token))
+    # The change token is an opaque capability, not a password. Inspect the
+    # active challenge by identity/purpose; the HTTP completion below proves it.
+    token_obj = ActionToken.objects.get(
+        user=user, kind=ActionToken.Kind.TEMPORARY_PASSWORD_CHANGE, used_at__isnull=True
+    )
     assert token not in json.dumps(token_obj.metadata) and raw not in json.dumps(token_obj.metadata)
     assert token_obj.expires_at <= timezone.now() + timedelta(minutes=5)
     response = complete(client, token)
@@ -214,9 +218,9 @@ def test_expired_rotated_and_password_version_changed_challenges_fail(admin):
     client, first, _ = challenge(user, raw)
     _, second, _ = challenge(user, raw)
     assert complete(client, first).status_code == 400
-    ActionToken.objects.filter(token_hash=token_hash(second)).update(
-        expires_at=timezone.now() - timedelta(seconds=1)
-    )
+    ActionToken.objects.filter(
+        user=user, kind=ActionToken.Kind.TEMPORARY_PASSWORD_CHANGE, used_at__isnull=True
+    ).update(expires_at=timezone.now() - timedelta(seconds=1))
     assert complete(client, second).status_code == 400
     _, third, _ = challenge(user, raw)
     user.set_password("Another-temporary-password-2026!")

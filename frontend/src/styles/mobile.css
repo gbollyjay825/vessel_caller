@@ -1,12 +1,12 @@
 /* ============================================================
    Calabar Port — Mobile Data Capture
    Field app for inspectors. Same visual language as the desktop
-   platform (clean white, maritime blue), tuned for touch:
+   platform (clean white, NPA green), tuned for touch:
    large tap targets (≥44px), big numeric inputs, sticky CTAs.
    ============================================================ */
 :root{
   --ink:#16191D; --slate:#5F6B7A; --soft:#8A95A3;
-  --accent:#1B5FAA; --accent-hover:#15508F; --accent-tint:#E6EFF8; --accent-tint-2:#F2F7FC;
+  --accent:var(--brand-accent); --accent-hover:var(--brand-accent-hover); --accent-tint:var(--brand-accent-soft); --accent-tint-2:var(--brand-accent-faint);
   --hairline:#E8EAED; --hairline-strong:#D8DCE1; --field-bg:#F2F2F7;
   --success:#1F9254; --success-bg:#E7F4EC; --warning:#B6781E; --warning-bg:#FBF1DF;
   --danger:#C0392B; --danger-bg:#FBEAE7;
@@ -47,7 +47,7 @@
 .task-card{background:#fff;border-radius:var(--r);padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(16,19,29,0.06);
   border:1px solid var(--hairline);cursor:pointer;transition:transform 120ms ease;}
 .task-card-button{display:block;width:100%;text-align:left;font:inherit;color:inherit;}
-.task-card-button:focus-visible{outline:3px solid rgba(27,95,170,.25);outline-offset:2px;}
+.task-card-button:focus-visible{outline:3px solid rgba(var(--brand-accent-rgb),.25);outline-offset:2px;}
 .task-card:active{transform:scale(0.985);}
 .task-card .tc-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
 .task-card .tc-name{font-size:17px;font-weight:600;letter-spacing:-0.01em;}
@@ -103,7 +103,7 @@
 .mfield input{width:100%;font-family:inherit;font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;
   border:1.5px solid var(--hairline-strong);border-radius:var(--r-sm);padding:14px 16px;background:#fff;color:var(--ink);
   -webkit-appearance:none;}
-.mfield input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(27,95,170,0.16);}
+.mfield input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(var(--brand-accent-rgb),0.16);}
 .mfield input::placeholder{color:var(--soft);font-weight:500;}
 .mfield .unit{font-size:13px;color:var(--soft);font-weight:500;margin-top:6px;}
 .mfield-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
@@ -126,7 +126,7 @@
 .evidence-picker{display:grid;gap:10px;padding:0 20px;}
 .evidence-add{display:flex;min-height:84px;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--hairline-strong);border-radius:var(--r-sm);background:#fff;font-size:13px;font-weight:700;color:var(--accent);cursor:pointer;}
 .evidence-add input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
-.evidence-add:focus-within{outline:3px solid rgba(27,95,170,.2);}
+.evidence-add:focus-within{outline:3px solid rgba(var(--brand-accent-rgb),.2);}
 .evidence-file{display:flex;align-items:center;gap:8px;border:1px solid var(--hairline);border-radius:10px;padding:9px 10px;background:#fff;font-size:12px;}
 .evidence-file span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .evidence-file button{display:grid;place-items:center;border:0;background:transparent;color:var(--danger);padding:4px;cursor:pointer;}
@@ -140,7 +140,7 @@
 .running-bar .rb-n .u{font-size:15px;color:var(--slate);margin-left:5px;}
 .running-bar .rb-foot{font-size:12px;color:var(--slate);margin-top:5px;}
 .rb-flash{animation:rbFlash 360ms ease;}
-@keyframes rbFlash{0%{color:#2F84E3;}100%{color:var(--accent);}}
+@keyframes rbFlash{0%{color:var(--brand-accent-hover);}100%{color:var(--accent);}}
 
 /* ---- buttons ---- */
 .mob-cta{padding:14px 20px calc(14px + env(safe-area-inset-bottom));}

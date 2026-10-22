@@ -3,10 +3,12 @@ import { Link, useSearchParams } from "../lib/navigation";
 
 import { AuthCard } from "../components/AuthCard";
 import { ApiError, api } from "../lib/api";
+import { organizationAuthPath } from "../lib/organizationAuth";
 
 export function InvitationAccept() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
+  const [organizationId, setOrganizationId] = useState(searchParams.get("organizationId") || undefined);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -27,7 +29,10 @@ export function InvitationAccept() {
     }
     setBusy(true);
     try {
-      await api.acceptInvitation({ token, name: name.trim(), password });
+      const result = await api.acceptInvitation({ token, name: name.trim(), password });
+      if (result.organizationId) setOrganizationId(result.organizationId);
+      setPassword("");
+      setConfirmPassword("");
       setComplete(true);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "This invitation could not be accepted.");
@@ -40,11 +45,11 @@ export function InvitationAccept() {
     <AuthCard
       title={complete ? "Invitation accepted" : "Join your organization"}
       subtitle={complete
-        ? "Your account is ready. Sign in to access the Vessel Caller workspace."
+        ? "Your account is ready. Sign in to access the NPA Vessel Caller workspace."
         : "Complete your profile and choose a secure password."}
     >
       {complete ? (
-        <Link className="auth-submit auth-submit-link" to="/login">Sign in</Link>
+        <Link className="auth-submit auth-submit-link" to={organizationAuthPath("/login", organizationId)}>Sign in</Link>
       ) : (
         <form onSubmit={submit}>
           {error && <div className="auth-error" role="alert">{error}</div>}

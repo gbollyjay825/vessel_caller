@@ -106,12 +106,18 @@ TEMPLATES = [
 
 DATABASES = {
     "default": database_from_url(
-        env("VC_DATABASE_URL", f"sqlite:///{BASE_DIR / 'vessel_caller.sqlite3'}")
+        env(
+            "VC_DATABASE_URL",
+            "postgresql://vessel_caller:local-development-only@127.0.0.1:5432/vessel_caller",
+        )
     )
 }
 
 AUTH_USER_MODEL = "accounts.User"
 AUTHENTICATION_BACKENDS = ["accounts.backends.EmailBackend"]
+# Email is unique within each organization. Our only configured backend proves
+# the password before resolving an unscoped account, and refuses ambiguity.
+SILENCED_SYSTEM_CHECKS = ["auth.W004"]
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.Argon2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2PasswordHasher",

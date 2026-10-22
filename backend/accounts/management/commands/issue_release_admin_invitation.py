@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import Invitation, User
+from accounts.account_scopes import account_email_unavailable, organization_action_url
 from accounts.security import token_hash
 from accounts.services import opaque_token, queue_email
 from audit.services import record_event
@@ -35,7 +36,7 @@ class Command(BaseCommand):
         name = options["name"].strip()
         if not name:
             raise CommandError("--name must not be blank")
-        if User.objects.filter(email=email).exists():
+        if account_email_unavailable(organization, email):
             raise CommandError("A user with this email already exists")
 
         now = timezone.now()
@@ -59,7 +60,7 @@ class Command(BaseCommand):
             to_email=email,
             subject=f"Join {organization.name} on Vessel Caller",
             template="invitation",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+            context={"actionUrl": organization_action_url(organization, "/accept-invitation", raw)},
             idempotency_key=f"release-admin-invite:{invitation.id}",
             organization=organization,
         )
@@ -97,22 +98,28 @@ class Command(BaseCommand):
     @staticmethod
     def _organization(organization_id: str) -> Organization:
         try:
-            return Organization.objects.select_for_update().get(pk=organization_id)
+            return Organization.objects.select_for_update().get(
+                pk=organization_id,
+                kind=Organization.Kind.CUSTOMER,
+                access_status=Organization.AccessStatus.ACTIVE,
+            )
         except Organization.DoesNotExist as exc:
-            raise CommandError("Organization not found") from exc
+            raise CommandError("Active customer organization not found") from exc
 
     @staticmethod
     def _inviter(organization: Organization, email: str) -> User:
-        inviter = (
-            User.objects.select_for_update()
-            .filter(
+        try:
+            inviter = User.objects.select_for_update().get(
                 organization=organization,
                 email__iexact=email.strip(),
                 role=User.Role.ADMIN,
                 status=User.Status.ACTIVE,
+                password_change_required=False,
+                is_staff=False,
+                is_superuser=False,
             )
-            .first()
-        )
-        if not inviter:
-            raise CommandError("Inviter must be an active Admin in the organization")
+        except User.DoesNotExist as exc:
+            raise CommandError("Inviter must be an active Admin in the organization") from exc
+        except User.MultipleObjectsReturned as exc:
+            raise CommandError("Inviter identity is ambiguous; no changes made") from exc
         return inviter

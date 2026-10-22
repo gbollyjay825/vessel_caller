@@ -37,6 +37,15 @@ describe('measurement API contract', () => {
     await expect(measurementApi.upload('p', oversized)).rejects.toThrow('between 1 byte and 15 MB');
     expect(request).not.toHaveBeenCalled();
   });
+  it('keeps link issuance scoped to the chosen plan and agency and encodes receipt identifiers', async () => {
+    await measurementApi.agencyLinks('p/1');
+    expect(request).toHaveBeenLastCalledWith('/api/measurement-plans/p%2F1/agency-links');
+    await measurementApi.createAgencyLink('p/1', 'a/2', 7);
+    expect(request).toHaveBeenLastCalledWith('/api/measurement-plans/p%2F1/participants/a%2F2/agency-links', { method: 'POST', body: JSON.stringify({ expiryDays: 7 }) });
+    await measurementApi.revokeAgencyLink('p/1', 'l/3');
+    expect(request).toHaveBeenLastCalledWith('/api/measurement-plans/p%2F1/agency-links/l%2F3/revoke', { method: 'POST', body: '{}' });
+    expect(measurementApi.submissionDocumentUrl('p/1', 's/4')).toBe('/api/measurement-plans/p%2F1/submissions/s%2F4/receipt');
+  });
   it('hashes and uploads evidence before registering the immutable file', async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal('fetch', fetch);
     vi.stubGlobal('crypto', { subtle: { digest: vi.fn().mockResolvedValue(new Uint8Array([1, 255]).buffer) } });

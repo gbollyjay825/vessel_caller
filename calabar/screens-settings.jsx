@@ -23,10 +23,23 @@ function Settings({ store }) {
   const set = (path, val) => {
     setForm((f) => {
       const next = JSON.parse(JSON.stringify(f));
-      const keys = path.split('.');
-      let o = next;
-      for (let i = 0; i < keys.length - 1; i++) o = o[keys[i]];
-      o[keys[keys.length - 1]] = val;
+      // Only these fixed settings fields can be updated; never traverse a caller-supplied path.
+      switch (path) {
+        case 'commissionRate': next.commissionRate = val; break;
+        case 'exchangeRate': next.exchangeRate = val; break;
+        case 'dryDuesRate': next.dryDuesRate = val; break;
+        case 'terminals': next.terminals = val; break;
+        case 'liquidDuesRates.government': next.liquidDuesRates.government = val; break;
+        case 'liquidDuesRates.private': next.liquidDuesRates.private = val; break;
+        case 'liquidDuesRates.international': next.liquidDuesRates.international = val; break;
+        case 'smtp.host': next.smtp.host = val; break;
+        case 'smtp.port': next.smtp.port = val; break;
+        case 'smtp.user': next.smtp.user = val; break;
+        case 'smtp.from': next.smtp.from = val; break;
+        case 'sms.sid': next.sms.sid = val; break;
+        case 'sms.from': next.sms.from = val; break;
+        default: return f;
+      }
       return next;
     });
     setDirty(true);

@@ -18,12 +18,12 @@ describe('cargo scope labels', () => {
   });
   it('uses cargo line position when all visible scope attributes repeat', () => {
     const first = measurementFixture().lines[0]; const second = { ...first, id: 'line-2', basis: 'Gross weight' };
-    expect(cargoInputLabel(first, [first, second])).toBe('Wheat · import · line 1');
-    expect(cargoInputLabel(second, [first, second])).toBe('Wheat · import · line 2');
+    expect(cargoInputLabel(first, [first, second])).toBe('Wheat · import · item 1');
+    expect(cargoInputLabel(second, [first, second])).toBe('Wheat · import · item 2');
   });
   it('handles legacy assessment lines without optional scope fields and unknown history references', () => {
     expect(cargoScopeLabel({ description: 'Wheat' })).toBe('');
     expect(cargoLabelForId(measurementFixture().lines, 'line-1')).toBe('Wheat');
-    expect(cargoLabelForId(measurementFixture().lines, 'missing')).toBe('Cargo line');
+    expect(cargoLabelForId(measurementFixture().lines, 'missing')).toBe('Cargo item');
   });
 });

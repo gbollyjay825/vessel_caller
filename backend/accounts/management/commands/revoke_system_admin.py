@@ -54,17 +54,21 @@ class Command(BaseCommand):
         )
         if not platform_organization:
             raise CommandError("Platform organization not found")
-        user = (
-            User.objects.select_for_update()
-            .select_related("organization")
-            .filter(
-                email=options["email"].strip().lower(),
-                organization=platform_organization,
+        try:
+            user = (
+                User.objects.select_for_update()
+                .select_related("organization")
+                .get(
+                    email__iexact=options["email"].strip(),
+                    organization=platform_organization,
+                )
             )
-            .first()
-        )
-        if not user:
-            raise CommandError("System Administrator identity not found")
+        except User.DoesNotExist as exc:
+            raise CommandError("System Administrator identity not found") from exc
+        except User.MultipleObjectsReturned as exc:
+            raise CommandError(
+                "System Administrator identity is ambiguous; no changes made"
+            ) from exc
         grant = (
             PlatformAccessGrant.objects.select_for_update()
             .filter(
@@ -84,6 +88,7 @@ class Command(BaseCommand):
                 role=PlatformAccessGrant.Role.SYSTEM_ADMIN,
                 revoked_at__isnull=True,
                 user__status=User.Status.ACTIVE,
+                user__password_change_required=False,
                 user__email_verified_at__isnull=False,
                 user__organization=platform_organization,
                 user__mfa_enabled_at__isnull=False,
@@ -101,10 +106,15 @@ class Command(BaseCommand):
 
         actor = None
         if options.get("actor_email"):
-            actor = User.objects.filter(
-                email=options["actor_email"].strip().lower(),
-                organization=platform_organization,
-            ).first()
+            try:
+                actor = User.objects.select_for_update().get(
+                    email__iexact=options["actor_email"].strip(),
+                    organization=platform_organization,
+                )
+            except User.DoesNotExist as exc:
+                raise CommandError("Revoking actor identity not found") from exc
+            except User.MultipleObjectsReturned as exc:
+                raise CommandError("Revoking actor identity is ambiguous; no changes made") from exc
             actor_grant = (
                 PlatformAccessGrant.objects.filter(
                     user=actor,

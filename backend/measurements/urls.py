@@ -1,5 +1,24 @@
 from django.urls import include, path
 
+from .agencies import AgenciesView, AgencyDetailView
+from .portal import (
+    AgencyLinksView,
+    CreateAgencyLinkView,
+    RevokeAgencyLinkView,
+    PortalCsrfView,
+    PortalExchangeView,
+    PortalContextView,
+    PortalSubmissionView,
+    PortalReceiptView,
+)
+from .reports import (
+    MeasurementActivityView,
+    SubmissionReceiptView,
+    VoyageReadingsView,
+    VoyageReadingsDocumentView,
+)
+
+
 from .views import (
     ApprovalView,
     AssessmentView,
@@ -47,4 +66,31 @@ urlpatterns = [
         name="measurement-issue",
     ),
     path("", include("measurements.evidence_urls")),
+]
+
+
+urlpatterns += [
+    path("measurement-activity", MeasurementActivityView.as_view()),
+    path("agencies", AgenciesView.as_view()),
+    path("agencies/<str:agency_id>", AgencyDetailView.as_view()),
+    path("measurement-plans/<str:plan_id>/agency-links", AgencyLinksView.as_view()),
+    path(
+        "measurement-plans/<str:plan_id>/participants/<str:participant_id>/agency-links",
+        CreateAgencyLinkView.as_view(),
+    ),
+    path(
+        "measurement-plans/<str:plan_id>/agency-links/<str:link_id>/revoke",
+        RevokeAgencyLinkView.as_view(),
+    ),
+    path(
+        "measurement-plans/<str:plan_id>/submissions/<str:submission_id>/receipt",
+        SubmissionReceiptView.as_view(),
+    ),
+    path("voyages/<str:call_id>/readings", VoyageReadingsView.as_view()),
+    path("voyages/<str:call_id>/readings/document", VoyageReadingsDocumentView.as_view()),
+    path("agency-portal/csrf", PortalCsrfView.as_view()),
+    path("agency-portal/exchange", PortalExchangeView.as_view()),
+    path("agency-portal/context", PortalContextView.as_view()),
+    path("agency-portal/submission", PortalSubmissionView.as_view()),
+    path("agency-portal/receipt", PortalReceiptView.as_view()),
 ]

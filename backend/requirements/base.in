@@ -14,3 +14,7 @@ redis==6.4.0
 reportlab==4.4.3
 uritemplate==4.2.0
 whitenoise==6.9.0
+
+# Pin security fixes for report rendering and outbound TLS trust.
+pillow==13.0.0
+certifi==2026.10.19

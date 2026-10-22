@@ -15,6 +15,8 @@ import {
   type LoginResult,
   type MfaChallenge,
   type RegisterPayload,
+  type TemporaryPasswordChallenge,
+  type PasswordChangeResult,
 } from "../lib/api";
 import { clearQueuedInspectionsForOwner } from "../lib/offlineQueue";
 import {
@@ -96,7 +98,9 @@ interface AuthValue {
   authError: string | null;
   sessionExpired: boolean;
   homePath: "/app" | "/app/account" | "/system" | "/system/account";
-  login: (email: string, password: string) => Promise<LoginResult>;
+  passwordChangeChallenge: TemporaryPasswordChallenge | null;
+  completeTemporaryPassword: (password: string) => Promise<PasswordChangeResult>;
+  login: (email: string, password: string, organizationId?: string) => Promise<LoginResult>;
   verifyMfa: (challengeId: string, code: string) => Promise<AuthSession>;
   register: (data: RegisterPayload) => Promise<{ detail: string; approvalRequired: boolean }>;
   logout: () => Promise<void>;
@@ -128,6 +132,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [permissions, setPermissions] = useState<string[]>([]);
   const [authError, setAuthError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  // This limited challenge is held only in memory. It grants no app access.
+  const [passwordChangeChallenge, setPasswordChangeChallenge] = useState<TemporaryPasswordChallenge | null>(null);
+  const passwordChangeChallengeRef = useRef<TemporaryPasswordChallenge | null>(null);
   const identityRef = useRef<string | null>(null);
   const authGenerationRef = useRef(0);
   const identityIntentRef = useRef(0);
@@ -196,6 +203,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     identityIntentRef.current += 1;
     clearAuthenticatedQueryCache();
     identityRef.current = null;
+    passwordChangeChallengeRef.current = null;
+    setPasswordChangeChallenge(null);
     setUser(null);
     setOrgState(null);
     setPlatformAccess(null);
@@ -215,6 +224,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (identityRef.current && identityRef.current !== session.user.id) {
       clearAuthenticatedQueryCache();
     }
+    passwordChangeChallengeRef.current = null;
+    setPasswordChangeChallenge(null);
     identityRef.current = session.user.id;
     setUser(session.user);
     setOrgState(session.org);
@@ -417,7 +428,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [platformAccess?.assuranceExpiresAt, platformAccess?.stepUpRequired]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, organizationId?: string) => {
+    passwordChangeChallengeRef.current = null;
+    setPasswordChangeChallenge(null);
     const request = beginIdentityRequest();
     // A late Django logout response can expire whichever session cookie the
     // browser currently holds. Do not start a new login until that response
@@ -427,8 +440,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new DOMException("The sign-in attempt was superseded", "AbortError");
     }
     try {
-      const result = await api.login(email, password);
-      if (isMfaChallenge(result)) {
+      const result = await api.login(email, password, organizationId);
+      if ("passwordChangeRequired" in result) {
+        if (authGenerationRef.current !== request.generation) {
+          throw new DOMException("The sign-in attempt was superseded", "AbortError");
+        }
+        clearSessionState(false);
+        passwordChangeChallengeRef.current = result;
+        setPasswordChangeChallenge(result);
+      } else if ("organizationSelectionRequired" in result) {
+        if (authGenerationRef.current !== request.generation) {
+          throw new DOMException("The sign-in attempt was superseded", "AbortError");
+        }
+        clearSessionState(false);
+      } else if (isMfaChallenge(result)) {
         settleIdentityAttemptWithoutSession(request.generation);
       } else {
         if (!commitIdentitySession(result, request.generation)) await reconcileExternalSession();
@@ -440,11 +465,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [
     beginIdentityRequest,
+    clearSessionState,
     commitIdentitySession,
     rebaseIdentityRequest,
     reconcileExternalSession,
     settleIdentityAttemptWithoutSession,
   ]);
+
+  const completeTemporaryPassword = useCallback(async (password: string) => {
+    const challenge = passwordChangeChallengeRef.current;
+    if (!challenge) throw new ApiError("Sign in with your temporary password again to continue.", 400);
+    const request = beginIdentityRequest();
+    await logoutBarrierRef.current;
+    if (!rebaseIdentityRequest(request) || passwordChangeChallengeRef.current !== challenge) {
+      throw new DOMException("The password change was superseded", "AbortError");
+    }
+    try {
+      const result = await api.completeTemporaryPassword(challenge.passwordChangeToken, password);
+      if (authGenerationRef.current !== request.generation) {
+        await reconcileExternalSession();
+        throw new DOMException("The password change was superseded", "AbortError");
+      }
+      passwordChangeChallengeRef.current = null;
+      setPasswordChangeChallenge(null);
+      if (isMfaChallenge(result)) settleIdentityAttemptWithoutSession(request.generation);
+      else commitIdentitySession(result, request.generation);
+      return result;
+    } catch (error) {
+      settleIdentityAttemptWithoutSession(request.generation);
+      throw error;
+    }
+  }, [beginIdentityRequest, commitIdentitySession, rebaseIdentityRequest, reconcileExternalSession, settleIdentityAttemptWithoutSession]);
 
   const verifyMfa = useCallback(async (challengeId: string, code: string) => {
     const request = beginIdentityRequest();
@@ -519,6 +570,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionExpired,
     homePath,
     login,
+    passwordChangeChallenge,
+    completeTemporaryPassword,
     verifyMfa,
     register,
     logout,
@@ -536,6 +589,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionExpired,
     homePath,
     login,
+    passwordChangeChallenge,
+    completeTemporaryPassword,
     verifyMfa,
     register,
     logout,

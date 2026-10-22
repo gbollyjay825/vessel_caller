@@ -1,0 +1,11 @@
+# NPA favicon on staging — 12 October 2026
+
+Installed frontend-only overlay `npa-favicon-20261012T220408Z` at [staging](https://staging.vesselcalls.com). Browser, Apple touch and installed-app icons now use the coat of arms cropped from the existing official NPA artwork. The complete source logo remains unchanged; provenance is recorded in `frontend/public/branding/README.md`.
+
+Favicon source commit: `de2633770706449dd685323929c6e5aff88e8c36`. The production frontend build, image-format/reference checks, small-size visual inspection and whitespace checks passed. The package starts with the independently signature- and checksum-verified frontend from signed release `v0.2.2-staging.20261012T2113`, source `65aa3618e60ffac60221c9cf1611ff6c2a309044`. Its application JavaScript, CSS, service worker and all non-allowlisted files remain byte-identical. Only icon assets, favicon references, icon manifest entries, provenance and overlay metadata changed.
+
+Overlay archive SHA256: `492fd6298a6e16c55cb1a8cfd1e6a8be7ce33f53936af95c6c27235a30c0a01c`. The metadata distinguishes the signed application bundle from the favicon source commit; this overlay is not a new signed backend release. All 15 checksum entries and the exact favicon-only change scope passed before the atomic static-symlink switch. Outside HTTPS responses for the metadata, icons, manifest and unchanged JavaScript/CSS matched the installed files. The original Admin reloaded the live workspace successfully after deployment.
+
+Current static target: `/opt/vessel-caller/frontend-releases/staging/npa-favicon-20261012T220408Z/dist`. Recorded rollback target: `/opt/vessel-caller/releases/v0.2.2-staging.20261012T2113/staging/frontend/dist`. Rollback must hold the release lock and change only `frontend-current` after verifying the current target.
+
+Backend readiness remains `v0.2.2-staging.20261012T2113` / `65aa3618e60ffac60221c9cf1611ff6c2a309044`. Web, worker and Nginx PIDs stayed `145334`, `145320` and `18608`; all three Nginx configuration hashes remained unchanged. No service reload, restart, migration or database operation occurred. Every SSH session used the pinned FlexSchools connector. Production was not deployed.

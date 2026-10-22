@@ -108,7 +108,7 @@ async function installCustomerEnrollmentSession(page: Page, role: "Admin" | "Fin
       mfaEnabled: enrolled,
       mfaEnrollmentRequired: !enrolled,
     },
-    permissions: enrolled ? ["organization.view", "calls.view", "analytics.view"] : [],
+    permissions: enrolled ? ["organization.view", "calls.view", "measurements.view", "analytics.view"] : [],
   });
 
   // Every API request stays inside this fixture. The blocked state endpoint
@@ -172,6 +172,10 @@ async function installCustomerEnrollmentSession(page: Page, role: "Admin" | "Fin
           throughput: 0, liquidT: 0, dryT: 0, revenue: 0, liquidR: 0, dryR: 0,
           invoiced: 0, collected: 0, outstanding: 0, calls: 0,
         } });
+      case "/api/measurement-plans":
+        return enrolled
+          ? json({ plans: [] })
+          : json({ detail: "You do not have permission to perform this action." }, 403);
       case "/api/poll":
         return json({ changed: false, rev: 1 });
       default:
@@ -217,22 +221,22 @@ for (const role of ["Admin", "Finance"] as const) {
     // The session refresh restores permissions. It must not redirect or remount
     // this page before the customer can save their one-time recovery codes.
     await expect.poll(() => requests.refreshedSession).toBeGreaterThan(0);
-    await expect(authenticator.getByText("Two-factor authentication protects this account at sign-in.")).toBeVisible();
+    await expect(authenticator.getByText("Your authenticator protects this account at sign-in.")).toBeVisible();
     await expect(page).toHaveURL(/\/app\/account$/);
-    await expect(page.getByText("Save these recovery codes now")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Save your recovery codes", exact: true })).toBeVisible();
     for (const code of recoveryCodes) await expect(page.getByText(code, { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Copy codes" })).toBeVisible();
     expect(requests.setup).toBe(1);
     expect(requests.confirm).toBe(1);
     expect(requests.state).toBe(0);
 
-    const analyticsResponse = page.waitForResponse((response) => (
-      new URL(response.url()).pathname === "/api/analytics"
+    const measurementsResponse = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === "/api/measurement-plans"
     ));
     await page.getByRole("link", { name: "Open workspace", exact: true }).click();
-    await expect(page).toHaveURL(/\/app$/);
-    await expect(page.getByRole("heading", { name: "No vessel calls yet" })).toBeVisible();
-    expect((await analyticsResponse).ok()).toBe(true);
+    await expect(page).toHaveURL(/\/app\/dashboard$/);
+    await expect(page.getByRole("heading", { name: "Start with the owner’s declaration", exact: true })).toBeVisible();
+    expect((await measurementsResponse).ok()).toBe(true);
     expect(requests.state).toBeGreaterThan(0);
     expect(requests.unexpected).toEqual([]);
   });

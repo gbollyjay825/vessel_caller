@@ -16,6 +16,7 @@ from billing.services import active_default_step, transition_invoice
 from organizations.models import OrganizationSettings
 
 from .models import (
+    Agency,
     AssessmentLine,
     CargoLine,
     DisparityAssessment,
@@ -120,10 +121,18 @@ def validate_lines(plan, data):
 
 def create_structure(plan, data):
     for item in data.get("participants", []):
+        agency = None
+        if item.get("agencyId"):
+            agency = Agency.objects.filter(
+                pk=item["agencyId"], organization_id=plan.organization_id, active=True
+            ).first()
+            if not agency:
+                raise ValidationError({"agencyId": "Choose an active agency in this organization"})
         Participant.objects.create(
             plan=plan,
-            name=item["name"],
-            role=item["role"],
+            agency=agency,
+            name=agency.name if agency else item["name"],
+            role=agency.role if agency else item["role"],
             representative=item["representative"],
             required_submission=item["requiredSubmission"],
             required_approval=item["requiredApproval"],
@@ -186,7 +195,7 @@ def ensure_billable_final(plan, reconciliation):
         raise Conflict("Billing requires the latest final reconciliation with no newer draft")
 
 
-def create_submission(plan, data, request):
+def create_submission(plan, data, request, *, guest=False):
     check_version(plan, data["version"])
     latest_reconciliation = plan.reconciliations.order_by("-revision").first()
     if latest_reconciliation and latest_reconciliation.status == "final":
@@ -196,7 +205,7 @@ def create_submission(plan, data, request):
     if previous and not data["reason"]:
         raise ValidationError({"reason": "A revision reason is required"})
     validate_lines(plan, data["lines"])
-    evidence = validate_evidence(plan, data["evidenceIds"], required=True)
+    evidence = validate_evidence(plan, data["evidenceIds"])
     submission = MeasurementSubmission.objects.create(
         plan=plan,
         participant=participant,
@@ -205,7 +214,14 @@ def create_submission(plan, data, request):
         source_reference=data["sourceReference"],
         notes=data["notes"],
         reason=data["reason"],
-        recorded_by=request.user,
+        snapshot={
+            "plan": plan_context(plan),
+            "participant": participant_data(participant),
+            "lines": [cargo_line_data(line) for line in plan.lines.all()],
+        },
+        recorded_by=None if guest else request.user,
+        source="agency-link" if guest else "staff",
+        representative=data.get("representative", participant.representative),
     )
     submission.evidence.set(evidence)
     for item in data["lines"]:
@@ -315,9 +331,6 @@ def finalize_reconciliation(plan, reconciliation, data, request):
             or not approval.evidence.exists()
         ):
             raise Conflict("Supporting acknowledgement evidence is missing or stale")
-    for submission in reconciliation.submissions.all():
-        if not submission.evidence.exists():
-            raise ValidationError("Every stakeholder return requires supporting evidence")
     for previous in plan.reconciliations.filter(status="final"):
         previous.status = "superseded"
         previous.save(update_fields=("status",))

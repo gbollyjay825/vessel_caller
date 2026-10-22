@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
+from django.db.models.functions import Lower
 
 
 def measurement_id():
@@ -68,9 +69,31 @@ class MeasurementPlan(models.Model):
         ordering = ("-scheduled_at", "id")
 
 
+class Agency(models.Model):
+    id = models.CharField(primary_key=True, max_length=32, default=measurement_id)
+    organization = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT)
+    name = models.CharField(max_length=255)
+    role = models.CharField(max_length=100)
+    representative = models.CharField(max_length=255, blank=True)
+    active = models.BooleanField(default=True)
+    version = models.PositiveIntegerField(default=1)
+    created_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("name", "id")
+        constraints = [
+            models.UniqueConstraint(
+                Lower("name"), Lower("role"), "organization", name="agency_org_name_role_unique"
+            ),
+        ]
+
+
 class Participant(models.Model):
     id = models.CharField(primary_key=True, max_length=32, default=measurement_id)
     plan = models.ForeignKey(MeasurementPlan, on_delete=models.CASCADE, related_name="participants")
+    agency = models.ForeignKey(Agency, on_delete=models.PROTECT, null=True, blank=True)
     name = models.CharField(max_length=255)
     role = models.CharField(max_length=100)
     representative = models.CharField(max_length=255, blank=True)
@@ -135,9 +158,14 @@ class MeasurementSubmission(ImmutableRecord):
     notes = models.TextField(blank=True)
     reason = models.TextField(blank=True)
     recorded_by = models.ForeignKey(
-        "accounts.User", on_delete=models.PROTECT, related_name="measurement_submissions"
+        "accounts.User", on_delete=models.PROTECT, null=True, related_name="measurement_submissions"
     )
     recorded_at = models.DateTimeField(auto_now_add=True)
+    representative = models.CharField(max_length=255, blank=True)
+    snapshot = models.JSONField(default=dict)
+    source = models.CharField(
+        max_length=20, default="staff", choices=[("staff", "staff"), ("agency-link", "agency-link")]
+    )
     evidence = models.ManyToManyField(MeasurementEvidence, related_name="submissions")
 
     class Meta:
@@ -145,7 +173,17 @@ class MeasurementSubmission(ImmutableRecord):
         constraints = [
             models.UniqueConstraint(
                 fields=("participant", "revision"), name="measurement_unique_submission_revision"
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(source="staff", recorded_by__isnull=False)
+                    | (
+                        models.Q(source="agency-link", recorded_by__isnull=True)
+                        & ~models.Q(representative="")
+                    )
+                ),
+                name="measurement_submission_actor_source",
+            ),
         ]
 
 
@@ -338,3 +376,41 @@ class AssessmentLine(ImmutableRecord):
                 fields=("assessment", "line"), name="measurement_unique_assessed_line"
             )
         ]
+
+
+class AgencyLink(models.Model):
+    """A scoped bearer invitation; raw link secrets are never stored."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=measurement_id)
+    participant = models.ForeignKey(
+        Participant, on_delete=models.PROTECT, related_name="agency_links"
+    )
+    token_digest = models.CharField(max_length=64, unique=True)
+    input_fingerprint = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True)
+    created_by = models.ForeignKey("accounts.User", on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+    submission = models.OneToOneField(MeasurementSubmission, on_delete=models.PROTECT, null=True)
+    request_id = models.CharField(max_length=100, blank=True)
+    request_digest = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("participant",),
+                condition=models.Q(revoked_at__isnull=True),
+                name="measurement_single_current_agency_link",
+            )
+        ]
+
+
+class AgencyPortalSession(models.Model):
+    """Separate browser context per agency without signing in or changing staff identity."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=measurement_id)
+    link = models.ForeignKey(AgencyLink, on_delete=models.CASCADE)
+    browser_digest = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)

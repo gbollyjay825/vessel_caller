@@ -87,13 +87,14 @@ def _system_organization_counts(organization) -> dict:
         "userCount": annotated_or_count("user_count", organization.users),
         "activeUserCount": annotated_or_count(
             "active_user_count",
-            organization.users.filter(status=User.Status.ACTIVE),
+            organization.users.filter(status=User.Status.ACTIVE, password_change_required=False),
         ),
         "adminCount": annotated_or_count(
             "admin_count",
             organization.users.filter(
                 role=User.Role.ADMIN,
                 status=User.Status.ACTIVE,
+                password_change_required=False,
                 email_verified_at__isnull=False,
                 is_staff=False,
                 is_superuser=False,

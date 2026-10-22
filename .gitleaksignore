@@ -1,0 +1,3 @@
+# Reviewed false positive: Python key type union, with no credential or literal value.
+# Exact historical finding only; file, rule and all other history remain scanned.
+bc02b11f948a72a549dccf4453a4c7ce428c2547:backend/scripts/release_signing.py:generic-api-key:25

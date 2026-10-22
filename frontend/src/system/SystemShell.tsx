@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { useAuth, type Permission } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
+import { ProductBrand } from "../components/ProductBrand";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { Link, Navigate, NavLink, useLocation } from "../lib/navigation";
 import { userInitials } from "../lib/format";
@@ -93,8 +94,7 @@ export function SystemShell({ children }: { children: ReactNode }) {
     <div className="app system-app">
       <nav className={`sidebar system-sidebar ${mobileOpen ? "open" : ""}`} aria-label="System administration">
         <div className="sb-brand">
-          <div className="sb-mark"><Icon name="anchor" size={19} strokeWidth={2} /></div>
-          <div className="sb-wordmark">Vessel Caller<span>Platform administration</span></div>
+          <ProductBrand className="sb-product-brand" subtitle="Platform administration" />
         </div>
         <div className="sb-nav scroll-host">
           <div className="sb-nav-label">Control plane</div>

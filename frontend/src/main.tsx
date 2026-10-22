@@ -6,6 +6,8 @@ import { initializeFrontendMonitoring } from "./lib/sentry";
 import "./index.css";
 import "./styles/app.css";
 import "./styles/landing.css";
+import "./styles/user-management.css";
+import "./styles/organization-access.css";
 
 // Runtime configuration is intentionally asynchronous so the same immutable
 // bundle can be promoted unchanged. Monitoring failure never blocks rendering.

@@ -54,6 +54,7 @@ def queue_organization_notice(
 
     recipients = organization.users.filter(
         status=User.Status.ACTIVE,
+        password_change_required=False,
         role__in=tuple(recipient_roles),
     )
     if actor is not None:

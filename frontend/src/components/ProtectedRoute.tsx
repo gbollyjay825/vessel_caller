@@ -18,6 +18,7 @@ export function ProtectedRoute({
     authError,
     retrySession,
     sessionExpired,
+    passwordChangeChallenge,
   } = useAuth();
   const location = useLocation();
   if (status === "loading") {
@@ -39,6 +40,7 @@ export function ProtectedRoute({
       </div>
     );
   }
+  if (passwordChangeChallenge) return <Navigate to="/change-temporary-password" replace />;
   if (status === "anonymous") {
     return (
       <Navigate

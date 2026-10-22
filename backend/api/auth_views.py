@@ -6,7 +6,6 @@ from datetime import timedelta
 
 import pyotp
 from django.conf import settings
-from django.contrib.auth import authenticate
 from django.core.cache import cache
 from django.db import transaction
 from django.middleware.csrf import get_token
@@ -20,8 +19,15 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from accounts.models import ActionToken, MFAChallenge, User
+from accounts.account_scopes import (
+    account_email_unavailable,
+    bounded_account_candidates,
+    organization_action_url,
+)
+from accounts.backends import EmailBackend
 from accounts.notifications import queue_security_notice
 from accounts.platform_access import platform_access_data
+from accounts.temporary_passwords import complete_temporary_password, temporary_password_challenge
 from accounts.security import (
     consume_action_token,
     decrypt_secret,
@@ -32,6 +38,7 @@ from accounts.security import (
     issue_action_token,
     use_recovery_code,
     verify_totp,
+    verify_password_compat,
 )
 from accounts.services import (
     MFA_FAILURE_LIMIT,
@@ -60,6 +67,7 @@ from .serializers import (
     RegisterSerializer,
     ResetPasswordSerializer,
     TokenSerializer,
+    TemporaryPasswordCompleteSerializer,
     organization_data,
     user_data,
 )
@@ -81,10 +89,6 @@ def session_payload(user: User, *, request=None) -> dict:
         "permissions": effective_permissions(user),
         "platformAccess": platform_access_data(user, request=request),
     }
-
-
-def _url(path: str, token: str) -> str:
-    return f"{settings.FRONTEND_URL}{path}?token={token}"
 
 
 AUTH_RATE_WINDOW_SECONDS = 15 * 60
@@ -203,10 +207,12 @@ class RegisterView(APIView):
         email = data["email"].strip().lower()
         if not _consume_public_budget("register", email, request, account_limit=5, ip_limit=20):
             return Response(response_data, status=status.HTTP_202_ACCEPTED)
-        if User.objects.filter(email=email).exists():
+        if User.objects.filter(email__iexact=email).exists():
             # Keep the result indistinguishable from a first registration.
             # A fresh link is requested through the dedicated resend endpoint,
             # rather than turning registration into an email-spam oracle.
+            # A public registration cannot create additional organizations for
+            # an existing address; organization Admins add extra scoped access.
             return Response(response_data, status=status.HTTP_202_ACCEPTED)
         organization = Organization.objects.create(
             access_status=Organization.AccessStatus.PENDING_APPROVAL,
@@ -246,7 +252,7 @@ class RegisterView(APIView):
             to_email=email,
             subject="Verify your Vessel Caller account",
             template="verify_email",
-            context={"actionUrl": _url("/verify-email", raw)},
+            context={"actionUrl": organization_action_url(user.organization, "/verify-email", raw)},
             idempotency_key=f"verify:{token_obj.id}",
             organization=organization,
             allow_pending_approval_organization=True,
@@ -286,7 +292,7 @@ class VerifyEmailView(APIView):
         now = timezone.now()
         if token_obj.metadata.get("pendingEmail"):
             pending = token_obj.metadata["pendingEmail"].lower()
-            if User.objects.exclude(pk=user.pk).filter(email=pending).exists():
+            if account_email_unavailable(user.organization, pending, exclude_user_id=user.pk):
                 raise ValidationError({"token": ["That email address is no longer available"]})
             before = {"email": user.email}
             previous_email = user.email
@@ -345,6 +351,7 @@ class VerifyEmailView(APIView):
                     else "Email verified"
                 ),
                 "approvalPending": approval_pending,
+                "organizationId": user.organization_id,
             }
         )
 
@@ -365,17 +372,20 @@ class ResendVerificationView(APIView):
                 {"detail": "If the account is pending, a new link has been sent"},
                 status=status.HTTP_202_ACCEPTED,
             )
-        user = User.objects.filter(
-            email=email,
-            email_verified_at__isnull=True,
-            organization__access_status__in=(
-                Organization.AccessStatus.PENDING_APPROVAL,
-                Organization.AccessStatus.ACTIVE,
+        users = bounded_account_candidates(
+            User.objects.filter(
+                email=email,
+                email_verified_at__isnull=True,
+                organization__access_status__in=(
+                    Organization.AccessStatus.PENDING_APPROVAL,
+                    Organization.AccessStatus.ACTIVE,
+                ),
+                is_staff=False,
+                is_superuser=False,
             ),
-            is_staff=False,
-            is_superuser=False,
-        ).first()
-        if user:
+            serializer.validated_data.get("organizationId"),
+        )
+        for user in users:
             try:
                 token_obj, raw = issue_action_token(
                     user,
@@ -388,9 +398,13 @@ class ResendVerificationView(APIView):
             else:
                 queue_email(
                     to_email=user.email,
-                    subject="Verify your Vessel Caller account",
+                    subject=f"Verify your Vessel Caller account for {user.organization.name}",
                     template="verify_email",
-                    context={"actionUrl": _url("/verify-email", raw)},
+                    context={
+                        "actionUrl": organization_action_url(
+                            user.organization, "/verify-email", raw
+                        )
+                    },
                     idempotency_key=f"verify:{token_obj.id}",
                     organization=user.organization,
                     allow_pending_approval_organization=True,
@@ -406,6 +420,7 @@ class LoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @transaction.atomic
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -415,12 +430,72 @@ class LoginView(APIView):
         ip_attempt = _increment_rate_key(ip_key)
         if account_attempt > 8 or ip_attempt > 24:
             raise Unauthorized("Too many attempts. Try again later")
-        user = authenticate(
-            request,
+        accounts = EmailBackend.password_proven_accounts(
+            email,
+            serializer.validated_data["password"],
+            organization_id=serializer.validated_data.get("organizationId"),
+            include_temporary=True,
+            product_login=True,
+        )
+        if not accounts:
+            raise Unauthorized("Invalid email or password")
+        if len(accounts) > 1:
+            # Organization names are revealed only after proving the password
+            # for each offered account. No session/MFA/action token is created;
+            # selection resubmits credentials and is checked from scratch.
+            end_current_session(request)
+            _decrement_rate_key(account_key)
+            _decrement_rate_key(ip_key)
+            response = Response(
+                {
+                    "organizationSelectionRequired": True,
+                    "organizations": [
+                        {"id": user.organization_id, "name": user.organization.name}
+                        for user in accounts
+                    ],
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+            response["Cache-Control"] = "no-store"
+            response["Pragma"] = "no-cache"
+            return response
+        selected = accounts[0]
+        temporary = temporary_password_challenge(
             email=email,
             password=serializer.validated_data["password"],
+            request=request,
+            organization_id=selected.organization_id,
         )
-        if not user or user.is_staff or user.is_superuser or not user.email_verified_at:
+        if temporary:
+            challenge, raw = temporary
+            # Do not retain a different identity's workspace session while the
+            # browser is completing this limited first-sign-in challenge.
+            end_current_session(request)
+            _decrement_rate_key(account_key)
+            _decrement_rate_key(ip_key)
+            response = Response(
+                {
+                    "passwordChangeRequired": True,
+                    "passwordChangeToken": raw,
+                    "passwordChangeExpiresAt": challenge.expires_at.isoformat(),
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+            response["Cache-Control"] = "no-store"
+            response["Pragma"] = "no-cache"
+            return response
+        # A temporary credential can only produce its restricted challenge.
+        # A concurrent regeneration/completion must never turn a stale match
+        # into a normal login with the previous temporary password.
+        if selected.password_change_required:
+            raise Unauthorized("Invalid email or password")
+        try:
+            user = lock_active_account(selected)
+        except InactiveAccountError as exc:
+            raise Unauthorized("Invalid email or password") from exc
+        if not verify_password_compat(user, serializer.validated_data["password"]):
+            raise Unauthorized("Invalid email or password")
+        if not user or user.is_staff or user.is_superuser or not user.login_identity_approved:
             raise Unauthorized("Invalid email or password")
         _decrement_rate_key(account_key)
         _decrement_rate_key(ip_key)
@@ -446,6 +521,42 @@ class LoginView(APIView):
             request=request,
         )
         return Response(session_payload(user, request=request))
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class CompleteTemporaryPasswordView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @transaction.atomic
+    def post(self, request):
+        serializer = TemporaryPasswordCompleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = complete_temporary_password(
+            raw=serializer.validated_data["token"],
+            password=serializer.validated_data["password"],
+            request=request,
+        )
+        if user.mfa_enabled:
+            challenge = start_mfa_challenge(user)
+            response = Response(
+                {"mfaRequired": True, "challengeId": challenge.id},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        else:
+            start_session(request, user)
+            record_identity_event(
+                organization=user.organization,
+                actor=user,
+                action="session.login",
+                target=user,
+                target_label=user.email,
+                request=request,
+            )
+            response = Response(session_payload(user, request=request))
+        response["Cache-Control"] = "no-store"
+        response["Pragma"] = "no-cache"
+        return response
 
 
 @method_decorator(csrf_protect, name="dispatch")
@@ -558,14 +669,18 @@ class ForgotPasswordView(APIView):
                 {"detail": "If the account exists, reset instructions have been sent"},
                 status=status.HTTP_202_ACCEPTED,
             )
-        user = User.objects.filter(
-            email=email,
-            status=User.Status.ACTIVE,
-            organization__access_status=Organization.AccessStatus.ACTIVE,
-            is_staff=False,
-            is_superuser=False,
-        ).first()
-        if user:
+        users = bounded_account_candidates(
+            User.objects.filter(
+                email=email,
+                status=User.Status.ACTIVE,
+                password_change_required=False,
+                organization__access_status=Organization.AccessStatus.ACTIVE,
+                is_staff=False,
+                is_superuser=False,
+            ),
+            serializer.validated_data.get("organizationId"),
+        )
+        for user in users:
             try:
                 token_obj, raw = issue_action_token(user, ActionToken.Kind.RESET_PASSWORD, hours=1)
             except InactiveActionTarget:
@@ -573,9 +688,13 @@ class ForgotPasswordView(APIView):
             else:
                 queue_email(
                     to_email=user.email,
-                    subject="Reset your Vessel Caller password",
+                    subject=f"Reset your Vessel Caller password for {user.organization.name}",
                     template="reset_password",
-                    context={"actionUrl": _url("/reset-password", raw)},
+                    context={
+                        "actionUrl": organization_action_url(
+                            user.organization, "/reset-password", raw
+                        )
+                    },
                     idempotency_key=f"reset:{token_obj.id}",
                     organization=user.organization,
                 )
@@ -604,6 +723,8 @@ class ResetPasswordView(APIView):
             .select_related("organization")
             .get(pk=token_obj.user_id)
         )
+        if user.password_change_required:
+            raise ValidationError({"token": ["This reset link is invalid or expired"]})
         platform_setup = bool(token_obj.metadata.get("platformSetup"))
         if platform_setup:
             from accounts.platform_access import active_platform_grant
@@ -638,7 +759,7 @@ class ResetPasswordView(APIView):
             target_label=user.email,
             request=request,
         )
-        return Response({"detail": "Password reset"})
+        return Response({"detail": "Password reset", "organizationId": user.organization_id})
 
 
 @method_decorator(csrf_protect, name="dispatch")
@@ -705,7 +826,7 @@ class ProfileView(APIView):
                 raise ValidationError(
                     {"currentPassword": ["Current password is required to change your email"]}
                 )
-            if User.objects.exclude(pk=user.pk).filter(email=new_email).exists():
+            if account_email_unavailable(user.organization, new_email, exclude_user_id=user.pk):
                 raise ValidationError({"email": ["That email address is already in use"]})
             user.pending_email = new_email
             try:
@@ -723,7 +844,9 @@ class ProfileView(APIView):
                 to_email=new_email,
                 subject="Verify your new Vessel Caller email",
                 template="verify_email",
-                context={"actionUrl": _url("/verify-email", raw)},
+                context={
+                    "actionUrl": organization_action_url(user.organization, "/verify-email", raw)
+                },
                 idempotency_key=f"verify:{token_obj.id}",
                 organization=user.organization,
             )

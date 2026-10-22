@@ -33,6 +33,9 @@ def user_data(user: User) -> dict:
         "status": user.status,
         "active": user.is_active,
         "emailVerified": bool(user.email_verified_at),
+        "adminProvisioned": bool(user.admin_provisioned_at),
+        "passwordChangeRequired": user.password_change_required,
+        "temporaryPasswordExpiresAt": iso(user.temporary_password_expires_at),
         "mfaEnabled": user.mfa_enabled,
         "mfaGraceEndsAt": iso(user.mfa_grace_ends_at),
         "mfaEnrollmentRequired": user.mfa_enrollment_required,
@@ -373,6 +376,7 @@ class RegisterSerializer(serializers.Serializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(trim_whitespace=False)
+    organizationId = serializers.CharField(max_length=32, required=False, allow_blank=False)
 
 
 class TokenSerializer(serializers.Serializer):
@@ -381,6 +385,7 @@ class TokenSerializer(serializers.Serializer):
 
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    organizationId = serializers.CharField(max_length=32, required=False, allow_blank=False)
 
 
 class ResetPasswordSerializer(TokenSerializer):
@@ -396,6 +401,17 @@ class InvitationCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
     email = serializers.EmailField()
     role = serializers.ChoiceField(choices=User.Role.values)
+
+
+class TemporaryPasswordCreateSerializer(InvitationCreateSerializer):
+    replacePendingInvitation = serializers.BooleanField(
+        source="replace_pending_invitation", default=False
+    )
+
+
+class TemporaryPasswordCompleteSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=256, trim_whitespace=False)
+    password = PasswordField(max_length=128)
 
 
 class InvitationAcceptSerializer(TokenSerializer):

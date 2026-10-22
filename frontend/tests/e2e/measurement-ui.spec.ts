@@ -6,6 +6,7 @@ import { measurementFixture } from "../../src/measurements/fixtures.test-support
 import { guestContext } from "../../src/measurements/guest.test-support";
 import type { GuestReadingInput } from "../../src/measurements/guestTypes";
 import type { Evidence, MeasurementPlan, PlanInput, ReconciliationInput, SubmissionInput } from "../../src/measurements/types";
+import type { AgencyProfile } from "../../src/measurements/agencyDirectory";
 import type { AppState, AuthSession, VesselCall } from "../../src/types";
 
 test.skip(process.env.PLAYWRIGHT_REAL_BACKEND === "1", "These presentation checks use an isolated mocked API.");
@@ -27,12 +28,10 @@ async function installMeasurementApi(page: Page, initialPlan = measurementFixtur
   const state: AppState = { rev: 1, org, calls, inspections: [], invoices: [], invoiceStatusSteps: [], settings: { commissionRate: 0.2, exchangeRate: 1500, liquidDuesRates: { government: 1, private: 2, international: 3 }, dryDuesRate: 1, portName: "Port of Calabar", terminals: [] } };
   const session: AuthSession = { user, org, permissions: ["organization.view", "calls.view", "measurements.view", "measurements.manage", "invoices.view", "evidence.manage", ...(options.admin ? ["settings.view", "settings.manage"] : [])], platformAccess: null };
 
-  if (options.seedAgencies !== false) await page.addInitScript(() => {
-    localStorage.setItem("vessel-caller:agency-directory:v1:org-1", JSON.stringify({ version: 1, organizationId: "org-1", agencies: [
-      { id: "agency-agent", name: "Harbour Agency", role: "Agent", representative: "Ada Agent", active: true },
-      { id: "agency-terminal", name: "Port Terminal", role: "Terminal operator", representative: "Terminal Lead", active: true },
-    ] }));
-  });
+  let agencies: AgencyProfile[] = options.seedAgencies === false ? [] : [
+    { id: "agency-agent", name: "Harbour Agency", role: "Agent", representative: "Ada Agent", active: true, version: 1 },
+    { id: "agency-terminal", name: "Port Terminal", role: "Terminal operator", representative: "Terminal Lead", active: true, version: 1 },
+  ];
 
   // Block unrecognized API requests so these browser checks cannot modify a
   // real tenant even when run against an externally provided frontend server.
@@ -41,6 +40,22 @@ async function installMeasurementApi(page: Page, initialPlan = measurementFixtur
     const url = new URL(request.url());
     const path = url.pathname;
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
+    if (path === "/api/agencies" && request.method() === "GET") return json({ agencies });
+    if (path === "/api/agencies" && request.method() === "POST") {
+      const input = request.postDataJSON() as Omit<AgencyProfile, "id">;
+      const agency = { ...input, id: `agency-${agencies.length + 1}`, version: 1 };
+      agencies.push(agency);
+      return json({ agency }, 201);
+    }
+    if (path.startsWith("/api/agencies/") && request.method() === "PATCH") {
+      const input = request.postDataJSON() as AgencyProfile;
+      const id = path.split("/").at(-1)!;
+      const previous = agencies.find(item => item.id === id);
+      if (!previous || previous.version !== input.version) return json({ detail: "Agency changed" }, 409);
+      const agency = { ...input, id, version: (input.version ?? 1) + 1 };
+      agencies = agencies.map(item => item.id === id ? agency : item);
+      return json({ agency });
+    }
     if (path === "/api/runtime-config") return json({ sentry: { dsn: "", environment: "test", release: "mocked" } });
     if (path === "/api/auth/me") return json(session);
     if (path === "/api/auth/csrf") return json({ csrfToken: "mock-csrf" });
@@ -406,8 +421,8 @@ test("mixed import cargo preserves declarations and snapshots reusable agencies"
   expect(api.requests.links).toEqual([{ participantId: "created-party-0", expiryDays: 7 }]);
   expect(api.requests.plans[0].lines.map(line => [line.category, line.direction, line.unit, line.manifestQuantity])).toEqual([["Bulk", "import", "tonnes", "400"], ["Vehicle", "import", "count", "5"]]);
   expect(api.requests.plans[0].participants).toEqual([
-    { name: "Harbour Agency", role: "Agent", representative: "Ada Agent", requiredSubmission: true, requiredApproval: true },
-    { name: "Port Terminal", role: "Terminal operator", representative: "Terminal Lead", requiredSubmission: true, requiredApproval: true },
+    { agencyId: "agency-agent", name: "Harbour Agency", role: "Agent", representative: "Ada Agent", requiredSubmission: true, requiredApproval: true },
+    { agencyId: "agency-terminal", name: "Port Terminal", role: "Terminal operator", representative: "Terminal Lead", requiredSubmission: true, requiredApproval: true },
   ]);
   expect(api.requests.plans[0]).not.toHaveProperty("totalQuantity");
   expect(api.requests.unexpected).toEqual([]);
@@ -416,7 +431,7 @@ test("mixed import cargo preserves declarations and snapshots reusable agencies"
 test("admin creates agencies inline without losing the declaration and protects voyage boundaries", async ({ page }) => {
   const api = await installMeasurementApi(page, measurementFixture(), { admin: true, seedAgencies: false });
   await page.goto("/app/settings/agencies");
-  await expect(page.getByText(/saved on this browser/)).toBeVisible();
+  await expect(page.getByText(/shared with its authorized users/)).toBeVisible();
   await page.getByLabel("Agency name", { exact: true }).fill("Reusable Marine Agency");
   await page.getByLabel("Default representative", { exact: true }).fill("Regular Agent");
   await page.getByRole("button", { name: "Save agency", exact: true }).click();

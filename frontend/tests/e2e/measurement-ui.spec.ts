@@ -6,7 +6,7 @@ import { measurementFixture } from "../../src/measurements/fixtures.test-support
 import { guestContext } from "../../src/measurements/guest.test-support";
 import type { GuestReadingInput } from "../../src/measurements/guestTypes";
 import type { Evidence, MeasurementPlan, PlanInput, ReconciliationInput, SubmissionInput } from "../../src/measurements/types";
-import type { AgencyProfile } from "../../src/measurements/agencyDirectory";
+import type { AgencyProfile } from "../../src/measurements/types";
 import type { AppState, AuthSession, VesselCall } from "../../src/types";
 
 test.skip(process.env.PLAYWRIGHT_REAL_BACKEND === "1", "These presentation checks use an isolated mocked API.");

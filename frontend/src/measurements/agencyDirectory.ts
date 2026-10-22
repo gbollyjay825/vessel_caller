@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, request } from "../lib/api";
 export { agencyDirectoryStorageKey } from "./localAgencyDirectory";
 
-export type AgencyProfile = { id: string; name: string; role: string; representative: string; active: boolean; version?: number };
+import type { AgencyProfile } from "./types";
+export type { AgencyProfile } from "./types";
 type AgencyInput = Omit<AgencyProfile, "id"> & { id?: string };
 type State = { orgId?: string; agencies: AgencyProfile[]; loading: boolean; error: string | null };
 const EVENT = "vessel-caller:server-agencies-changed";

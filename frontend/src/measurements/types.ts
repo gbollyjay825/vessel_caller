@@ -20,3 +20,5 @@ export interface Assessment extends Omit<AssessmentInput, "lines"> { id: string;
 export interface PlanInput { callId: string; title: string; scheduledAt: string; endsAt: string | null; location: string; method: string; stage: string; scope: string; leadSurveyor: string; notes: string; participants: ParticipantInput[]; lines: CargoLineInput[] }
 export interface MeasurementPlan extends Omit<PlanInput, "participants" | "lines"> { id: string; vesselName: string; callReference: string; version: number; status: "scheduled" | "in-progress" | "reconciled" | "cancelled"; createdBy: Actor; participants: Participant[]; lines: CargoLine[]; submissions: Submission[]; reconciliations: Reconciliation[]; assessments: Assessment[]; evidence: Evidence[] }
 export interface PlanMutation { plan: MeasurementPlan; rev: number }
+
+export type AgencyProfile = { id: string; name: string; role: string; representative: string; active: boolean; version?: number };

@@ -43,3 +43,4 @@
   .tracker-entry { padding: 0 12px; }
   .agency-link-copy { gap: 6px; }
 }
+.tracker-panel .measurement-field > label { display: block; color: var(--ink); font-size: 12px; font-weight: 600; margin-bottom: 7px; }

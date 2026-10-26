@@ -118,8 +118,8 @@ function GuestReadingForm({ context, onSubmit }: { context: GuestReadingContext;
       <h2 id="guest-recorder-heading">Who counted</h2>
       <div className="guest-reading-fields">
         <label className="guest-reading-field">Representative<input required maxLength={255} autoComplete="name" value={representative} onChange={event => setRepresentative(event.target.value)} /></label>
-        <label className="guest-reading-field">Observed at<input aria-label="Observed at" required type="datetime-local" value={observedAt} onChange={event => setObservedAt(event.target.value)} /><small>Your local date and time.</small></label>
-        <label className="guest-reading-field full">Source document reference<input required maxLength={255} value={sourceReference} onChange={event => setSourceReference(event.target.value)} /><small>For example your tally sheet or survey report number.</small></label>
+        <div className="guest-reading-field"><label htmlFor="guest-observed-at">Observed at</label><input id="guest-observed-at" aria-describedby="guest-observed-at-help" required type="datetime-local" value={observedAt} onChange={event => setObservedAt(event.target.value)} /><small id="guest-observed-at-help">Your local date and time.</small></div>
+        <div className="guest-reading-field full"><label htmlFor="guest-source-reference">Source document reference</label><input id="guest-source-reference" aria-describedby="guest-source-reference-help" required maxLength={255} value={sourceReference} onChange={event => setSourceReference(event.target.value)} /><small id="guest-source-reference-help">For example your tally sheet or survey report number.</small></div>
         <label className="guest-reading-field full">Additional notes (optional)<textarea maxLength={10000} value={notes} onChange={event => setNotes(event.target.value)} /></label>
       </div>
     </section>

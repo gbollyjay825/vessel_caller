@@ -171,7 +171,7 @@ test("an Admin replaces an invitation and a new user chooses a password then com
     expect(completed.permissions).not.toContain("users.manage");
     await expect(recipientPage).toHaveURL(/\/app\/account\?setup=authenticator$/);
     await expect(recipientPage.getByRole("heading", { name: "Set up your authenticator", exact: true })).toBeVisible();
-    await expect(recipientPage.getByRole("banner").getByRole("heading", { name: "Dashboard", exact: true })).toHaveCount(0);
+    await expect(recipientPage.getByRole("banner").getByRole("navigation", { name: "Breadcrumb" }).getByText("Dashboard", { exact: true })).toHaveCount(0);
     await recipientPage.reload();
     await expect(recipientPage).toHaveURL(/\/app\/account\?setup=authenticator$/);
 
@@ -238,7 +238,7 @@ test("an Admin replaces an invitation and a new user chooses a password then com
     await expect(recipientPage).toHaveURL(/\/app\/dashboard$/);
     await expect(recipientPage.getByText(recovery.recoveryCodes[0], { exact: true })).toHaveCount(0);
     await recipientPage.reload();
-    await expect(recipientPage.getByRole("banner").getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+    await expect(recipientPage.getByRole("banner").getByRole("navigation", { name: "Breadcrumb" }).getByText("Dashboard", { exact: true })).toBeVisible();
     expect((await recipient.cookies()).some((cookie) => /vessel.*session/.test(cookie.name) && cookie.httpOnly)).toBe(true);
     expect((await recipient.request.get("/api/users")).status()).toBe(403);
     const recipientCsrf = await (await recipient.request.get("/api/auth/csrf")).json();

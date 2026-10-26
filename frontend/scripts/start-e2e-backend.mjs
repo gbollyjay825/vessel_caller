@@ -49,7 +49,7 @@ const run = (...args) => {
 };
 
 run("migrate", "--noinput");
-run("seed_e2e");
+run("seed_e2e", "--organization-identity-fixtures");
 
 const server = spawn(
   python,

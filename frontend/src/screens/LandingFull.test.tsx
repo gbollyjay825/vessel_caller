@@ -13,19 +13,26 @@ describe("Landing", () => {
   it("presents only supported workflows and exposes responsive navigation", async () => {
     render(<Landing />);
 
-    expect(screen.getByRole("heading", { name: /Every vessel call/i })).toBeInTheDocument();
-    expect(screen.getByText(/Interrupted submissions remain on the device/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /One voyage.*One clear set.*of readings/i })).toBeInTheDocument();
+    expect(screen.getByText("The declared load is already paid.")).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Readings & reconciliation · container counts" })).toBeInTheDocument();
+    expect(screen.getByText("Illustrative voyage")).toBeInTheDocument();
+    expect(screen.getByText(/An invoice preview is not an issued financial record/i)).toBeInTheDocument();
+    expect(screen.getByText(/A lower final quantity is flagged for overpayment review/i)).toBeInTheDocument();
+    expect(screen.getByText(/wait for Admin approval/i)).toBeInTheDocument();
     expect(screen.getByText(/Organization data is private/i)).toBeInTheDocument();
     expect(screen.queryByText(/demo credentials/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/live AIS/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Register an organization/i })).toHaveAttribute("href", "/register");
+    expect(screen.queryByText(/Interrupted submissions remain on the device|automated harbour dues/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open workspace" })).toHaveAttribute("href", "/app/dashboard");
+    expect(screen.queryByRole("link", { name: /Register an organization/i })).not.toBeInTheDocument();
 
     const menu = screen.getByRole("button", { name: "Menu" });
     expect(menu).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(menu);
     expect(menu).toHaveAttribute("aria-expanded", "true");
-    const platformLinks = screen.getAllByRole("link", { name: "Platform" });
-    await userEvent.click(platformLinks[platformLinks.length - 1]);
+    const flowLinks = screen.getAllByRole("link", { name: "Voyage flow" });
+    await userEvent.click(flowLinks[flowLinks.length - 1]);
     expect(menu).toHaveAttribute("aria-expanded", "false");
   });
 

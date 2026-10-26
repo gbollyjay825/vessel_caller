@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import ActionToken, MFAChallenge, PlatformAccessGrant, User
+from accounts.account_scopes import organization_action_url
 from accounts.security import issue_action_token
 from accounts.services import queue_email, revoke_sessions
 from audit.services import record_platform_event
@@ -72,11 +73,21 @@ class Command(BaseCommand):
         )
         OrganizationSettings.objects.get_or_create(organization=organization)
 
-        user = User.objects.select_for_update().filter(email=email).first()
-        if user and user.organization_id != organization.id:
+        # Customer identities can share an email across customer organizations.
+        # A platform grant remains a dedicated identity: never choose whichever
+        # matching customer/platform row happens to sort first.
+        if User.objects.filter(email__iexact=email).exclude(organization=organization).exists():
             raise CommandError(
                 "That email belongs to a customer organization; create a dedicated platform identity"
             )
+        try:
+            user = User.objects.select_for_update().get(
+                organization=organization, email__iexact=email
+            )
+        except User.DoesNotExist:
+            user = None
+        except User.MultipleObjectsReturned as exc:
+            raise CommandError("Platform identity is ambiguous; no changes made") from exc
         if user is None:
             user = User(
                 organization=organization,
@@ -109,6 +120,7 @@ class Command(BaseCommand):
             existing
             and existing.active
             and user.status == User.Status.ACTIVE
+            and not user.password_change_required
             and user.email_verified_at is not None
             and user.mfa_enabled
             and bool(user.mfa_secret)
@@ -173,7 +185,7 @@ class Command(BaseCommand):
             to_email=user.email,
             subject="Set up your Vessel Caller System Administrator account",
             template="reset_password",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/reset-password?token={raw}"},
+            context={"actionUrl": organization_action_url(organization, "/reset-password", raw)},
             idempotency_key=f"system-admin-setup:{token_obj.id}",
             organization=organization,
         )

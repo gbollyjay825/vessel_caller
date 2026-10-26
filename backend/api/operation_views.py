@@ -994,7 +994,9 @@ class OrganizationLogoView(APIView):
         try:
             validate_logo(key, data["contentType"], data["size"])
         except (OSError, ValueError) as exc:
-            raise ValidationError({"objectKey": [str(exc)]}) from exc
+            raise ValidationError(
+                {"objectKey": ["Uploaded file content is invalid or could not be verified"]}
+            ) from exc
         org = Organization.objects.select_for_update().get(pk=request.user.organization_id)
         destination = logo_key(org.id, data["fileName"])
         if not promote_object(key, destination):
@@ -1073,7 +1075,9 @@ class OrganizationLogoContentUploadView(APIView):
             validate_logo(key, data["contentType"], data["size"])
         except (OSError, ValueError) as exc:
             delete_object(key)
-            raise ValidationError({"file": [str(exc)]}) from exc
+            raise ValidationError(
+                {"file": ["Uploaded logo content is invalid or could not be verified"]}
+            ) from exc
         return Response(
             {
                 "objectKey": key,
@@ -1496,7 +1500,9 @@ class InvoiceAttachmentFinalizeView(APIView):
         try:
             validate_invoice_attachment(data["objectKey"], data["contentType"], data["size"])
         except (OSError, ValueError) as exc:
-            raise ValidationError({"objectKey": [str(exc)]}) from exc
+            raise ValidationError(
+                {"objectKey": ["Uploaded file content is invalid or could not be verified"]}
+            ) from exc
         final_key = permanent_invoice_object_key(
             invoice.organization_id, invoice.id, data["fileName"]
         )

@@ -3,12 +3,16 @@ import { Link, useSearchParams } from "../lib/navigation";
 
 import { AuthCard } from "../components/AuthCard";
 import { ApiError, api } from "../lib/api";
+import { organizationAuthPath } from "../lib/organizationAuth";
 
 function messageFor(error: unknown): string {
   return error instanceof ApiError ? error.message : "Something went wrong. Please try again.";
 }
 
 export function ForgotPassword() {
+  const [searchParams] = useSearchParams();
+  const organizationId = searchParams.get("organizationId") || undefined;
+  const signInPath = organizationAuthPath("/login", organizationId);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -19,7 +23,9 @@ export function ForgotPassword() {
     setBusy(true);
     setError(null);
     try {
-      const result = await api.forgotPassword(email.trim().toLowerCase());
+      const result = organizationId
+        ? await api.forgotPassword(email.trim().toLowerCase(), organizationId)
+        : await api.forgotPassword(email.trim().toLowerCase());
       setMessage(result.detail || "If an account exists, password reset instructions have been sent.");
     } catch (caught) {
       setError(messageFor(caught));
@@ -33,7 +39,7 @@ export function ForgotPassword() {
       {message ? (
         <>
           <div className="auth-notice" role="status">{message}</div>
-          <p className="auth-alt"><Link to="/login">Return to sign in</Link></p>
+          <p className="auth-alt"><Link to={signInPath}>Return to sign in</Link></p>
         </>
       ) : (
         <form onSubmit={submit}>
@@ -51,7 +57,7 @@ export function ForgotPassword() {
           <button className="auth-submit" type="submit" disabled={busy}>
             {busy ? "Sending…" : "Send reset link"}
           </button>
-          <p className="auth-alt"><Link to="/login">Return to sign in</Link></p>
+          <p className="auth-alt"><Link to={signInPath}>Return to sign in</Link></p>
         </form>
       )}
     </AuthCard>
@@ -61,6 +67,7 @@ export function ForgotPassword() {
 export function ResetPassword() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") ?? "";
+  const [organizationId, setOrganizationId] = useState(searchParams.get("organizationId") || undefined);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -81,6 +88,7 @@ export function ResetPassword() {
     setBusy(true);
     try {
       const result = await api.resetPassword(token, password);
+      if (result.organizationId) setOrganizationId(result.organizationId);
       setMessage(result.detail || "Your password has been changed. Sign in with your new password.");
       setPassword("");
       setConfirmPassword("");
@@ -96,7 +104,7 @@ export function ResetPassword() {
       {message ? (
         <>
           <div className="auth-notice" role="status">{message}</div>
-          <Link className="auth-submit auth-submit-link" to="/login">Sign in</Link>
+          <Link className="auth-submit auth-submit-link" to={organizationAuthPath("/login", organizationId)}>Sign in</Link>
         </>
       ) : (
         <form onSubmit={submit}>

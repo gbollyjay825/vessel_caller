@@ -55,6 +55,7 @@ export interface IconProps {
 }
 
 export function Icon({ name, size = 20, strokeWidth = 1.75, className = "", style }: IconProps) {
+  // Only fixed local SVG literals supply markup; name selects a map entry.
   const d = ICON_PATHS[name];
   if (!d) return null;
   return (
@@ -64,7 +65,7 @@ export function Icon({ name, size = 20, strokeWidth = 1.75, className = "", styl
       fill="none" stroke="currentColor"
       strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"
       className={"ico " + className} style={style} aria-hidden="true"
-      dangerouslySetInnerHTML={{ __html: d }}
+      dangerouslySetInnerHTML={{ /* nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml */ __html: d }}
     />
   );
 }

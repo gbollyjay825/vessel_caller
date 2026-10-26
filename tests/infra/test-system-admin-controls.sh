@@ -256,16 +256,26 @@ prepare_unit = (
 assert "AssertPathExists=/etc/vessel-caller/staging-e2e.env" in prepare_unit
 assert "ConditionPathExists=/etc/vessel-caller/staging-e2e.env" not in prepare_unit
 assert "Type=oneshot\nRemainAfterExit=yes" in prepare_unit
+assert "manage.py seed_e2e" not in prepare_unit, "Release preparation must preserve account credentials"
 production_prepare_unit = (
     root / "deploy/systemd/vessel-caller-prepare@.service"
 ).read_text(encoding="utf-8")
 assert "Type=oneshot\nRemainAfterExit=yes" in production_prepare_unit
 assert 'organizationApprovalLifecycle == true' in compatibility_guard
+assert 'temporaryPasswordLifecycle == true' in compatibility_guard
 assert 'staging-organization-approval-lifecycle.cutover' in compatibility_guard
+assert 'staging-temporary-password-lifecycle.cutover' in compatibility_guard
+assert 'staging-organization-scoped-identity.cutover' in compatibility_guard
+assert 'organizationScopedIdentity' in compatibility_guard
 assert "staging-lifecycle-state.sh" in compatibility_guard
 assert "django_migrations" in lifecycle_state
 assert "to_regclass('django_migrations')" in lifecycle_state
 assert "0004_organization_approval_lifecycle" in lifecycle_state
+assert "0007_user_admin_provisioned_at_user_admin_provisioned_by_and_more" in lifecycle_state
+assert "0008_organization_scoped_email" in lifecycle_state
+assert "organization-identity)" in lifecycle_state
+assert 'lifecycle="${1:-organization}"' in lifecycle_state
+assert "temporary-password)" in lifecycle_state
 assert "PGCONNECT_TIMEOUT=5" in lifecycle_state
 assert "state_root_base=/var/lib/vessel-caller/staging" in lifecycle_state
 assert "vessel-caller-staging:vessel-caller-staging:750" in lifecycle_state
@@ -289,6 +299,14 @@ assert '.stagingOnlySchemaCutover == true' in target_policy
 assert ".organizationApprovalLifecycle == true" in target_policy
 assert "staging-organization-approval-lifecycle.cutover" in target_policy
 assert "organizationApprovalLifecycle=true" in target_policy
+assert ".temporaryPasswordLifecycle == true" in target_policy
+assert "staging-temporary-password-lifecycle.cutover" in target_policy
+assert "temporaryPasswordLifecycle=true" in target_policy
+assert "read_staging_temporary_password_lifecycle_state" in target_policy
+assert "enforce_staging_temporary_password_compatibility_floor" in target_policy
+assert "enforce_staging_organization_identity_floor" in target_policy
+assert "read_staging_organization_identity_state" in target_policy
+assert 'staging-organization-scoped-identity.cutover' in target_policy
 assert target_policy.index('sync -f "${temporary_marker}"') < target_policy.index(
     'mv -f -- "${temporary_marker}" "${marker}"'
 ) < target_policy.index('sync -f "${marker_dir}"')
@@ -297,6 +315,7 @@ assert "production deployment is blocked" in target_policy
 build_script = (root / "deploy/scripts/build-release.sh").read_text(encoding="utf-8")
 assert "stagingOnlySchemaCutover: true" in build_script
 assert "organizationApprovalLifecycle: true" in build_script
+assert "temporaryPasswordLifecycle: true" in build_script
 deploy_workflow = (root / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 assert "Enforce signed release target policy" in deploy_workflow
 assert '.stagingOnlySchemaCutover == true' in deploy_workflow

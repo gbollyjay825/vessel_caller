@@ -22,7 +22,8 @@ ExecStartPre=/usr/local/lib/vessel-caller/staging-compatibility-guard.sh
 ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/python manage.py check --deploy --fail-level WARNING
 ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/python manage.py migrate --noinput
 ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/python manage.py collectstatic --noinput --clear
-ExecStart=/opt/vessel-caller/slots/staging/current/backend/.venv/bin/python manage.py seed_e2e --force
+# Fixture refresh is an explicit operator action, never part of a release.
+# Keep existing account passwords and lifecycle state intact during cutover.
 TimeoutStartSec=300
 UMask=0027
 

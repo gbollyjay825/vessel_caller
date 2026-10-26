@@ -150,7 +150,7 @@ def lock_active_account(user: User) -> User:
         .filter(pk=user.pk, organization=organization, status=User.Status.ACTIVE)
         .first()
     )
-    if not locked_user:
+    if not locked_user or not locked_user.is_active:
         raise InactiveAccountError
     return locked_user
 
@@ -165,7 +165,7 @@ def start_session(request, user: User) -> UserSession:
         .select_related("organization")
         .get(pk=user.pk, organization=organization)
     )
-    if not locked_user.is_active or not locked_user.email_verified_at:
+    if not locked_user.is_active or not locked_user.login_identity_approved:
         raise InactiveAccountError
     login(request, locked_user, backend="accounts.backends.EmailBackend")
     request.session.cycle_key()
@@ -196,7 +196,7 @@ def start_mfa_challenge(user: User) -> MFAChallenge:
     )
     if (
         not locked_user.is_active
-        or not locked_user.email_verified_at
+        or not locked_user.login_identity_approved
         or not locked_user.mfa_enabled
     ):
         raise InactiveAccountError

@@ -587,7 +587,7 @@ export function Settings() {
 
   return (
     <div className="content-inner">
-      <div className="page-head"><div><h1 className="hide-sr">Settings</h1><p className="desc">Organization details, charge rates, and port profile.</p></div></div>
+      <div className="page-head"><div><h1 className="hide-sr">Settings</h1><p className="desc">Organization details, agency setup, charge rates, and port profile.</p></div><Link className="btn btn-secondary" to="/app/settings/agencies"><Icon name="users" size={16} /> Agency setup</Link></div>
 
       <div className="settings-tabs" role="tablist">
         {TABS.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}

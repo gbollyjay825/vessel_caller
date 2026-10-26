@@ -124,6 +124,83 @@ def test_sentry_sanitizers_are_safe_for_non_platform_and_malformed_shapes():
     assert _before_send({}, {}) == {}
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/auth/login",
+        "/api/auth/complete-temporary-password",
+        "/api/users/temporary-password",
+        "/api/users/u-example/temporary-password",
+    ],
+)
+def test_sentry_credential_errors_drop_exception_frame_locals(path):
+    synthetic_secret = "synthetic-credential-never-a-real-password"
+    event = {
+        "request": {"url": f"https://example.test{path}", "data": {"password": synthetic_secret}},
+        "exception": {
+            "values": [
+                {
+                    "type": "DatabaseError",
+                    "value": "Transient database failure",
+                    "stacktrace": {
+                        "frames": [
+                            {
+                                "filename": "api/user_views.py",
+                                "vars": {
+                                    "temporary_password": synthetic_secret,
+                                    "response": {"temporaryPassword": synthetic_secret},
+                                },
+                            },
+                            "opaque",
+                            {
+                                "filename": "django/db/backends/utils.py",
+                                "vars": {"params": synthetic_secret},
+                            },
+                        ],
+                    },
+                },
+                {"stacktrace": "malformed"},
+                "opaque",
+            ]
+        },
+    }
+    sanitized = _before_send(event, {})
+    assert synthetic_secret not in json.dumps(sanitized)
+    frames = sanitized["exception"]["values"][0]["stacktrace"]["frames"]
+    assert frames[0]["filename"] == "api/user_views.py" and "vars" not in frames[0]
+    assert sanitized["exception"]["values"][0]["type"] == "DatabaseError"
+
+
+def test_sentry_temporary_password_service_locals_are_removed_without_http_context():
+    sanitized = _before_send(
+        {
+            "exception": {
+                "values": [
+                    {
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "module": "accounts.temporary_passwords",
+                                    "vars": {"raw": "synthetic-challenge"},
+                                },
+                                {
+                                    "filename": "accounts/temporary_passwords.py",
+                                    "vars": {"raw_password": "synthetic-password"},
+                                },
+                                {"filename": "api/system_views.py", "vars": {"status": "ready"}},
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {},
+    )
+    frames = sanitized["exception"]["values"][0]["stacktrace"]["frames"]
+    assert "vars" not in frames[0] and "vars" not in frames[1]
+    assert frames[2]["vars"] == {"status": "ready"}
+
+
 def create_legacy_database(path: Path):
     connection = sqlite3.connect(path)
     connection.executescript(

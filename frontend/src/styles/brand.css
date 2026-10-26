@@ -1,0 +1,14 @@
+/* NPA green sampled from the wordmark in the official logo. */
+:root {
+  --brand-accent: #00711F;
+  --brand-accent-hover: #005B19;
+  --brand-accent-press: #004713;
+  --brand-accent-soft: #EAF4ED;
+  --brand-accent-faint: #F4F8F5;
+  --brand-accent-border: #BCD8C4;
+  --brand-focus: #4A8C5C;
+  --brand-accent-rgb: 0, 113, 31;
+  --brand-dark: #10391C;
+  --brand-darkest: #0B2814;
+  --brand-deep: #174C27;
+}

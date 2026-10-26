@@ -1,6 +1,6 @@
 export type QuantityUnit = "tonnes" | "count" | "m3";
 export interface Actor { id: string; name: string }
-export interface ParticipantInput { name: string; role: string; representative: string; requiredSubmission: boolean; requiredApproval: boolean }
+export interface ParticipantInput { agencyId?: string | null; name: string; role: string; representative: string; requiredSubmission: boolean; requiredApproval: boolean }
 export interface Participant extends ParticipantInput { id: string }
 export interface CargoLineInput { description: string; category: string; direction: string; containerSize: string; loadStatus: string; unit: QuantityUnit; basis: string; manifestQuantity: string | null; baselineReference: string }
 export interface CargoLine extends CargoLineInput { id: string }
@@ -20,3 +20,5 @@ export interface Assessment extends Omit<AssessmentInput, "lines"> { id: string;
 export interface PlanInput { callId: string; title: string; scheduledAt: string; endsAt: string | null; location: string; method: string; stage: string; scope: string; leadSurveyor: string; notes: string; participants: ParticipantInput[]; lines: CargoLineInput[] }
 export interface MeasurementPlan extends Omit<PlanInput, "participants" | "lines"> { id: string; vesselName: string; callReference: string; version: number; status: "scheduled" | "in-progress" | "reconciled" | "cancelled"; createdBy: Actor; participants: Participant[]; lines: CargoLine[]; submissions: Submission[]; reconciliations: Reconciliation[]; assessments: Assessment[]; evidence: Evidence[] }
 export interface PlanMutation { plan: MeasurementPlan; rev: number }
+
+export type AgencyProfile = { id: string; name: string; role: string; representative: string; active: boolean; version?: number };

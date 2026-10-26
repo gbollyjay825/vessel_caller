@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import timedelta
 
 from django.conf import settings
@@ -44,6 +45,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--force", action="store_true")
+        parser.add_argument("--organization-identity-fixtures", action="store_true")
         parser.add_argument(
             "--password",
             help="Explicit password for local DEBUG use only; staging/CI must use VC_E2E_PASSWORD.",
@@ -57,6 +59,14 @@ class Command(BaseCommand):
         if not settings.DEBUG and not options["force"]:
             raise CommandError(
                 "seed_e2e is disabled outside DEBUG; pass --force only in isolated CI"
+            )
+        if options["organization_identity_fixtures"] and not re.search(
+            r"(?:^|[_-])(?:e2e|test)(?:$|[_-])",
+            str(settings.DATABASES["default"]["NAME"]),
+            re.IGNORECASE,
+        ):
+            raise CommandError(
+                "Organization identity fixtures require an isolated e2e/test database"
             )
         protected_use = options["force"] or not settings.DEBUG
         if protected_use:
@@ -123,6 +133,46 @@ class Command(BaseCommand):
             user.mfa_grace_ends_at = now + timedelta(days=7)
             user.set_password(password)
             user.save()
+        if options["organization_identity_fixtures"]:
+            # Never part of normal staging preparation. This gives browser
+            # tests an existing account whose row and original access must be
+            # preserved when the same email joins a different organization.
+            original_org, _ = Organization.objects.get_or_create(
+                id="org-e2eoriginal01",
+                defaults={
+                    "registered": True,
+                    "name": "E2E Original Organization",
+                    "email": "shared@e2e.vesselcalls.test",
+                    "primary_port": "Port of Calabar",
+                    "ports": ["Port of Calabar"],
+                },
+            )
+            OrganizationSettings.objects.get_or_create(organization=original_org)
+            for project in ("chromium", "firefox", "webkit", "mobile"):
+                for retry in range(3):
+                    original, _ = User.objects.get_or_create(
+                        id=f"u-e2eshared-{project[:3]}-{retry}",
+                        defaults={
+                            "organization": original_org,
+                            "name": f"E2E Original Viewer {project} {retry}",
+                            "email": f"shared-{project}-{retry}@e2e.vesselcalls.test",
+                            "role": User.Role.VIEWER,
+                            "status": User.Status.ACTIVE,
+                            "email_verified_at": now,
+                        },
+                    )
+                    if original.organization_id != original_org.id:
+                        raise CommandError(
+                            "Organization identity fixture belongs to an unexpected organization"
+                        )
+                    original.status = User.Status.ACTIVE
+                    original.email_verified_at = now
+                    original.mfa_secret = ""
+                    original.mfa_enabled_at = None
+                    original.password_change_required = False
+                    original.temporary_password_expires_at = None
+                    original.set_password(password)
+                    original.save()
         self.stdout.write(
             self.style.SUCCESS("Created deterministic E2E organization and four role accounts")
         )

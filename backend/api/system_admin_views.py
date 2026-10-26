@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import ActionToken, Invitation, MFAChallenge, User
+from accounts.account_scopes import organization_action_url
 from accounts.notifications import queue_security_notice
 from accounts.platform_access import (
     active_platform_grant,
@@ -106,13 +107,14 @@ def annotated_customer_organizations():
             user_count=Count("users", distinct=True),
             active_user_count=Count(
                 "users",
-                filter=Q(users__status=User.Status.ACTIVE),
+                filter=Q(users__status=User.Status.ACTIVE, users__password_change_required=False),
                 distinct=True,
             ),
             admin_count=Count(
                 "users",
                 filter=Q(
                     users__status=User.Status.ACTIVE,
+                    users__password_change_required=False,
                     users__role=User.Role.ADMIN,
                     users__email_verified_at__isnull=False,
                     users__is_staff=False,
@@ -450,6 +452,22 @@ class SystemOrganizationDetailView(RecentMutationPermissionsMixin):
         )
 
 
+def public_lifecycle_error(error):
+    # Only fixed domain messages are returned; never echo unexpected exception details.
+    messages = {
+        "Only customer organizations can be approved": "Only customer organizations can be approved",
+        "Only organizations pending approval can be approved": "Only organizations pending approval can be approved",
+        "Email verification must be completed before organization approval": "Email verification must be completed before organization approval",
+        "Only customer organizations can be suspended": "Only customer organizations can be suspended",
+        "Only active customer organizations can be suspended": "Only active customer organizations can be suspended",
+        "Only customer organizations can be reactivated": "Only customer organizations can be reactivated",
+        "Only suspended customer organizations can be reactivated": "Only suspended customer organizations can be reactivated",
+    }
+    return messages.get(
+        str(error), "This organization cannot make the requested lifecycle transition"
+    )
+
+
 class SystemOrganizationSuspendView(APIView):
     permission_classes = [IsAuthenticated, IsRecentSystemAdminMFA]
 
@@ -471,7 +489,7 @@ class SystemOrganizationSuspendView(APIView):
                     request=request,
                 )
             except ValueError as exc:
-                raise ValidationError(str(exc)) from exc
+                raise ValidationError(public_lifecycle_error(exc)) from exc
         return Response(
             {"organization": system_organization_data(organization), "rev": organization.revision}
         )
@@ -497,7 +515,7 @@ class SystemOrganizationApproveView(APIView):
                 request=request,
             )
         except ValueError as exc:
-            raise ValidationError(str(exc)) from exc
+            raise ValidationError(public_lifecycle_error(exc)) from exc
         return Response(
             {"organization": system_organization_data(organization), "rev": organization.revision}
         )
@@ -524,7 +542,7 @@ class SystemOrganizationReactivateView(APIView):
                     request=request,
                 )
             except ValueError as exc:
-                raise ValidationError(str(exc)) from exc
+                raise ValidationError(public_lifecycle_error(exc)) from exc
         return Response(
             {"organization": system_organization_data(organization), "rev": organization.revision}
         )
@@ -614,7 +632,7 @@ class SystemOrganizationInvitationResendView(APIView):
             to_email=invitation.email,
             subject=f"Join {organization.name} on Vessel Caller",
             template="invitation",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"},
+            context={"actionUrl": organization_action_url(organization, "/accept-invitation", raw)},
             idempotency_key=f"system-admin-invite-resend:{invitation.id}:{invitation.expires_at.isoformat()}",
             organization=organization,
         )
@@ -686,6 +704,7 @@ class SystemOrganizationUserPasswordResetView(APIView):
                 pk=user_id,
                 role=User.Role.ADMIN,
                 status=User.Status.ACTIVE,
+                password_change_required=False,
             )
             .first()
         )
@@ -696,7 +715,7 @@ class SystemOrganizationUserPasswordResetView(APIView):
             to_email=member.email,
             subject="Reset your Vessel Caller password",
             template="reset_password",
-            context={"actionUrl": f"{settings.FRONTEND_URL}/reset-password?token={raw}"},
+            context={"actionUrl": organization_action_url(organization, "/reset-password", raw)},
             idempotency_key=f"reset:{token_obj.id}",
             organization=organization,
         )

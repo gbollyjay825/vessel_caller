@@ -29,6 +29,15 @@ opt in. Sessions expire after 12 idle hours and 30 absolute days. Passwords use
 Argon2id; legacy Passlib PBKDF2 hashes are recognized only long enough to
 upgrade on successful authentication or reset.
 
+After replacing an Admin-generated temporary password, users without a
+configured authenticator are guided to `/app/account?setup=authenticator`.
+The guide confirms their new password, renders the provisioning URI as a local
+QR code (with manual-key and same-device alternatives), verifies a six-digit
+TOTP code and keeps recovery codes visible until they acknowledge saving them.
+Setup seeds, passwords and recovery codes stay in component memory, outside
+query caches and browser persistence. The existing server role/grace policy
+still applies; the guide changes the onboarding experience only.
+
 After mandatory MFA grace expires, authenticated customers are routed to
 `/app/account` before workspace data is requested. Account security remains
 available independently of tenant data permissions. Successful enrollment

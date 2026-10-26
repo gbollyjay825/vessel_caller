@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import ActionToken, Invitation, MFAChallenge, MFARecoveryCode, User
+from accounts.account_scopes import account_email_unavailable, organization_action_url
 from accounts.notifications import queue_security_notice
 from accounts.platform_access import revoke_organization_sessions
 from accounts.security import token_hash
@@ -25,15 +25,11 @@ class AdminInvitationUnavailable(ValueError):
     """The requested Admin email is unavailable without revealing why."""
 
 
-def _invitation_url(raw: str) -> str:
-    return f"{settings.FRONTEND_URL}/accept-invitation?token={raw}"
-
-
 def create_admin_invitation(
     *, organization: Organization, actor: User, name: str, email: str, request=None
 ) -> Invitation:
     normalized_email = email.strip().lower()
-    if User.objects.filter(email=normalized_email).exists():
+    if account_email_unavailable(organization, normalized_email):
         raise AdminInvitationUnavailable
     if organization.invitations.filter(
         email=normalized_email,
@@ -54,7 +50,7 @@ def create_admin_invitation(
         to_email=normalized_email,
         subject=f"Join {organization.name} on Vessel Caller",
         template="invitation",
-        context={"actionUrl": _invitation_url(raw)},
+        context={"actionUrl": organization_action_url(organization, "/accept-invitation", raw)},
         idempotency_key=f"system-admin-invite:{invitation.id}",
         organization=organization,
     )

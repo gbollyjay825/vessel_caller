@@ -1,17 +1,29 @@
 {
-  "name": "Vessel Caller",
-  "short_name": "Vessel Caller",
-  "description": "Vessel calls, inspections, harbour dues, invoices, and quayside capture.",
-  "start_url": "/capture",
+  "name": "NPA Vessel Caller",
+  "short_name": "NPA Vessel Caller",
+  "description": "Voyage declarations, agency readings, NPA reconciliation and invoice previews.",
+  "start_url": "/app/dashboard",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#071525",
-  "theme_color": "#071525",
+  "background_color": "#0B2814",
+  "theme_color": "#00711F",
   "icons": [
     {
       "src": "/favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/branding/npa-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/branding/npa-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any"
     }
   ]

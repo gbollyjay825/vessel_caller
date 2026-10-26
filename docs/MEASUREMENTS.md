@@ -1,6 +1,6 @@
 # Cargo measurement and reconciliation
 
-Implementation status, 29 September 2026: implemented and verified locally against
+Implementation status, 22 October 2026: implemented and verified locally against
 PostgreSQL. Staging deployment and operator acceptance must be recorded separately;
 this document does not certify a staging or production release.
 
@@ -13,10 +13,12 @@ applicable. Supported quantity units are `tonnes`, whole-number `count`, and `m3
 There is no automatic conversion, stakeholder averaging or summation of overlapping
 observations. Ship NRT/GRT, cargo mass, volume and container counts are distinct.
 
-The first release provides staff-entered returns and acknowledgements backed by
-uploaded paper evidence. It does not provide an external stakeholder portal,
-authenticated electronic stakeholder signatures, automatic OCR, measurement hardware
-integration, automatic waivers, or an offline queue for this new workflow. The
+The collection service provides staff-entered and secure-link agency returns. Evidence
+is optional for readings. Required paper acknowledgements remain backed by evidence.
+The guest portal returns only the assigned agency form, then its own receipt and completed
+peer quantities after submission. It does not provide authenticated electronic stakeholder
+signatures, automatic OCR, measurement hardware integration, automatic waivers, or an offline
+queue for this workflow. See [the build-out status](BACKEND_BUILDOUT.md) for current UI integration boundaries. The
 existing inspection queue does not make measurement finalization or billing offline.
 
 Legacy inspections and harbour-dues invoices remain available. Measurement
@@ -45,7 +47,7 @@ organization and version checks even if a client displays an obsolete action.
    and required-acknowledgement flags independently.
 2. Upload PDF, JPEG, PNG or WebP evidence, up to 15 MiB per file. The service checks
    the declared size, SHA-256 checksum and supported content signature, then retains
-   a private copy. A return needs at least one evidence file and a source reference.
+   a private copy. A return needs a source reference; an evidence file is optional.
 3. Record each party's return covering every plan line. Use an explicit quantity,
    including zero, or `not-applicable` with an explanation and no quantity. Missing
    returns remain missing. A correction creates a new immutable return revision and

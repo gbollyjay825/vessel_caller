@@ -8,6 +8,7 @@ const authMock = vi.hoisted(() => ({
   status: "authenticated",
   authError: null as string | null,
   sessionExpired: false,
+  passwordChangeChallenge: null as null | { passwordChangeRequired: true },
   can: vi.fn<(permission: string) => boolean>(),
   retrySession: vi.fn(),
 }));
@@ -28,6 +29,7 @@ describe("ProtectedRoute", () => {
     authMock.status = "authenticated";
     authMock.authError = null;
     authMock.sessionExpired = false;
+    authMock.passwordChangeChallenge = null;
     authMock.can.mockReset();
     authMock.can.mockReturnValue(true);
     authMock.retrySession.mockReset();
@@ -78,4 +80,12 @@ describe("ProtectedRoute", () => {
 
     expect(screen.getByTestId("navigate")).toHaveAttribute("data-to", "/system");
   });
+  it("routes a limited password-change challenge to replacement without rendering workspace content", () => {
+    authMock.status = "anonymous";
+    authMock.passwordChangeChallenge = { passwordChangeRequired: true };
+    render(<ProtectedRoute>Private content</ProtectedRoute>);
+    expect(screen.getByTestId("navigate")).toHaveAttribute("data-to", "/change-temporary-password");
+    expect(screen.queryByText("Private content")).not.toBeInTheDocument();
+  });
+
 });

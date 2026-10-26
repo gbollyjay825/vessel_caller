@@ -129,18 +129,20 @@ def consume_action_token(
     return token
 
 
-def verify_password_compat(user: User, raw: str) -> bool:
+def verify_password_compat(user: User, raw: str, *, upgrade: bool = True) -> bool:
     encoded = user.password or ""
     if encoded.startswith("$pbkdf2-sha256$"):
         try:
             valid = pbkdf2_sha256.verify(raw, encoded)
         except (ValueError, TypeError):
             valid = False
-        if valid:
+        if valid and upgrade:
             user.set_password(raw)
             user.save(update_fields=("password",))
         return valid
-    return check_password(raw, encoded, setter=lambda password: _upgrade(user, password))
+    return check_password(
+        raw, encoded, setter=(lambda password: _upgrade(user, password)) if upgrade else None
+    )
 
 
 def _upgrade(user: User, raw: str) -> None:

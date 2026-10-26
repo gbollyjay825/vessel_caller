@@ -5,13 +5,13 @@
    ============================================================ */
 :root{
   --navy-0:var(--brand-darkest); --navy-1:var(--brand-dark); --navy-2:var(--brand-deep); --navy-line:rgba(255,255,255,0.10);
-  --ink:#16191D; --slate:#5F6B7A; --soft:#8A95A3;
+  --ink:#16191D; --slate:#5F6B7A; --soft:#667180;
   --blue:var(--brand-accent); --blue-2:var(--brand-accent-hover); --blue-tint:var(--brand-accent-soft);
   --amber:#E8A33D; --amber-deep:#D9A441; --amber-soft:rgba(232,163,61,0.14);
   --paper:#F6F8FA; --white:#fff;
   --hairline:#E8EAED; --hairline-2:#EEF1F4;
-  --success:#1F9254; --success-bg:#E7F4EC;
-  --warning:#B6781E; --warning-bg:#FBF1DF;
+  --success:#17703F; --success-bg:#E7F4EC;
+  --warning:#8A5A12; --warning-bg:#FBF1DF;
   --danger:#C0392B; --danger-bg:#FBEAE7;
   --sh-sm:0 1px 3px rgba(16,19,29,.06);
   --sh-md:0 14px 34px -12px rgba(14,42,71,.22);
@@ -30,21 +30,7 @@ h1,h2,h3,h4,p{margin:0;}
 .tnum{font-variant-numeric:tabular-nums;}
 .serif{font-family:'Fraunces',Georgia,serif;font-style:italic;font-weight:600;letter-spacing:-0.01em;}
 
-/* ---------- buttons ---------- */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;font-family:inherit;font-weight:600;font-size:15px;
-  border-radius:999px;border:1px solid transparent;padding:13px 24px;cursor:pointer;white-space:nowrap;
-  transition:transform .14s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease,color .16s ease;}
-.btn:focus-visible{outline:2px solid var(--brand-focus);outline-offset:2px;}
-.btn-amber{background:var(--amber);color:var(--navy-0);box-shadow:0 10px 26px -10px rgba(232,163,61,.65);}
-.btn-amber:hover{background:#F2B45A;transform:translateY(-1px);}
-.btn-blue{background:var(--blue);color:#fff;box-shadow:0 10px 26px -12px rgba(var(--brand-accent-rgb),.35);}
-.btn-blue:hover{background:var(--blue-2);transform:translateY(-1px);}
-.btn-line{background:transparent;color:#fff;border-color:rgba(255,255,255,.32);}
-.btn-line:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.5);}
-.btn-ghost{background:#fff;color:var(--ink);border-color:var(--hairline);}
-.btn-ghost:hover{background:var(--paper);}
-.btn .arr{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:rgba(8,22,39,.14);}
-.btn-blue .arr,.btn-line .arr{background:rgba(255,255,255,.18);}
+/* Buttons come from app.css; the homepage has its own .npa-home styles. */
 
 .mark{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:var(--blue);color:#fff;flex-shrink:0;}
 
@@ -114,7 +100,7 @@ header.nav{position:absolute;inset:0 0 auto 0;z-index:40;}
 .mq-chip svg{color:var(--amber);}
 
 /* ---------- sections ---------- */
-section{padding:96px 0;}
+/* Section spacing is scoped to the landing page (.npa-home section) so app cards are unaffected. */
 .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;font-weight:700;letter-spacing:0.12em;
   text-transform:uppercase;color:var(--blue);}
 .eyebrow::before{content:"";width:26px;height:2px;background:var(--amber);border-radius:2px;}
@@ -263,7 +249,6 @@ footer{background:var(--navy-0);color:#fff;padding:64px 0 34px;position:relative
   .track .ic{display:none;}
   .track input{flex:1 1 100%;padding:10px 6px 4px;}
   .track .btn{flex:1;}
-  section{padding:64px 0;}
   .bento,.steps{grid-template-columns:1fr;}
   .stats-in{grid-template-columns:1fr 1fr;}
   .stat{padding:22px 18px;}

@@ -1,219 +1,208 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+// Dashboard: the one thing to do next, then the work waiting for you —
+// filtered by what your role can act on (prepare, approve or bill).
+import { useState } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { useBreadcrumbs } from "../app/breadcrumbs";
 import { useStore } from "../app/store";
 import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
+import { api } from "../lib/api";
 import { Link } from "../lib/navigation";
 import { measurementApi } from "../measurements/api";
-import { currentReport, reconciliationIssues, useCloseoutPreviews } from "../measurements/closeoutPreview";
-import type { CloseoutRecord, PreviewInvoice } from "../measurements/closeoutPreview";
-import { dateLabel, latestReturns } from "../measurements/helpers";
-import { ErrorMessage } from "../measurements/shared";
+import { useAgencyDirectory } from "../measurements/agencyDirectory";
+import { useCloseoutPreviews, type CloseoutRecord, type PreviewEventAction } from "../measurements/closeoutPreview";
+import { dateLabel } from "../measurements/helpers";
+import { ErrorMessage, PreviewStorageNotice } from "../measurements/shared";
+import { useVariationTariff } from "../measurements/tariffs";
+import { STAGE_LABELS, STAGE_TONES, daysSince, nextStepPath, summarizeVoyages, voyagePath, type VoyageStage, type VoyageSummary } from "../measurements/voyageStatus";
 import type { MeasurementPlan } from "../measurements/types";
-import type { VesselCall } from "../types";
 import "../styles/measurements.css";
+import "../styles/voyage-workspace.css";
 import "../styles/activity-dashboard.css";
 
-type VoyageStage = "declaration" | "collecting" | "ready" | "approved" | "draft" | "no-charge" | "review" | "held" | "cancelled";
-type ActivityVoyage = {
-  callId: string; vesselName: string; reference: string; arrival: string; plans: MeasurementPlan[];
-  stage: VoyageStage; received: number; expected: number; blockers: string[]; pendingAgencies: string[];
-  missingDeclarations: string[]; approved: boolean; invoice?: PreviewInvoice;
-};
-type ActivityEntry = { id: string; callId: string; at: string; actor: string; title: string; reference: string; href: string; preview: boolean };
-type Access = { manage: boolean; approve: boolean; bill: boolean };
-const EMPTY_PLANS: MeasurementPlan[] = [];
-const STAGES: Record<VoyageStage, { label: string; order: number }> = {
-  declaration: { label: "Owner declaration", order: 5 }, collecting: { label: "Agency readings", order: 4 },
-  ready: { label: "NPA review", order: 2 }, approved: { label: "Invoice to prepare", order: 3 },
-  draft: { label: "Invoice draft prepared", order: 6 }, "no-charge": { label: "No additional charge", order: 7 },
-  review: { label: "Overpayment review", order: 0 }, held: { label: "Billing review", order: 1 }, cancelled: { label: "Cancelled", order: 8 },
-};
-const voyagePath = (callId: string, suffix: string) => `/app/measurements/voyages/${encodeURIComponent(callId)}/${suffix}`;
-const preparedStage = (stage: VoyageStage) => stage === "draft" || stage === "no-charge";
-const needsAttention = (stage: VoyageStage) => !preparedStage(stage) && stage !== "cancelled";
-function amountCents(amount: string): bigint | null {
-  if (!/^\d+(?:\.\d{1,2})?$/.test(amount)) return null;
-  const [whole, fraction = ""] = amount.split(".");
-  return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
-}
-function moneyLabel(currency: string, amount: string | bigint): string {
-  const cents = typeof amount === "bigint" ? amount : amountCents(amount);
-  if (cents === null) return "Amount unavailable";
-  const fractionalDigits = new Intl.NumberFormat(undefined, { useGrouping: false, minimumIntegerDigits: 2 }).format(cents % 100n);
-  return new Intl.NumberFormat(undefined, { style: "currency", currency, currencyDisplay: "code", minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    .formatToParts(cents / 100n).map(part => part.type === "fraction" ? fractionalDigits : part.value).join("");
-}
-const declaredQuantityValid = (value: string | null) => value !== null && /^\d{1,15}(?:\.\d{1,6})?$/.test(value.trim());
-const readableNames = (names: string[]) => names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
+export interface DashboardAccess { manage: boolean; approve: boolean; bill: boolean }
+type TileKey = "declaration" | "collecting" | "reconcile" | "approval" | "invoices" | "review";
+const TILES: { key: TileKey; label: string; stages: VoyageStage[] }[] = [
+  { key: "declaration", label: "Declarations to record", stages: ["declaration"] },
+  { key: "collecting", label: "Agency readings outstanding", stages: ["collecting"] },
+  { key: "reconcile", label: "Ready to reconcile", stages: ["ready", "returned"] },
+  { key: "approval", label: "Awaiting approval", stages: ["approval"] },
+  { key: "invoices", label: "Invoices to complete", stages: ["invoice", "draft", "held"] },
+  { key: "review", label: "Overpayment reviews", stages: ["review"] },
+];
+// Money and second-review items first, then the work that unblocks them.
+const PRIORITY: VoyageStage[] = ["review", "held", "approval", "returned", "ready", "invoice", "draft", "collecting", "declaration"];
 
-export function activityVoyages(calls: VesselCall[], plans: MeasurementPlan[], records: CloseoutRecord[]): ActivityVoyage[] {
-  const byCall = new Map<string, { call?: VesselCall; plans: MeasurementPlan[] }>();
-  for (const call of calls) byCall.set(call.id, { call, plans: [] });
-  for (const plan of plans) {
-    const entry = byCall.get(plan.callId) ?? { plans: [] };
-    entry.plans.push(plan); byCall.set(plan.callId, entry);
+/** Voyages this user can move forward, most urgent first. */
+export function myWork(voyages: VoyageSummary[], access: DashboardAccess): VoyageSummary[] {
+  const viewOnly = !access.manage && !access.approve && !access.bill;
+  return voyages.filter(voyage => PRIORITY.includes(voyage.stage) && (viewOnly
+    || (access.manage && ["declaration", "collecting", "ready", "returned"].includes(voyage.stage))
+    || (access.approve && voyage.stage === "approval")
+    || (access.bill && ["invoice", "draft", "held", "review"].includes(voyage.stage))))
+    .sort((left, right) => PRIORITY.indexOf(left.stage) - PRIORITY.indexOf(right.stage) || (Date.parse(left.lastActivityAt ?? "") || 0) - (Date.parse(right.lastActivityAt ?? "") || 0));
+}
+
+const names = (list: string[]) => list.slice(0, 2).join(", ") + (list.length > 2 ? ` and ${list.length - 2} more` : "");
+const lines = (count: number) => `${count} ${count === 1 ? "line" : "lines"}`;
+
+/** What is needed, in one sentence, and the action that does it. */
+export function voyageNeed(voyage: VoyageSummary, linkExpiry?: string | null): { need: string; action: string } {
+  switch (voyage.stage) {
+    case "declaration": return voyage.plans.length
+      ? { need: `Declared quantity missing for ${names(voyage.missingDeclarations)}`, action: "Review declaration" }
+      : { need: voyage.arrival ? `${Date.parse(voyage.arrival) > Date.now() ? "Arrives" : "Arrived"} ${dateLabel(voyage.arrival)} · owner declaration not recorded` : "Owner declaration not recorded", action: "Record declaration" };
+    case "collecting": return { need: `${voyage.pendingAgencies.length ? `Waiting for ${names(voyage.pendingAgencies)}` : "Readings incomplete"} · ${voyage.received} of ${voyage.expected} in${linkExpiry ? ` · a link expires ${dateLabel(linkExpiry)}` : ""}`, action: "Chase readings" };
+    case "ready": return { need: `All readings in · ${voyage.differingLines ? `${lines(voyage.differingLines)} ${voyage.differingLines === 1 ? "differs" : "differ"} from the paid declaration` : "every line matches the declaration"}`, action: "Reconcile" };
+    case "returned": return { need: `Returned by ${voyage.returned?.returnedBy?.name ?? "the reviewer"}: “${voyage.returned?.returnComment ?? ""}”`, action: "Revise" };
+    case "approval": return { need: `Version ${voyage.pending?.revision} prepared by ${voyage.pending?.preparedBy?.name ?? "NPA"} · ${voyage.differingLines ? `${lines(voyage.differingLines)} ${voyage.differingLines === 1 ? "differs" : "differ"} from the declaration` : "all lines agree"}`, action: "Review and approve" };
+    case "invoice": return { need: "Final quantities approved · invoice details needed", action: "Complete invoice" };
+    case "draft": return { need: `${voyage.invoice?.number} drafted · ${voyage.invoice?.currency} ${Number(voyage.invoice?.total ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} for additional load`, action: "Review invoice" };
+    case "review": return { need: `${names(voyage.invoice?.lines.filter(line => line.status === "overpayment-review").map(line => line.description) ?? [])} below the paid declaration · no credit created automatically`, action: "Open review" };
+    case "held": return { need: "Billing on hold: an earlier charge exceeds what is now due", action: "Review hold" };
+    default: return { need: STAGE_LABELS[voyage.stage], action: "Open" };
   }
-  const previewByCall = new Map(records.map(record => [record.callId, record]));
-  return [...byCall].map(([callId, entry]) => {
-    const cancelled = entry.call?.status === "cancelled";
-    const activePlans = entry.plans.filter(plan => plan.status !== "cancelled");
-    const record = previewByCall.get(callId);
-    const report = currentReport(activePlans, record);
-    const blockers = reconciliationIssues(activePlans);
-    const invoice = report ? record?.invoices.filter(item => item.reportId === report.id).at(-1) : undefined;
-    const expected = activePlans.reduce((sum, plan) => sum + plan.participants.length, 0);
-    let received = 0;
-    const pendingNames = new Set<string>();
-    for (const plan of activePlans) {
-      const readings = latestReturns(plan);
-      for (const party of plan.participants) {
-        const reading = readings.get(party.id);
-        if (reading) received++;
-        if (party.requiredSubmission && (!reading || plan.lines.some(line => {
-          const row = reading.lines.find(item => item.lineId === line.id);
-          return !row || (row.status === "reported" ? !declaredQuantityValid(row.quantity) : !row.note.trim());
-        }))) pendingNames.add(party.name);
-      }
-    }
-    const missingDeclarations = [...new Set(activePlans.flatMap(plan => plan.lines.filter(line => !declaredQuantityValid(line.manifestQuantity)).map(line => line.description)))];
-    const stage: VoyageStage = cancelled ? "cancelled" : !activePlans.length || missingDeclarations.length ? "declaration"
-      : invoice?.status === "overpayment-review" ? "review" : invoice?.status === "held" ? "held"
-      : invoice?.status === "no-charge" ? "no-charge" : invoice?.status === "draft" ? "draft"
-      : report ? "approved" : blockers.length ? "collecting" : "ready";
-    return {
-      callId, vesselName: entry.call?.vesselName ?? entry.plans[0]?.vesselName ?? "Vessel",
-      reference: entry.call?.reference ?? entry.plans[0]?.callReference ?? callId,
-      arrival: entry.call?.eta ?? "", plans: activePlans, stage, expected, received, blockers,
-      pendingAgencies: [...pendingNames], missingDeclarations, approved: Boolean(report) && !cancelled,
-      invoice: cancelled ? undefined : invoice,
-    };
-  }).sort((left, right) => STAGES[left.stage].order - STAGES[right.stage].order
-    || (Date.parse(right.arrival) || 0) - (Date.parse(left.arrival) || 0)
-    || left.reference.localeCompare(right.reference));
 }
 
-export function voyageGuidance(voyage: ActivityVoyage, access: Access) {
-  const readingsHref = voyagePath(voyage.callId, "readings");
-  const reconciliationHref = voyagePath(voyage.callId, "reconciliation");
-  const variationHref = voyagePath(voyage.callId, "variation-invoice");
-  if (voyage.stage === "review") return { title: "Review the lower final quantity", detail: "NPA’s final quantity is below the owner’s declaration. Review the overpayment flag before this voyage proceeds.", next: "No credit note or refund is created automatically.", action: access.bill ? "Review overpayment" : "View invoice", href: variationHref };
-  if (voyage.stage === "held") return { title: "Resolve the billing hold", detail: "The variation needs review because a previous charge exceeds the amount now calculated.", next: "Review the previous variation charges before preparing an invoice.", action: access.bill ? "Review billing hold" : "View invoice", href: variationHref };
-  if (voyage.stage === "ready") return { title: "Reconcile the readings", detail: "The owner declaration and required agency readings are complete. Compare the figures and set NPA’s final quantities.", next: access.manage && access.approve ? "Then prepare any variation against the paid declaration." : "An authorised NPA reviewer will approve the final quantities.", action: access.manage && access.approve ? "Reconcile readings" : "View reconciliation", href: reconciliationHref };
-  if (voyage.stage === "approved") return { title: "Prepare the voyage invoice", detail: "The reconciliation report is approved in this preview. Confirm the paid declaration and enter the rate for any additional load.", next: access.bill ? "Only the additional quantity will be included." : "An authorised billing user will prepare the invoice preview.", action: access.bill ? "Prepare invoice" : "View invoice", href: variationHref };
-  if (voyage.stage === "collecting") return {
-    title: "Collect the remaining agency readings",
-    detail: voyage.pendingAgencies.length ? `Readings are still needed from ${readableNames(voyage.pendingAgencies)}.` : voyage.blockers[0] ?? "Complete the readings before reconciliation.",
-    next: access.manage ? "Enter a reading or get a link for the agency. Then continue to NPA review." : "An authorised user can collect the remaining readings.",
-    action: access.manage && voyage.plans.length === 1 ? "Collect agency readings" : "View readings",
-    href: access.manage && voyage.plans.length === 1 ? `/app/measurements/${encodeURIComponent(voyage.plans[0].id)}` : readingsHref,
-  };
-  if (voyage.stage === "declaration") return voyage.plans.length ? {
-    title: "Review the owner declaration", detail: voyage.missingDeclarations.length ? `The owner’s declared quantity is missing or invalid for ${readableNames(voyage.missingDeclarations)}.` : "The owner declaration needs review before reconciliation.",
-    next: "Check the declaration first; agency readings are kept separately.", action: "Review owner declaration", href: readingsHref,
-  } : {
-    title: "Start the owner declaration", detail: "This voyage has no owner declaration yet. Record the declared load, then choose the agencies that will measure it.",
-    next: "Each agency will enter its own reading before NPA reconciles the figures.", action: access.manage ? "Start declaration" : "View readings", href: access.manage ? `/app/measurements/new?callId=${encodeURIComponent(voyage.callId)}` : readingsHref,
-  };
-  return { title: "Prepared preview", detail: "This voyage’s preview is ready to review.", next: "No invoice has been issued.", action: "View preview", href: variationHref };
+function waiting(voyage: VoyageSummary): { text: string; urgent: boolean } {
+  if (voyage.stage === "declaration" && !voyage.plans.length && voyage.arrival && Date.parse(voyage.arrival) > Date.now()) return { text: `ETA ${new Date(voyage.arrival).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`, urgent: Date.parse(voyage.arrival) - Date.now() < 2 * 86_400_000 };
+  const days = daysSince(voyage.lastActivityAt);
+  if (days === null) return { text: "—", urgent: false };
+  return { text: days === 0 ? "Today" : `${days} ${days === 1 ? "day" : "days"}`, urgent: days >= 5 };
 }
 
-function activityEntries(plans: MeasurementPlan[], records: CloseoutRecord[]): ActivityEntry[] {
-  const entries: ActivityEntry[] = [];
-  for (const plan of plans) {
-    for (const submission of plan.submissions) {
-      const agency = plan.participants.find(party => party.id === submission.participantId)?.name ?? "Agency";
-      entries.push({ id: `submission:${plan.id}:${submission.id}`, callId: plan.callId, at: submission.recordedAt,
-        actor: submission.recordedBy.name, title: `${agency} submitted a reading${submission.revision > 1 ? ` · revision ${submission.revision}` : ""}`,
-        reference: submission.sourceReference || plan.callReference, href: voyagePath(plan.callId, "readings"), preview: false });
-    }
-    for (const report of plan.reconciliations) {
-      if (report.status !== "final" || !report.finalizedAt) continue;
-      entries.push({ id: `final:${plan.id}:${report.id}`, callId: plan.callId, at: report.finalizedAt,
-        actor: report.finalizedBy?.name ?? "Recorded NPA reviewer", title: `Reconciliation finalized · revision ${report.revision}`,
-        reference: plan.callReference, href: voyagePath(plan.callId, "reconciliation"), preview: false });
-    }
+const EVENT_TITLES: Record<PreviewEventAction, string> = {
+  "report-submitted": "Final quantities sent for approval", "report-returned": "Final quantities returned for changes", "report-approved": "Final quantities approved",
+  "invoice-drafted": "Variation invoice drafted", "no-charge-recorded": "No additional charge recorded", "overpayment-flagged": "Overpayment flagged for review", "billing-held": "Variation held for review",
+};
+function recentActivity(plans: MeasurementPlan[], records: CloseoutRecord[]) {
+  const entries: { id: string; callId: string; at: string; title: string; who: string; href: string }[] = [];
+  for (const plan of plans) for (const submission of plan.submissions) {
+    const agency = plan.participants.find(party => party.id === submission.participantId)?.name ?? "An agency";
+    entries.push({ id: `s:${submission.id}`, callId: plan.callId, at: submission.recordedAt, title: `${agency} submitted a reading${submission.revision > 1 ? ` (revision ${submission.revision})` : ""}`, who: submission.recordedBy ? `entered by ${submission.recordedBy.name}` : "via secure link", href: voyagePath(plan.callId, "readings") });
   }
-  const titles = { "report-approved": "Reconciliation report approved", "invoice-drafted": "Variation invoice drafted", "no-charge-recorded": "No additional charge recorded", "overpayment-flagged": "Overpayment flagged for review", "billing-held": "Variation held for review" };
-  for (const record of records) for (const event of record.events) entries.push({
-    id: `preview:${event.id}`, callId: event.callId, at: event.at, actor: event.actor.name,
-    title: titles[event.action], reference: event.reference,
-    href: voyagePath(event.callId, event.action === "report-approved" ? "reconciliation" : "variation-invoice"), preview: true,
-  });
-  return entries.sort((left, right) => (Date.parse(right.at) || 0) - (Date.parse(left.at) || 0) || left.id.localeCompare(right.id));
+  for (const record of records) for (const event of record.events) entries.push({ id: `e:${event.id}`, callId: event.callId, at: event.at, title: EVENT_TITLES[event.action], who: event.actor.name, href: voyagePath(event.callId, event.action.startsWith("report") ? "readings" : "variation-invoice") });
+  return entries.sort((left, right) => (Date.parse(right.at) || 0) - (Date.parse(left.at) || 0));
 }
 
-function VoyageRow({ voyage, access, prepared = false }: { voyage: ActivityVoyage; access: Access; prepared?: boolean }) {
-  const guidance = voyageGuidance(voyage, access);
-  return <li className="activity-voyage-row" aria-label={`${voyage.vesselName} · ${voyage.reference}`}>
-    <div className="activity-voyage-identity"><strong>{voyage.vesselName}</strong><span>{voyage.reference}</span></div>
-    <div className="activity-voyage-state"><span className={`activity-stage ${voyage.stage}`}>{STAGES[voyage.stage].label}</span><small>{prepared && voyage.invoice ? `${voyage.invoice.number}${voyage.stage === "draft" ? ` · ${moneyLabel(voyage.invoice.currency, voyage.invoice.total)}` : ""}` : voyage.expected ? `${voyage.received} of ${voyage.expected} agency readings received` : "Owner declaration not started"}</small></div>
-    <Link className="activity-row-action" to={guidance.href}>{prepared ? "View preview" : guidance.action}<Icon name="chevronRight" size={14} /></Link>
-  </li>;
+function greeting(): string {
+  const hour = new Date().getHours();
+  return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 }
 
-function EventList({ entries, voyages }: { entries: ActivityEntry[]; voyages: Map<string, ActivityVoyage> }) {
-  return <ol className="activity-history-list">{entries.map(event => {
-    const voyage = voyages.get(event.callId);
-    return <li key={event.id}><div><Link to={event.href}>{event.title}</Link><small>{event.preview && <span className="activity-preview-tag">Preview</span>}{voyage?.vesselName} · {voyage?.reference} · {event.actor} · {event.reference}</small></div><time dateTime={event.at}>{dateLabel(event.at)}</time></li>;
-  })}</ol>;
+function SetupChecklist({ calls, plans }: { calls: number; plans: number }) {
+  const { org, can } = useAuth();
+  const directory = useAgencyDirectory(org?.id);
+  const { tariff } = useVariationTariff(org?.id);
+  const team = useQuery({ queryKey: ["dashboard-team-size", org?.id], queryFn: () => api.users({ pageSize: 1 }), enabled: can("users.view"), retry: false, staleTime: 300_000 });
+  const items = [
+    { done: directory.agencies.some(agency => agency.active), label: "Add the agencies that report readings", href: "/app/settings/agencies", show: true },
+    { done: (team.data?.count ?? 0) > 1, label: "Invite your team", href: "/app/users", show: can("users.view") },
+    { done: calls > 0, label: "Register a vessel voyage", href: "/app/vessel-calls?register", show: can("registerCall") },
+    { done: plans > 0, label: "Record the first paid declaration", href: "/app/measurements/new", show: can("measurements.manage") },
+    { done: Boolean(tariff), label: "Set the variation tariff rates", href: "/app/settings/tariffs", show: can("measurements.bill") },
+  ].filter(item => item.show);
+  const done = items.filter(item => item.done).length;
+  if (!items.length || done === items.length || directory.loading) return null;
+  return <section className="voyage-card voyage-card-pad dashboard-setup" aria-labelledby="setup-heading">
+    <div className="dashboard-side-head"><h2 id="setup-heading">Workspace setup</h2><span>{done} of {items.length} done</span></div>
+    <div className="voyage-progress" role="progressbar" aria-label="Workspace setup progress" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={done}><span style={{ width: `${Math.round(done / items.length * 100)}%` }} /></div>
+    <ul>{items.map(item => <li key={item.label} className={item.done ? "done" : ""}>{item.done ? <Icon name="check" size={16} strokeWidth={2.6} /> : <span className="dashboard-setup-dot" aria-hidden="true" />}{item.done ? <span>{item.label}<span className="hide-sr"> (done)</span></span> : <Link to={item.href}>{item.label}</Link>}</li>)}</ul>
+  </section>;
 }
 
 export function ActivityDashboard() {
-  const { org, can } = useAuth();
+  const { org, user, can } = useAuth();
   const store = useStore();
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
-  const recordsQuery = useQuery({ queryKey: ["measurement-plans", org?.id, undefined], queryFn: () => measurementApi.list(), refetchInterval: 30_000 });
+  useBreadcrumbs([{ label: "Dashboard" }]);
+  const access: DashboardAccess = { manage: can("measurements.manage"), approve: can("measurements.approve"), bill: can("measurements.bill") };
+  const plansQuery = useQuery({ queryKey: ["measurement-plans", org?.id, undefined], queryFn: () => measurementApi.list(), refetchInterval: 30_000 });
   const previews = useCloseoutPreviews(org?.id);
-  const plans = recordsQuery.data?.plans ?? EMPTY_PLANS;
-  const voyages = useMemo(() => activityVoyages(store.calls ?? [], plans, previews.records), [store.calls, plans, previews.records]);
-  const access: Access = { manage: can("measurements.manage"), approve: can("measurements.approve"), bill: can("measurements.bill") };
-  const query = search.trim().toLocaleLowerCase();
-  const visible = voyages.filter(voyage => (status === "all" || (status === "variation" ? ["approved", "review", "held"].includes(voyage.stage) : status === "prepared" ? preparedStage(voyage.stage) : voyage.stage === status))
-    && (!query || [voyage.vesselName, voyage.reference, ...voyage.plans.flatMap(plan => [plan.title, ...plan.participants.map(party => party.name)])].join(" ").toLocaleLowerCase().includes(query)));
-  const attention = visible.filter(voyage => needsAttention(voyage.stage));
-  const recommendation = attention[0];
-  const guidance = recommendation ? voyageGuidance(recommendation, access) : null;
-  const prepared = visible.filter(voyage => preparedStage(voyage.stage));
-  const collectingCount = visible.filter(voyage => voyage.stage === "collecting").length;
-  const counts = [
-    { label: "Declaration", count: visible.filter(voyage => voyage.stage === "declaration").length, detail: "to record or review", icon: "ship" },
-    { label: "Agency readings", count: collectingCount, detail: `${collectingCount === 1 ? "voyage" : "voyages"} awaiting readings`, icon: "ruler" },
-    { label: "NPA review", count: visible.filter(voyage => voyage.stage === "ready").length, detail: "ready to reconcile", icon: "clipboard" },
-    { label: "Invoice", count: visible.filter(voyage => ["approved", "review", "held"].includes(voyage.stage)).length, detail: "to prepare or review", icon: "invoice" },
-  ];
-  const totals = new Map<string, bigint>();
-  for (const voyage of prepared.filter(item => item.invoice?.status === "draft")) {
-    const invoice = voyage.invoice!; const cents = amountCents(invoice.total);
-    if (cents !== null) totals.set(invoice.currency, (totals.get(invoice.currency) ?? 0n) + cents);
-  }
-  const visibleIds = new Set(visible.map(voyage => voyage.callId));
-  const events = activityEntries(plans, previews.records).filter(event => visibleIds.has(event.callId)).slice(0, 12);
+  const plans = plansQuery.data?.plans ?? [];
+  const voyages = summarizeVoyages(store.calls ?? [], plans, previews.records);
+  const [tile, setTile] = useState<TileKey | null>(null);
+  const [now] = useState(() => Date.now());
+  const collectingPlans = voyages.filter(voyage => voyage.stage === "collecting").flatMap(voyage => voyage.plans).slice(0, 12);
+  const linkQueries = useQueries({ queries: collectingPlans.map(plan => ({ queryKey: ["agency-links", org?.id, plan.id], queryFn: () => measurementApi.agencyLinks(plan.id), enabled: access.manage, retry: false, staleTime: 60_000 })) });
+  const expiryByCall = new Map<string, string>();
+  collectingPlans.forEach((plan, index) => {
+    const soonest = linkQueries[index]?.data?.links.filter(link => !link.revokedAt && !link.submittedAt && Date.parse(link.expiresAt) > now).map(link => link.expiresAt).sort()[0];
+    if (soonest && Date.parse(soonest) - now < 3 * 86_400_000) expiryByCall.set(plan.callId, soonest);
+  });
+  const mine = myWork(voyages, access);
+  const selected = tile ? TILES.find(item => item.key === tile)! : null;
+  const rows = selected ? voyages.filter(voyage => selected.stages.includes(voyage.stage)).sort((left, right) => PRIORITY.indexOf(left.stage) - PRIORITY.indexOf(right.stage)) : mine;
+  const next = mine[0];
+  const nextNeed = next ? voyageNeed(next, expiryByCall.get(next.callId)) : null;
+  const activity = recentActivity(plans, previews.records).slice(0, 6);
   const voyageById = new Map(voyages.map(voyage => [voyage.callId, voyage]));
-  const filtered = search.trim() !== "" || status !== "all";
+  const firstName = user?.name?.split(" ")[0] ?? "";
 
   return <div className="content-inner measurement-workspace activity-dashboard">
-    <div className="page-head"><div><div className="activity-dashboard-title"><h1>Dashboard</h1><span className="activity-preview-chip">UI preview</span></div><p className="desc">Continue the next step for each voyage.</p></div>{access.manage && <Link className="btn btn-secondary" to="/app/measurements/new"><Icon name="plus" size={16} /> Measure voyage</Link>}</div>
-    <ErrorMessage error={recordsQuery.error} /><ErrorMessage error={previews.error ? new Error(previews.error) : null} />
-    {recordsQuery.isPending ? <div className="measurement-loading" role="status">Loading voyage activity…</div> : !recordsQuery.error && <>
-      <section className={`activity-next-action ${recommendation?.stage === "review" || recommendation?.stage === "held" ? "needs-review" : ""}`} aria-labelledby="next-action-heading">
-        <div><span className="activity-eyebrow">{recommendation ? "Next action" : voyages.length === 0 ? "Get started" : "You’re up to date"}</span><h2 id="next-action-heading">{guidance?.title ?? (filtered && !visible.length ? "No voyages match this view" : voyages.length === 0 ? "Start with the owner’s declaration" : "Nothing needs attention in this view")}</h2>
-          {recommendation && <p className="activity-next-voyage"><strong>{recommendation.vesselName}</strong><span>{recommendation.reference}</span></p>}
-          <p className="activity-next-detail">{guidance?.detail ?? (filtered && !visible.length ? "Change the search or stage to see your voyages." : voyages.length === 0 ? "Set up a voyage, record the declared load and choose the agencies that will report their readings." : prepared.length ? `${prepared.length} ${prepared.length === 1 ? "preview is" : "previews are"} prepared for review below.` : "Open Voyages to review the readings already recorded.")}</p>
-          {guidance && <p className="activity-next-after">{guidance.next}</p>}
+    <div className="page-head">
+      <div><h1>{greeting()}{firstName ? `, ${firstName}` : ""}</h1><p className="desc">{new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })} · your work as <strong>{user?.role ?? "a viewer"}</strong></p></div>
+      {access.manage && <Link className="btn btn-primary" to="/app/measurements/new"><Icon name="plus" size={17} /> New voyage</Link>}
+    </div>
+    <ErrorMessage error={plansQuery.error} />
+    {previews.error && <p role="alert" className="measurement-notice error">{previews.error}</p>}
+    {plansQuery.isPending ? <div className="measurement-loading" role="status">Loading your work…</div> : !plansQuery.error && <>
+      <section className={`dashboard-next${next && ["review", "held"].includes(next.stage) ? " review" : ""}`} aria-labelledby="next-heading">
+        <div>
+          <span className="dashboard-eyebrow">{next ? "Next action" : voyages.length ? "You’re up to date" : "Get started"}</span>
+          {next && nextNeed ? <>
+            <h2 id="next-heading">{nextNeed.action}: {next.vesselName}</h2>
+            <p className="dashboard-next-voyage"><strong>{next.reference}</strong><span className={`stage-chip ${STAGE_TONES[next.stage]}`}>{STAGE_LABELS[next.stage]}</span><span>{waiting(next).text === "Today" ? "Today" : next.stage === "declaration" && !next.plans.length ? waiting(next).text : `Waiting ${waiting(next).text}`}</span></p>
+            <p>{nextNeed.need}</p>
+          </> : <>
+            <h2 id="next-heading">{voyages.length ? "Nothing needs you right now" : "Start with a voyage’s paid declaration"}</h2>
+            <p>{voyages.length ? "New readings, approvals and invoices will appear here as they arrive." : "Register the vessel’s voyage, record what the owner declared and paid for, then invite the agencies that will measure it."}</p>
+          </>}
         </div>
-        <div className="activity-next-cta">{guidance ? <Link className="btn btn-primary" to={guidance.href}>{guidance.action}<Icon name="arrowRight" size={16} /></Link> : filtered ? <button type="button" className="btn btn-secondary" onClick={() => { setSearch(""); setStatus("all"); }}>Clear filters</button> : voyages.length === 0 && access.manage ? <Link className="btn btn-primary" to="/app/measurements/new">Measure voyage <Icon name="arrowRight" size={16} /></Link> : <Link className="btn btn-secondary" to={prepared.length ? "/app/variation-invoices" : "/app/measurements"}>{prepared.length ? "View prepared previews" : "View voyages"}<Icon name="chevronRight" size={15} /></Link>}</div>
+        {next && nextNeed ? <Link className="btn btn-primary" to={nextStepPath(next)}>{nextNeed.action}<Icon name="arrowRight" size={16} /></Link>
+          : access.manage && !voyages.length ? <Link className="btn btn-primary" to="/app/measurements/new">New voyage <Icon name="arrowRight" size={16} /></Link>
+          : <Link className="btn btn-secondary" to="/app/measurements">All voyages <Icon name="chevronRight" size={15} /></Link>}
       </section>
-      <ol className="activity-workflow-strip" aria-label="Voyages at each step">{counts.map((item, index) => <li key={item.label} aria-label={item.label}><span className="activity-workflow-number">{index + 1}</span><div><span>{item.label}</span><p><strong>{item.count}</strong> {item.detail}</p></div></li>)}</ol>
-      <section className="activity-attention" aria-labelledby="attention-heading">
-        <div className="activity-section-head"><h2 id="attention-heading">Voyages needing attention <span>{attention.length}</span></h2><Link className="link-btn" to="/app/measurements">All voyages <Icon name="chevronRight" size={13} /></Link></div>
-        <div className="activity-toolbar"><label className="activity-search"><Icon name="search" size={16} /><input aria-label="Search voyages or agencies" type="search" placeholder="Search vessel, voyage or agency" value={search} onChange={event => setSearch(event.target.value)} /></label><select aria-label="Filter by step" value={status} onChange={event => setStatus(event.target.value)}><option value="all">All steps</option><option value="declaration">Declaration</option><option value="collecting">Agency readings</option><option value="ready">NPA review</option><option value="variation">Invoice</option><option value="prepared">Prepared previews</option><option value="cancelled">Cancelled</option></select><span className="activity-view-count" role="status">{visible.length} {visible.length === 1 ? "voyage" : "voyages"}</span></div>
-        {attention.length ? <ul className="activity-voyage-list">{attention.map(voyage => <VoyageRow key={voyage.callId} voyage={voyage} access={access} />)}</ul> : <p className="activity-no-work">{filtered && !visible.length ? "No matching voyages. Clear the filters to see all work." : "No pending steps in this view."}</p>}
-      </section>
-      {prepared.length > 0 && <details className="activity-prepared"><summary><span>Prepared previews <strong>{prepared.length}</strong></span><small>Invoice drafts and no-charge outcomes</small></summary><ul className="activity-voyage-list">{prepared.map(voyage => <VoyageRow key={voyage.callId} voyage={voyage} access={access} prepared />)}</ul>{totals.size > 0 && <p className="activity-draft-totals">Draft amounts: {[...totals.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([currency, cents], index) => <span key={currency}>{index > 0 && " · "}<strong>{moneyLabel(currency, cents)}</strong></span>)}<small>Preview amounts; no invoices issued.</small></p>}</details>}
-      <section className="activity-recent" aria-labelledby="recent-activity-heading"><div className="activity-section-head"><h2 id="recent-activity-heading">Recent activity</h2><span className="activity-secondary-label">Latest recorded actions</span></div>{events.length ? <><EventList entries={events.slice(0, 3)} voyages={voyageById} />{events.length > 3 && <details className="activity-more-history"><summary>Show {events.length - 3} more recorded {events.length === 4 ? "action" : "actions"}</summary><EventList entries={events.slice(3)} voyages={voyageById} /></details>}</> : <p className="activity-no-work">Agency submissions and report activity will appear here.</p>}</section>
-      <p className="activity-dashboard-footnote">Approvals and invoice drafts are saved in this browser for UI review. Changed readings require a fresh reconciliation. No invoice, credit note or payment is issued.</p>
+
+      <div className="dashboard-tiles" role="group" aria-label="Voyages at each step">
+        {TILES.map(item => {
+          const count = voyages.filter(voyage => item.stages.includes(voyage.stage)).length;
+          const tone = item.key === "invoices" ? "amber" : item.key === "review" ? "blue" : "";
+          return <button type="button" key={item.key} className={`dashboard-tile${tile === item.key ? " on" : ""}`} aria-pressed={tile === item.key} onClick={() => setTile(current => current === item.key ? null : item.key)}>
+            <strong className={tone}>{count}</strong><span>{item.label}</span>
+          </button>;
+        })}
+      </div>
+
+      <div className="voyage-columns">
+        <section className="voyage-card voyage-main dashboard-queue" aria-labelledby="queue-heading">
+          <div className="voyage-card-head">
+            <h2 id="queue-heading">{selected ? `${selected.label} · all voyages` : "My work"} <span className="stage-chip">{rows.length}</span></h2>
+            {selected ? <button type="button" className="link-btn" onClick={() => setTile(null)}>Show my work</button> : <Link className="link-btn" to="/app/measurements">All voyages <Icon name="chevronRight" size={13} /></Link>}
+          </div>
+          {rows.length ? <ul className="dashboard-rows">{rows.map(voyage => {
+            const { need, action } = voyageNeed(voyage, expiryByCall.get(voyage.callId));
+            const wait = waiting(voyage);
+            return <li key={voyage.callId}>
+              <div className="dashboard-row-voyage"><strong>{voyage.vesselName}</strong><span>{voyage.reference}</span></div>
+              <div className="dashboard-row-need"><span className={`stage-chip ${STAGE_TONES[voyage.stage]}`}>{STAGE_LABELS[voyage.stage]}</span><p>{need}</p></div>
+              <span className={`dashboard-row-wait${wait.urgent ? " urgent" : ""}`}><Icon name="calendar" size={14} />{wait.text}{wait.urgent && <span className="hide-sr"> (overdue)</span>}</span>
+              <Link className="btn btn-secondary btn-sm" to={nextStepPath(voyage)} aria-label={`${action} · ${voyage.vesselName} ${voyage.reference}`}>{action}</Link>
+            </li>;
+          })}</ul> : <p className="dashboard-empty">{selected ? "No voyages at this step." : "Nothing is waiting for you."}</p>}
+        </section>
+
+        <aside className="voyage-aside">
+          <SetupChecklist calls={store.calls?.length ?? 0} plans={plans.length} />
+          <section className="voyage-card voyage-card-pad dashboard-activity" aria-labelledby="activity-heading">
+            <div className="dashboard-side-head"><h2 id="activity-heading">Recent activity</h2></div>
+            {activity.length ? <ol>{activity.map(entry => {
+              const voyage = voyageById.get(entry.callId);
+              return <li key={entry.id}><Link to={entry.href}>{entry.title}</Link><small>{voyage ? `${voyage.vesselName} · ${voyage.reference} · ` : ""}{entry.who} · {dateLabel(entry.at)}</small></li>;
+            })}</ol> : <p className="dashboard-empty">Agency submissions, approvals and invoices will appear here.</p>}
+          </section>
+        </aside>
+      </div>
+      <PreviewStorageNotice />
     </>}
   </div>;
 }

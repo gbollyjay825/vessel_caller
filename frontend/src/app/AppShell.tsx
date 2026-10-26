@@ -5,39 +5,46 @@ import type { ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
 import { Link, useLocation } from "../lib/navigation";
+import { BreadcrumbProvider, usePageCrumbs } from "./breadcrumbs";
 import { Sidebar, TopBar } from "./Shell";
 import { useStore } from "./store";
 
+// Section names shown in the top bar until a page registers a fuller trail.
 function titleFor(pathname: string): string {
   const p = pathname.replace(/\/+$/, "");
   if (p === "/app" || p === "") return "Dashboard";
   if (p.includes("/variation-invoices")) return "Invoices";
   if (p.includes("/vessel-calls")) return "Vessel Calls";
-  if (p.endsWith("/variation-invoice")) return "Voyage invoice";
-  if (p.endsWith("/reconciliation")) return "Reconciliation";
-  if (p.endsWith("/readings")) return "Readings";
+  if (p.includes("/vessels")) return "Vessels";
   if (p.includes("/measurements")) return "Voyages";
   if (p.includes("/inspections/new")) return "New Inspection";
   if (p.includes("/inspections")) return "Inspections";
-  if (p.includes("/invoices")) return "Invoices";
+  if (p.includes("/invoices")) return "Harbour dues";
   if (p.includes("/analytics")) return "Analytics";
-  if (p.includes("/users")) return "User Management";
+  if (p.includes("/users")) return "Users";
   if (p.includes("/account")) return "Account & Security";
   if (p.includes("/settings/agencies")) return "Agencies";
+  if (p.includes("/settings/tariffs")) return "Variation tariff";
   if (p.includes("/settings")) return "Settings";
   return "Dashboard";
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  return <BreadcrumbProvider><ShellFrame>{children}</ShellFrame></BreadcrumbProvider>;
+}
+
+function ShellFrame({ children }: { children: ReactNode }) {
   const [mobileNav, setMobileNav] = useState(false);
   const loc = useLocation();
   const { user } = useAuth();
+  const title = titleFor(loc.pathname);
+  const crumbs = usePageCrumbs(title);
   return (
     <div className="app">
       <Sidebar mobileOpen={mobileNav} closeMobile={() => setMobileNav(false)} />
       {mobileNav && <div className="nav-scrim" onClick={() => setMobileNav(false)} />}
       <div className="main">
-        <TopBar title={titleFor(loc.pathname)} onHamburger={() => setMobileNav((o) => !o)} />
+        <TopBar title={title} crumbs={crumbs} onHamburger={() => setMobileNav((o) => !o)} />
         {user?.mfaEnrollmentRequired && !user.mfaEnabled && (
           <div className="security-banner" role="status">
             <Icon name="alert" size={16} />

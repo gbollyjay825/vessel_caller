@@ -70,7 +70,7 @@ export function AreaTrend({ series }: AreaTrendProps) {
             <circle cx={x(hover)} cy={y(series[hover].dryT)} r="4.5" fill="#D9A441" stroke="#fff" strokeWidth="2" />
           </g>
         )}
-        {series.map((d, i) => (<text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="12" fill="#8A95A3" fontWeight="500">{d.month}</text>))}
+        {series.map((d, i) => (<text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="12" fill="#667180" fontWeight="500">{d.month}</text>))}
       </svg>
       {hover != null && (
         <div className="chart-tip" style={{ left: `${(x(hover) / W) * 100}%` }}>
@@ -122,7 +122,7 @@ export function RevenueBars({ series }: RevenueBarsProps) {
               <rect x={xx - 3} y={padT} width={bw + 6} height={innerH} fill={on ? "#F2F7FC" : "transparent"} rx="5" />
               <rect className="ct-rise" x={xx} y={baseY - hDry} width={bw} height={hDry} fill="#D9A441" rx="3" opacity={on || hover == null ? 1 : 0.5} style={{ animationDelay: delay }} />
               <rect className="ct-rise" x={xx} y={baseY - hDry - hLiq} width={bw} height={hLiq} fill="#1B5FAA" rx="3" opacity={on || hover == null ? 1 : 0.5} style={{ animationDelay: delay }} />
-              <text x={cx(i)} y={H - 8} textAnchor="middle" fontSize="12" fill="#8A95A3" fontWeight="500">{d.month}</text>
+              <text x={cx(i)} y={H - 8} textAnchor="middle" fontSize="12" fill="#667180" fontWeight="500">{d.month}</text>
               {on && <text x={cx(i)} y={baseY - hDry - hLiq - 8} textAnchor="middle" fontSize="12.5" fontWeight="700" fill="#16191D">{fmtCompactUSD(d.liquidR + d.dryR)}</text>}
             </g>
           );
@@ -183,7 +183,7 @@ export function MixDonut({ products, total }: MixDonutProps) {
               onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} />
           ))}
         </g>
-        <text x={cxy} y={cxy - 6} textAnchor="middle" fontSize="15" fontWeight="600" fill="#8A95A3">{focus ? focus.key : "Total"}</text>
+        <text x={cxy} y={cxy - 6} textAnchor="middle" fontSize="15" fontWeight="600" fill="#667180">{focus ? focus.key : "Total"}</text>
         <text x={cxy} y={cxy + 20} textAnchor="middle" fontSize="26" fontWeight="700" fill="#16191D">{focus ? (focus.frac * 100).toFixed(0) + "%" : fmtCompactMT(total) + " MT"}</text>
       </svg>
       <div className="donut-legend">

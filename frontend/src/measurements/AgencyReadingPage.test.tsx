@@ -31,7 +31,7 @@ describe("public agency reading page", () => {
   it("preserves requestId and fixed context through a failed submission retry", async () => {
     api.submit.mockRejectedValueOnce(new GuestPortalError("Wrong agency session. Reopen your link.", 403)); render(<AgencyReadingPage />);
     await screen.findByRole("heading", { name: "Record your agency’s reading" }); const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Source document reference"), "SOURCE-1"); await user.type(screen.getByRole("spinbutton"), "0");
+    await user.type(screen.getByRole("textbox", { name: /^Source document reference/ }), "SOURCE-1"); await user.type(screen.getByRole("spinbutton"), "0");
     await user.click(screen.getByRole("button", { name: "Submit reading" })); expect(await screen.findByRole("alert")).toHaveTextContent("Wrong agency session");
     expect(api.context).toHaveBeenCalledTimes(1); expect(screen.getByRole("spinbutton")).toHaveValue(0);
     await user.click(screen.getByRole("button", { name: "Submit reading" })); await screen.findByRole("heading", { name: "Your agency report" });

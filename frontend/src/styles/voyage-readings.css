@@ -1,58 +1,77 @@
-.voyage-readings-report { min-width: 0; max-width: 100%; }
-.voyage-readings-summary { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 14px; color: var(--slate); font-size: 12px; line-height: 1.5; }
-.voyage-readings-summary p { margin: 0; }
-.voyage-readings-summary strong { color: var(--ink); font-size: 17px; font-variant-numeric: tabular-nums; margin-right: 4px; }
-.voyage-readings-summary span { color: var(--slate-soft); }
-.voyage-readings-summary .voyage-readings-cancelled-note { color: #934336; }
-.voyage-readings-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--hairline-strong); border-radius: 8px; background: white; overscroll-behavior-inline: contain; }
-.voyage-readings-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.voyage-readings-table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 620px; text-align: left; font-size: 13px; color: var(--ink); }
-.voyage-readings-table caption { padding: 15px 18px; text-align: left; font-size: 13px; font-weight: 600; color: var(--slate); background: white; }
-.voyage-readings-table th,.voyage-readings-table td { min-width: 160px; max-width: 260px; padding: 15px 18px; border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); vertical-align: top; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.voyage-readings-table th:last-child,.voyage-readings-table td:last-child { border-right: 0; }
-.voyage-readings-table thead th { background: var(--page); color: var(--slate); font-size: 12px; font-weight: 650; border-top: 1px solid var(--hairline); }
-.voyage-readings-table small { display: block; margin-top: 5px; color: var(--slate); font-size: 11px; line-height: 1.55; font-weight: 400; }
-.voyage-readings-table .voyage-readings-cargo { position: sticky; left: 0; z-index: 1; min-width: 220px; max-width: 280px; background: white; box-shadow: 1px 0 var(--hairline-strong); }
-.voyage-readings-table thead .voyage-readings-cargo { background: var(--page); z-index: 2; }
-.voyage-readings-table tbody .voyage-readings-cargo { font-weight: 550; }
-.voyage-readings-table .voyage-readings-unit { min-width: 90px; width: 90px; color: var(--slate); font-size: 12px; }
-.voyage-readings-table .voyage-readings-owner { background: var(--brand-accent-faint); }
-.voyage-readings-table thead .voyage-readings-owner { background: var(--brand-accent-soft); }
-.voyage-readings-table .voyage-readings-sheet th { max-width: none; min-width: 0; background: #f7f8fa; padding-block: 11px; }
-.voyage-readings-sheet th > div { display: flex; align-items: center; gap: 14px; }
-.voyage-readings-sheet strong { font-size: 12px; font-weight: 600; }
-.voyage-readings-sheet small { margin-top: 2px; }
-.voyage-readings-status { display: inline-block; padding: 3px 8px; flex-shrink: 0; border: 1px solid #d7e0e9; border-radius: 5px; color: #526477; font-size: 10px; font-weight: 500; }
-.voyage-readings-status.cancelled { color: #934336; border-color: #edcec7; background: #fff4f1; }
-.voyage-reading-missing,.voyage-reading-absent { color: var(--slate-soft); font-size: 12px; }
-.voyage-reading-value + .voyage-reading-value { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }
-.voyage-readings-table .voyage-reading-representative { margin-top: 0; margin-bottom: 4px; font-weight: 600; }
-.voyage-readings-table .voyage-readings-no-items { padding: 20px; color: var(--slate); font-size: 12px; }
-.voyage-readings-table tbody:last-child tr:last-child > * { border-bottom: 0; }
-.voyage-readings-legend { margin-top: 15px; color: var(--slate); font-size: 11px; line-height: 1.8; }
-.voyage-readings-legend p { margin: 4px 0; }
-.voyage-readings-legend strong { font-weight: 600; }
-.voyage-readings-empty { padding: 28px; border: 1px solid var(--hairline); border-radius: 8px; background: white; text-align: center; font-size: 14px; }
-.voyage-readings-empty p { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--slate); }
-@media (max-width: 640px) {
-  .voyage-readings-table { font-size: 12px; }
-  .voyage-readings-table th,.voyage-readings-table td { padding: 12px; min-width: 145px; }
-  .voyage-readings-table .voyage-readings-cargo { min-width: 160px; max-width: 180px; }
-  .voyage-readings-table .voyage-readings-unit { min-width: 78px; width: 78px; }
-  .voyage-readings-summary strong { font-size: 15px; }
-}
-@media print {
-  .voyage-readings-scroll { overflow: visible; }
-  .voyage-readings-table { min-width: 0; font-size: 9px; }
-  .voyage-readings-table th,.voyage-readings-table td { min-width: 0; padding: 7px; }
-  .voyage-readings-table .voyage-readings-cargo { position: static; min-width: 0; box-shadow: none; }
-}
+/* Readings report: paid declaration beside every agency reading, differences
+   marked with sign and words, NPA final agreed quantity per line. */
+.readings-report .voyage-card-head h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.readings-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.readings-toggle.on { border: 2px solid var(--accent); color: var(--accent); background: var(--brand-accent-faint); padding: 8px 15px; }
+.readings-callout { margin: 0 20px 14px; }
+.readings-scroll { max-width: 100%; overflow-x: auto; position: relative; border-top: 1px solid var(--hairline); overscroll-behavior-inline: contain; }
+.readings-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.readings-table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 980px; font-size: 14px; color: var(--ink); }
+.readings-table th, .readings-table td { padding: 12px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; text-align: right; font-variant-numeric: tabular-nums; }
+.readings-table thead th { background: #F6F7F9; color: var(--slate); font-size: 12px; font-weight: 600; vertical-align: bottom; white-space: nowrap; }
+.readings-table thead th small { display: block; font-weight: 500; margin-top: 2px; }
+.readings-table small { display: block; font-size: 12px; color: var(--slate); margin-top: 3px; text-align: inherit; white-space: normal; }
+.readings-table .readings-cargo { position: sticky; left: 0; z-index: 1; text-align: left; background: #fff; min-width: 150px; box-shadow: 1px 0 var(--hairline); font-weight: 400; }
+.readings-table thead .readings-cargo { background: #F6F7F9; z-index: 2; }
+.readings-table .readings-declared { background: #F6F7F9; }
+.readings-table thead .readings-declared { background: #EEF1F4; color: #3D4652; }
+.readings-table td.above { background: var(--above-cell); }
+.readings-table td.below { background: var(--below-cell); }
+.readings-table .var-badge { margin-left: 6px; }
+.readings-table .readings-final { position: sticky; right: 120px; z-index: 1; text-align: left; background: var(--brand-accent-faint); min-width: 250px; box-shadow: -1px 0 var(--hairline); }
+.readings-table thead .readings-final { background: var(--brand-accent-soft); color: var(--accent); z-index: 2; }
+.readings-table .readings-vs { position: sticky; right: 0; z-index: 1; width: 120px; min-width: 120px; max-width: 120px; box-sizing: border-box; background: #fff; }
+.readings-table thead .readings-vs { background: #F6F7F9; z-index: 2; }
+.readings-table tr.readings-agree th, .readings-table tr.readings-agree td:not(.readings-final):not(.readings-declared) { color: #3D4652; }
+.readings-sheet th { position: static; text-align: left; background: #F6F7F9; font-size: 12px; font-weight: 600; color: var(--slate); }
+.readings-missing { color: var(--slate); font-style: italic; font-size: 13px; }
+.readings-rep { font-weight: 600; margin: 0 0 2px; }
+.readings-table td > div + div { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hairline); }
+.readings-accepted { display: flex; flex-direction: column; gap: 2px; }
+.readings-accepted .var-match { font-size: 12.5px; }
+.readings-decision { display: flex; flex-direction: column; gap: 8px; }
+.readings-decision-value { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--slate); }
+.readings-decision-value input { width: 110px; text-align: right; padding: 7px 10px; }
+.readings-reason { padding: 7px 10px; font-size: 13px; }
+.readings-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.readings-pick { font: inherit; font-size: 12.5px; font-weight: 600; border-radius: 999px; padding: 3px 10px; cursor: pointer; background: #fff; color: #3D4652; border: 1px solid var(--hairline-strong); }
+.readings-pick:hover { border-color: var(--accent); }
+.readings-pick.selected { border: 2px solid var(--accent); color: var(--accent); padding: 2px 9px; }
+.readings-pick:focus-visible { outline: 3px solid rgba(var(--brand-accent-rgb), .35); outline-offset: 2px; }
+.readings-outcome { white-space: nowrap; }
+.readings-outcome.above { color: var(--above); }
+.readings-outcome.below { color: var(--below); }
+.readings-none { text-align: center !important; color: var(--slate); padding: 22px !important; }
+.readings-legend { margin: 0; padding: 12px 20px; border-top: 1px solid var(--hairline); background: #F6F7F9; font-size: 12.5px; line-height: 1.8; color: var(--slate); border-radius: 0 0 12px 12px; }
+.readings-legend .var-badge { margin: 0 2px; }
 
-.readings-voyage-facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px 30px; margin: 4px 0 24px; padding: 18px 20px; border: 1px solid var(--hairline); border-radius: 8px; background: white; }
-.readings-voyage-facts dt { margin-bottom: 5px; color: var(--slate-soft); font-size: 11px; }
-.readings-voyage-facts dd { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.readings-collection-links { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; margin-top: 20px; font-size: 12px; }
-.readings-collection-links small { display: block; margin-top: 4px; color: var(--slate); font-size: 11px; line-height: 1.5; }
-@media (max-width: 640px) {
-  .readings-voyage-facts { grid-template-columns: 1fr; gap: 14px; padding: 16px; }
+.readings-note { flex: 1 1 320px; min-width: 0; }
+.readings-note textarea { width: 100%; min-height: 120px; }
+.readings-approval { flex: 1.4 1 380px; min-width: 0; }
+.readings-note h2, .readings-approval h2 { margin: 0 0 12px; font-size: 16px; }
+.readings-note p { margin: 0; color: #3D4652; font-size: 14px; white-space: pre-wrap; }
+.readings-help { margin: 0 0 12px; font-size: 13px; color: var(--slate); line-height: 1.5; }
+.readings-todo { margin: 0 0 12px; padding-left: 18px; font-size: 13px; color: #3D4652; line-height: 1.6; }
+.readings-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.readings-review { flex-direction: column; align-items: stretch; }
+.readings-review .readings-actions { justify-content: flex-end; }
+.readings-timeline { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 12px; font-size: 13.5px; }
+.readings-timeline li { display: flex; gap: 10px; color: var(--slate); }
+.readings-timeline li > span { width: 22px; height: 22px; flex-shrink: 0; border-radius: 999px; border: 2px dashed var(--slate-soft); box-sizing: border-box; display: grid; place-items: center; }
+.readings-timeline li.done { color: var(--ink); }
+.readings-timeline li.done > span { border: 0; background: var(--accent); color: #fff; }
+.readings-timeline small { display: block; color: var(--slate); font-size: 12.5px; }
+.readings-history summary { cursor: pointer; font-weight: 600; }
+.readings-history ol { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.readings-history li > small { display: block; margin-top: 4px; color: var(--slate); font-size: 12.5px; }
+.readings-history ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: #3D4652; }
+.readings-empty h2 { margin: 0 0 6px; font-size: 18px; }
+.readings-empty p { margin: 0 0 16px; color: var(--slate); }
+
+@media print {
+  .readings-scroll { overflow: visible; border: 0; }
+  .readings-table { min-width: 0; font-size: 10px; }
+  .readings-table th, .readings-table td { padding: 6px; }
+  .readings-table .readings-cargo, .readings-table .readings-final, .readings-table .readings-vs { position: static; box-shadow: none; }
+  .readings-toggle, .readings-actions, .readings-history { display: none !important; }
 }

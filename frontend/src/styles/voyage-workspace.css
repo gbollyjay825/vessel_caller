@@ -1,0 +1,71 @@
+/* Voyage workspace: header, four-step stepper and the shared pieces used by
+   every voyage step (stage chips, variance badges, cards). */
+.voyage-workspace { display: flex; flex-direction: column; gap: 20px; }
+.voyage-workspace > .page-head { margin-bottom: 0; }
+
+.voyage-header { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 16px; }
+.voyage-header-icon { width: 48px; height: 48px; flex-shrink: 0; border-radius: 10px; background: var(--brand-accent-soft); color: var(--accent); display: grid; place-items: center; }
+.voyage-header-text { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.voyage-header-eyebrow { margin: 0; font-size: 12.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--slate); }
+.voyage-header h1 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -.02em; }
+.voyage-header-facts { margin: 0; font-size: 13.5px; color: var(--slate); }
+.voyage-header-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.voyage-stepper ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; overflow: hidden; }
+.voyage-stepper li + li { border-left: 1px solid var(--hairline); }
+.voyage-step { display: flex; align-items: center; gap: 12px; padding: 14px 16px; color: var(--ink); text-decoration: none; height: 100%; box-sizing: border-box; }
+.voyage-step:hover { background: var(--brand-accent-faint); }
+.voyage-step:focus-visible { outline: 3px solid rgba(var(--brand-accent-rgb), .35); outline-offset: -3px; }
+.voyage-step.active { background: var(--brand-accent-faint); box-shadow: inset 0 -3px 0 var(--accent); }
+.voyage-step-marker { width: 28px; height: 28px; flex-shrink: 0; border-radius: 999px; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: #F1F3F5; color: var(--slate); box-sizing: border-box; }
+.voyage-step.done .voyage-step-marker { background: var(--accent); color: #fff; }
+.voyage-step.current .voyage-step-marker, .voyage-step.active .voyage-step-marker { border: 2px solid var(--accent); color: var(--accent); background: #fff; }
+.voyage-step.done.active .voyage-step-marker { background: var(--accent); color: #fff; }
+.voyage-step-text { display: flex; flex-direction: column; min-width: 0; }
+.voyage-step-text strong { font-size: 14px; }
+.voyage-step-text small { font-size: 12.5px; color: var(--slate); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.voyage-card { background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px; }
+.voyage-card-pad { padding: 20px 22px; }
+.voyage-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 16px 20px; }
+.voyage-card-head h2 { margin: 0; font-size: 16px; }
+.voyage-card-head p { margin: 4px 0 0; font-size: 13px; color: var(--slate); }
+.voyage-columns { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.voyage-main { flex: 2 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.voyage-aside { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.voyage-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; }
+
+.stage-chip { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12px; font-weight: 600; line-height: 1.5; border-radius: 999px; padding: 2px 10px; background: #F1F3F5; color: #3D4652; }
+.stage-chip.green { background: var(--brand-accent-soft); color: var(--accent); }
+.stage-chip.amber { background: var(--above-bg); color: var(--above); }
+.stage-chip.blue { background: var(--below-bg); color: var(--below); }
+.stage-chip.red { background: var(--danger-bg); color: var(--danger); }
+.stage-chip.outline { background: #fff; border: 1px solid var(--hairline-strong); padding: 1px 9px; }
+
+.var-badge { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.var-badge.above { background: var(--above-bg); color: var(--above); }
+.var-badge.below { background: var(--below-bg); color: var(--below); }
+.var-match { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; white-space: nowrap; }
+
+.voyage-sheet { display: flex; flex-direction: column; gap: 12px; }
+.voyage-sheet-title { margin: 0; font-size: 16px; }
+.voyage-sheet-title small { display: block; font-weight: 400; font-size: 13px; color: var(--slate); }
+
+.preview-storage-notice { display: flex; gap: 6px; align-items: flex-start; margin: 14px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--slate); }
+.preview-storage-notice .ico { flex-shrink: 0; margin-top: 2px; }
+
+.voyage-progress { height: 6px; max-width: 320px; background: var(--hairline); border-radius: 999px; overflow: hidden; }
+.voyage-progress > span { display: block; height: 100%; background: var(--accent); }
+
+@media (max-width: 1023px) {
+  .voyage-stepper ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .voyage-stepper li:nth-child(3) { border-left: 0; }
+  .voyage-stepper li:nth-child(n+3) { border-top: 1px solid var(--hairline); }
+}
+@media (max-width: 560px) {
+  .voyage-stepper ol { grid-template-columns: 1fr; }
+  .voyage-stepper li + li { border-left: 0; border-top: 1px solid var(--hairline); }
+}
+@media print {
+  .voyage-no-print, .voyage-stepper, .voyage-header-actions { display: none !important; }
+}

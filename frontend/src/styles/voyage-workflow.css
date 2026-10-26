@@ -1,8 +1,0 @@
-.voyage-workflow-nav { display: flex; gap: 8px; margin: 0 0 24px; flex-wrap: wrap; padding: 6px; border: 1px solid var(--hairline); border-radius: 10px; background: var(--brand-accent-faint); }
-.voyage-workflow-nav a { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border-radius: 6px; color: var(--slate); font-size: 13px; text-decoration: none; font-weight: 600; }
-.voyage-workflow-nav a span { width: 22px; height: 22px; border: 1px solid var(--hairline); border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: white; }
-.voyage-workflow-nav a.active { background: white; color: var(--brand-accent); box-shadow: var(--shadow-sm); }
-.voyage-workflow-nav a.active span { background: var(--brand-accent); color: white; border-color: var(--brand-accent); }
-.voyage-workflow-nav a:focus-visible { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
-@media (max-width: 600px) { .voyage-workflow-nav { gap: 4px; } .voyage-workflow-nav a { padding: 9px 8px; font-size: 12px; flex: 1 1 auto; gap: 6px; } }
-@media print { .voyage-workflow-nav { display: none; } }

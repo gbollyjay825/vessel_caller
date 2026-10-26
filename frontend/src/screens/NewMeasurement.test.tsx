@@ -1,259 +1,177 @@
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NewMeasurement } from './Measurements';
-import { ApiError } from '../lib/api';
+import { NewMeasurement, suggestedAgencies } from './Measurements';
 import type { PlanForm } from '../measurements/PlanForm';
-import type { AgencyReadingDialog } from '../measurements/AgencyReadingDialog';
 import type { AgencyProfile } from '../measurements/agencyDirectory';
-import type { CreatedAgencyLink } from '../measurements/AgencyCollection';
-import type { MeasurementPlan, ParticipantInput, PlanInput, SubmissionInput } from '../measurements/types';
-import { measurementFixture, reconciliationFixture } from '../measurements/fixtures.test-support';
+import type { PaidDeclaration, PaidDeclarationInput } from '../measurements/closeoutPreview';
+import type { MeasurementPlan, PlanInput } from '../measurements/types';
+import type { VesselCall } from '../types';
+import { measurementFixture } from '../measurements/fixtures.test-support';
 
 type FormProps = ComponentProps<typeof PlanForm>;
-type ReadingProps = ComponentProps<typeof AgencyReadingDialog>;
 const mocked = vi.hoisted(() => ({
-  create: vi.fn(), detail: vi.fn(), agencyLinks: vi.fn(), createLink: vi.fn(), revokeLink: vi.fn(), submit: vi.fn(),
-  navigate: vi.fn(), toast: vi.fn(), can: vi.fn(), storeCan: vi.fn(), saveAgency: vi.fn(),
-  orgId: 'org-1', agencies: [] as AgencyProfile[], directoryError: '',
-  form: null as FormProps | null, reading: null as ReadingProps | null,
+  create: vi.fn(), list: vi.fn(), navigate: vi.fn(), toast: vi.fn(), can: vi.fn(), storeCan: vi.fn(), saveAgency: vi.fn(), saveDeclaration: vi.fn(),
+  search: '', orgId: 'org-1', agencies: [] as AgencyProfile[], directoryError: '', calls: [] as VesselCall[],
+  declaration: undefined as PaidDeclaration | undefined, voyagePlans: [] as MeasurementPlan[],
+  form: null as FormProps | null,
 }));
-vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ org: { id: mocked.orgId }, can: mocked.can }) }));
-vi.mock('../app/store', () => ({ useStore: () => ({ calls: [], can: mocked.storeCan, toast: mocked.toast }) }));
+vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ org: { id: mocked.orgId }, user: { id: 'ops-1', name: 'Ada Operations' }, can: mocked.can }) }));
+vi.mock('../app/store', () => ({ useStore: () => ({ calls: mocked.calls, can: mocked.storeCan, toast: mocked.toast }) }));
 vi.mock('../lib/navigation', async importOriginal => ({
   ...await importOriginal<typeof import('../lib/navigation')>(),
   useNavigate: () => mocked.navigate,
-  useSearchParams: () => [new URLSearchParams('callId=call-1')],
+  useSearchParams: () => [new URLSearchParams(mocked.search)],
 }));
 vi.mock('../measurements/agencyDirectory', () => ({ useAgencyDirectory: () => ({ agencies: mocked.agencies, error: mocked.directoryError, saveAgency: mocked.saveAgency }) }));
-vi.mock('../measurements/api', () => ({ measurementApi: {
-  create: mocked.create, detail: mocked.detail, agencyLinks: mocked.agencyLinks,
-  createAgencyLink: mocked.createLink, revokeAgencyLink: mocked.revokeLink, submit: mocked.submit,
-} }));
-vi.mock('../measurements/PlanForm', () => ({ PlanForm: (props: FormProps) => {
-  mocked.form = props;
-  return <div aria-label="Voyage form harness"><output data-testid="saved-plan">{props.savedPlan?.id ?? 'unsaved'}</output>{mocked.agencies.map(agency => <div key={agency.id}>{props.renderAgencyAction?.(agency.id)}</div>)}</div>;
-} }));
-vi.mock('../measurements/AgencyReadingDialog', () => ({ AgencyReadingDialog: (props: ReadingProps) => {
-  mocked.reading = props;
-  return <div role="dialog" aria-label={`Reading for ${props.participantId}`}><span>{props.plan.title}</span><button type="button" onClick={props.onClose}>Close reading</button></div>;
-} }));
+vi.mock('../measurements/api', () => ({ measurementApi: { create: mocked.create, list: mocked.list } }));
+vi.mock('../measurements/closeoutPreview', async importOriginal => ({
+  ...await importOriginal<typeof import('../measurements/closeoutPreview')>(),
+  useCloseoutPreview: () => ({ record: { callId: '', reports: [], invoices: [], events: [], declaration: mocked.declaration }, saveDeclaration: mocked.saveDeclaration }),
+}));
+vi.mock('../measurements/VoyageWorkspace', () => ({
+  useVoyage: () => ({ plans: mocked.voyagePlans }),
+  VoyageFrame: ({ step, children }: { step: string; children: ReactNode }) => <section aria-label={`Voyage step ${step}`}>{children}</section>,
+}));
+vi.mock('../measurements/PlanForm', () => ({ PlanForm: (props: FormProps) => { mocked.form = props; return <div aria-label="Voyage form harness" />; } }));
 
+const vessel: VesselCall = { id: 'call-1', vesselName: 'MV Atlas', reference: 'CALL-001', type: 'Container', flag: 'NG', nrt: 1, eta: '2026-10-07T12:00:00Z', sailingEta: '', berth: 'Berth 3', berthDate: null, status: 'pending', notes: '', version: 1, registered: '2026-10-01' };
+const paid: PaidDeclarationInput = { payer: 'Atlas Shipping', agent: '', invoiceReference: 'DEC-1', amountPaid: '100', currency: 'USD', paidOn: '', paymentStatus: 'paid' };
 const clients: QueryClient[] = [];
-function setup() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: 0 } } });
+function setup(search = '') {
+  mocked.search = search;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   clients.push(client);
-  return { client, ...render(<QueryClientProvider client={client}><NewMeasurement /></QueryClientProvider>) };
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  return { client, invalidate, ...render(<QueryClientProvider client={client}><NewMeasurement /></QueryClientProvider>) };
 }
-function inputFixture(): PlanInput {
+function inputFor(callId = 'call-1'): PlanInput {
   const plan = measurementFixture();
-  return {
-    callId: plan.callId, title: plan.title, scheduledAt: plan.scheduledAt, endsAt: null,
-    location: plan.location, method: plan.method, stage: plan.stage, scope: plan.scope,
-    leadSurveyor: plan.leadSurveyor, notes: '',
-    participants: plan.participants.map(party => ({ name: party.name, role: party.role, representative: party.representative, requiredSubmission: party.requiredSubmission, requiredApproval: party.requiredApproval })),
-    lines: plan.lines.map(line => ({ description: line.description, category: line.category, direction: line.direction, containerSize: line.containerSize, loadStatus: line.loadStatus, unit: line.unit, basis: line.basis, manifestQuantity: line.manifestQuantity, baselineReference: line.baselineReference })),
-  };
+  return { callId, title: plan.title, scheduledAt: plan.scheduledAt, endsAt: null, location: plan.location, method: plan.method, stage: plan.stage, scope: plan.scope, leadSurveyor: plan.leadSurveyor, notes: '', participants: [], lines: [] };
 }
-function linkFixture(id = 'link-1', participantId = 'party-1'): CreatedAgencyLink {
-  return { link: { id, participantId, expiresAt: '2099-10-12T12:00:00Z', revokedAt: null, submittedAt: null }, url: `https://example.test/agency-reading#token=synthetic-${id}` };
-}
-function invoke(agencyId = 'agency-agent', action: 'reading' | 'link' = 'reading', input = inputFixture(), source: ParticipantInput = input.participants[0]) {
-  return mocked.form!.onAgencyAction!(agencyId, action, input, source);
-}
-async function actOn(agencyId = 'agency-agent', action: 'reading' | 'link' = 'reading', input = inputFixture(), source: ParticipantInput = input.participants[0]) {
-  await act(async () => { await invoke(agencyId, action, input, source); });
-}
-async function rejectsAction(message: string, input = inputFixture(), source: ParticipantInput = input.participants[0]) {
-  await act(async () => { await expect(invoke('agency-agent', 'link', input, source)).rejects.toThrow(message); });
-}
-function submissionFixture(): SubmissionInput {
-  const submission = measurementFixture().submissions[0];
-  return { participantId: submission.participantId, observedAt: submission.observedAt, sourceReference: submission.sourceReference, notes: '', reason: '', lines: submission.lines, evidenceIds: submission.evidenceIds };
-}
-async function publish(client: QueryClient, plan: MeasurementPlan) {
-  await act(async () => { client.setQueryData(['measurement-plan', mocked.orgId, plan.id], { plan }); });
-  await waitFor(() => expect(mocked.form!.savedPlan).toEqual(plan));
+function previousVoyage(callId: string, agencyIds: string[], scheduledAt = '2026-09-01T10:00:00Z'): MeasurementPlan {
+  const plan = measurementFixture();
+  return { ...plan, id: `plan-${callId}-${scheduledAt}`, callId, scheduledAt, participants: agencyIds.map((agencyId, index) => ({ ...plan.participants[0], id: `party-${index}`, agencyId })) };
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocked.orgId = 'org-1'; mocked.directoryError = ''; mocked.form = null; mocked.reading = null;
-  mocked.agencies = measurementFixture().participants.map((party, index) => ({ id: index === 0 ? 'agency-agent' : 'agency-terminal', name: party.name, role: party.role, representative: party.representative, active: true }));
+  mocked.orgId = 'org-1'; mocked.directoryError = ''; mocked.form = null; mocked.declaration = undefined; mocked.voyagePlans = [];
+  mocked.calls = [vessel];
+  mocked.agencies = [{ id: 'agency-1', name: 'Harbour Agency', role: 'Agent', representative: 'Ada', active: true }];
   mocked.can.mockReturnValue(true); mocked.storeCan.mockReturnValue(true);
   mocked.create.mockResolvedValue({ plan: measurementFixture(), rev: 1 });
-  mocked.detail.mockResolvedValue({ plan: measurementFixture() });
-  mocked.agencyLinks.mockResolvedValue({ links: [] });
-  mocked.createLink.mockResolvedValue(linkFixture());
-  mocked.revokeLink.mockResolvedValue({});
-  mocked.submit.mockResolvedValue({ plan: { ...measurementFixture(), version: 5 }, rev: 2 });
+  mocked.list.mockResolvedValue({ plans: [] });
 });
 afterEach(() => { clients.splice(0).forEach(client => client.clear()); });
 
-describe('new voyage agency action orchestration', () => {
-  it('creates once and matches the voyage representative regardless of server ordering or directory renames', async () => {
-    const input = inputFixture(); input.participants[0].representative = ' Voyage delegate ';
-    const plan = measurementFixture();
-    plan.participants = [plan.participants[1], { ...plan.participants[0], id: 'unrelated-contact' }, { ...plan.participants[0], representative: 'Voyage delegate' }];
-    mocked.create.mockResolvedValue({ plan, rev: 1 });
-    mocked.agencies[0] = { ...mocked.agencies[0], name: 'Renamed directory entry', representative: 'Different directory contact' };
+describe('new voyage entry', () => {
+  it('opens the full voyage setup with the directory and permissions', () => {
     setup();
-    await actOn('agency-agent', 'reading', input);
+    expect(screen.getByRole('heading', { name: 'New voyage', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Register a new voyage/ })).toHaveAttribute('href', '/app/vessel-calls?register&then=declaration');
+    expect(mocked.form).toMatchObject({ callId: undefined, calls: [vessel], agencyCatalog: mocked.agencies, canRegisterVessel: true, canManageAgencies: true, existingSheets: 0 });
+    expect(mocked.form!.onCreateAgency).toBeTypeOf('function');
+  });
+
+  it('withholds registration and inline agency creation without permission', () => {
+    mocked.can.mockReturnValue(false); mocked.storeCan.mockReturnValue(false);
+    setup();
+    expect(screen.queryByRole('link', { name: /Register a new voyage/ })).not.toBeInTheDocument();
+    expect(mocked.form).toMatchObject({ canRegisterVessel: false, canManageAgencies: false, onCreateAgency: undefined });
+  });
+
+  it('shows directory errors above the form', () => {
+    mocked.directoryError = 'Agencies could not be loaded.';
+    setup();
+    expect(screen.getByRole('alert')).toHaveTextContent('Agencies could not be loaded.');
+  });
+
+  it('creates the voyage, keeps its paid declaration and continues to the agency tracker', async () => {
+    const { invalidate } = setup();
+    act(() => mocked.form!.onVoyageChange!('call-1'));
+    const input = inputFor();
+    await act(async () => { await mocked.form!.onSave(input, paid); });
     expect(mocked.create).toHaveBeenCalledExactlyOnceWith(input);
-    expect(screen.getByRole('dialog', { name: 'Reading for party-1' })).toBeInTheDocument();
-    expect(mocked.reading!.plan).toBe(plan);
-    await userEvent.click(screen.getByRole('button', { name: 'Close reading' }));
-    await actOn('agency-agent', 'link', input);
-    expect(mocked.agencyLinks).toHaveBeenCalledExactlyOnceWith('plan-1');
-    expect(mocked.createLink).toHaveBeenCalledExactlyOnceWith('plan-1', 'party-1', 7);
-    expect(screen.getByRole('region', { name: 'Agency link for Harbour Agent' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Link for Harbour Agent')).toHaveValue(linkFixture().url);
-    await actOn('agency-agent', 'link', input);
-    await actOn('agency-terminal', 'reading', input, input.participants[1]);
-    expect(screen.getByRole('dialog', { name: 'Reading for party-2' })).toBeInTheDocument();
-    expect(mocked.create).toHaveBeenCalledOnce(); expect(mocked.createLink).toHaveBeenCalledOnce();
+    expect(mocked.saveDeclaration).toHaveBeenCalledExactlyOnceWith(paid, { id: 'ops-1', name: 'Ada Operations' });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['measurement-plans'] });
+    expect(mocked.toast).toHaveBeenCalledExactlyOnceWith('Voyage created — invite the agencies to report their readings');
+    expect(mocked.navigate).toHaveBeenCalledExactlyOnceWith('/app/measurements/voyages/call-1/agencies');
+  });
+
+  it('does not attach the paid declaration to a voyage other than the one being edited', async () => {
+    setup();
+    await act(async () => { await mocked.form!.onSave(inputFor('call-1'), paid); });
+    expect(mocked.create).toHaveBeenCalledOnce();
+    expect(mocked.saveDeclaration).not.toHaveBeenCalled();
+    expect(mocked.navigate).toHaveBeenCalledWith('/app/measurements/voyages/call-1/agencies');
+  });
+
+  it('leaves the form open when the voyage cannot be created', async () => {
+    mocked.create.mockRejectedValueOnce(new Error('Invalid owner declaration'));
+    setup();
+    act(() => mocked.form!.onVoyageChange!('call-1'));
+    await act(async () => { await expect(mocked.form!.onSave(inputFor(), paid)).rejects.toThrow('Invalid owner declaration'); });
+    expect(mocked.saveDeclaration).not.toHaveBeenCalled();
+    expect(mocked.toast).not.toHaveBeenCalled();
     expect(mocked.navigate).not.toHaveBeenCalled();
-    act(() => mocked.form!.onFinish!());
+  });
+
+  it('saves new agencies through the directory and reports a failed save', async () => {
+    const created: AgencyProfile = { id: 'agency-2', name: 'Checker', role: 'Surveyor', representative: '', active: true };
+    mocked.saveAgency.mockResolvedValueOnce(created).mockResolvedValueOnce(null);
+    setup();
+    const input = { name: 'Checker', role: 'Surveyor', representative: '' };
+    await expect(mocked.form!.onCreateAgency!(input)).resolves.toBe(created);
+    expect(mocked.saveAgency).toHaveBeenCalledWith({ ...input, active: true });
+    await expect(mocked.form!.onCreateAgency!(input)).rejects.toThrow('Agency could not be saved. Check agency setup and try again.');
+  });
+
+  it('returns to the voyage list on cancel', () => {
+    setup();
+    act(() => mocked.form!.onCancel());
     expect(mocked.navigate).toHaveBeenCalledExactlyOnceWith('/app/measurements');
-    expect(mocked.create).toHaveBeenCalledOnce();
+  });
+});
+
+describe('declaration step of an existing voyage', () => {
+  it('fixes the voyage, prefills the saved paid declaration and suggests the last voyage’s agencies', async () => {
+    mocked.declaration = { ...paid, updatedAt: '2026-10-01T10:00:00Z', updatedBy: { id: 'ops-1', name: 'Ada Operations' } };
+    mocked.calls = [vessel, { ...vessel, id: 'call-0', reference: 'CALL-000' }];
+    mocked.list.mockResolvedValue({ plans: [previousVoyage('call-0', ['agency-1', 'agency-2'])] });
+    setup('callId=call-1');
+    expect(screen.getByRole('region', { name: 'Voyage step declaration' })).toBeInTheDocument();
+    expect(mocked.form).toMatchObject({ callId: 'call-1', existingSheets: 0, paid });
+    await waitFor(() => expect(mocked.form!.suggestedAgencyIds).toEqual(['agency-1', 'agency-2']));
   });
 
-  it('shares a pending creation across actions instead of creating two voyage sheets', async () => {
-    let resolveCreate!: (result: { plan: MeasurementPlan; rev: number }) => void;
-    mocked.create.mockImplementationOnce(() => new Promise(resolve => { resolveCreate = resolve; }));
-    setup(); const input = inputFixture();
-    await act(async () => {
-      const first = invoke(); const second = invoke('agency-terminal', 'reading', input, input.participants[1]);
-      expect(mocked.create).toHaveBeenCalledOnce();
-      resolveCreate({ plan: measurementFixture(), rev: 1 });
-      await Promise.all([first, second]);
-    });
-    expect(mocked.create).toHaveBeenCalledOnce();
-    expect(screen.getByRole('dialog', { name: 'Reading for party-2' })).toBeInTheDocument();
-    expect(mocked.navigate).not.toHaveBeenCalled();
+  it('warns about an existing declaration and cancels back to the voyage', () => {
+    mocked.voyagePlans = [measurementFixture()];
+    setup('callId=call-1');
+    expect(mocked.form).toMatchObject({ callId: 'call-1', existingSheets: 1 });
+    act(() => mocked.form!.onCancel());
+    expect(mocked.navigate).toHaveBeenCalledExactlyOnceWith('/app/measurements/voyages/call-1/declaration');
   });
+});
 
-  it.each(['missing', 'ambiguous'] as const)('rejects a %s source identity before saving or creating a link', async kind => {
-    setup(); const input = inputFixture(); const source = { ...input.participants[0] };
-    if (kind === 'missing') source.representative = 'Not selected';
-    else input.participants.push({ ...source });
-    await rejectsAction('This agency could not be identified.', input, source);
-    expect(mocked.create).not.toHaveBeenCalled(); expect(mocked.agencyLinks).not.toHaveBeenCalled(); expect(mocked.createLink).not.toHaveBeenCalled();
+describe('suggested agencies', () => {
+  const calls: VesselCall[] = [vessel, { ...vessel, id: 'call-0' }, { ...vessel, id: 'call-older' }, { ...vessel, id: 'other', vesselName: 'MV Other' }, { ...vessel, id: 'other-flag', flag: 'GH' }];
+  it('uses the same vessel’s most recent other voyage only', () => {
+    const plans = [
+      previousVoyage('call-older', ['agency-old'], '2026-08-01T10:00:00Z'),
+      previousVoyage('call-0', ['agency-1', 'agency-1', 'agency-2']),
+      previousVoyage('other', ['agency-other'], '2026-10-01T10:00:00Z'),
+      previousVoyage('other-flag', ['agency-flag'], '2026-10-01T10:00:00Z'),
+      previousVoyage('call-1', ['agency-self'], '2026-10-02T10:00:00Z'),
+    ];
+    expect(suggestedAgencies('call-1', calls, plans)).toEqual(['agency-1', 'agency-2']);
   });
-
-  it.each(['wrong name', 'wrong role', 'wrong representative', 'ambiguous'] as const)('rejects a saved agency with %s without falling back to array position', async kind => {
-    const plan = measurementFixture();
-    if (kind === 'wrong name') plan.participants[0].name = 'Another agency';
-    if (kind === 'wrong role') plan.participants[0].role = 'Surveyor';
-    if (kind === 'wrong representative') plan.participants[0].representative = 'Another contact';
-    if (kind === 'ambiguous') plan.participants.push({ ...plan.participants[0], id: 'duplicate' });
-    mocked.create.mockResolvedValue({ plan, rev: 1 }); setup();
-    await rejectsAction('The agency setup changed.');
-    await rejectsAction('The agency setup changed.');
-    expect(mocked.create).toHaveBeenCalledOnce(); expect(mocked.agencyLinks).not.toHaveBeenCalled(); expect(mocked.createLink).not.toHaveBeenCalled();
-    expect(mocked.navigate).not.toHaveBeenCalled();
-  });
-
-  it('revalidates a cached agency identity after a server update', async () => {
-    const { client } = setup(); await actOn();
-    const changed = measurementFixture(); changed.participants[0].id = 'replacement-party'; changed.version++;
-    await publish(client, changed);
-    await rejectsAction('The agency setup changed.');
-    expect(mocked.create).toHaveBeenCalledOnce(); expect(mocked.createLink).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['network interruption', () => new Error('Connection lost')],
-    ['server error', () => new ApiError('Server failed', 500)],
-    ['request timeout', () => new ApiError('Request timed out', 408)],
-  ])('does not retry an uncertain save after %s', async (_label, failure) => {
-    const error = failure(); mocked.create.mockRejectedValueOnce(error); setup();
-    await rejectsAction(error.message);
-    expect(screen.getByTestId('saved-plan')).toHaveTextContent('unsaved');
-    await rejectsAction('The save could not be confirmed. Check Voyages before starting another sheet.');
-    expect(mocked.create).toHaveBeenCalledOnce(); expect(mocked.createLink).not.toHaveBeenCalled(); expect(mocked.navigate).not.toHaveBeenCalled();
-  });
-
-  it('allows an explicit retry after a definite validation rejection', async () => {
-    mocked.create.mockRejectedValueOnce(new ApiError('Invalid owner declaration', 400)); setup();
-    await rejectsAction('Invalid owner declaration');
-    expect(mocked.create).toHaveBeenCalledOnce();
-    await actOn('agency-agent', 'link');
-    expect(mocked.create).toHaveBeenCalledTimes(2); expect(mocked.createLink).toHaveBeenCalledOnce();
-  });
-
-  it('keeps the saved voyage usable for readings when secure-link capability is unavailable', async () => {
-    mocked.agencyLinks.mockRejectedValueOnce(new ApiError('Not found', 404)); setup();
-    await rejectsAction('Secure agency links are not enabled on this server yet.');
-    expect(screen.getByTestId('saved-plan')).toHaveTextContent('plan-1');
-    expect(mocked.createLink).not.toHaveBeenCalled(); expect(screen.queryByRole('region')).not.toBeInTheDocument();
-    await actOn();
-    expect(screen.getByRole('dialog', { name: 'Reading for party-1' })).toBeInTheDocument();
-    expect(mocked.create).toHaveBeenCalledOnce(); expect(mocked.navigate).not.toHaveBeenCalled();
-  });
-
-  it('labels preview links and revokes the displayed replacement without a second voyage save', async () => {
-    mocked.agencyLinks.mockResolvedValue({ links: [], uiPreview: true }); setup();
-    await actOn('agency-agent', 'link');
-    expect(screen.getByText('UI preview · agency links and receipts use local demo records.')).toBeInTheDocument();
-    mocked.createLink.mockResolvedValueOnce(linkFixture('link-2'));
-    await userEvent.click(screen.getByText('Link options', { selector: 'summary' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Replace link' }));
-    await waitFor(() => expect(screen.getByLabelText('Link for Harbour Agent')).toHaveValue(linkFixture('link-2').url));
-    await userEvent.click(screen.getByText('Link options', { selector: 'summary' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Revoke link' }));
-    await waitFor(() => expect(mocked.revokeLink).toHaveBeenCalledExactlyOnceWith('plan-1', 'link-2'));
-    expect(screen.queryByRole('region')).not.toBeInTheDocument(); expect(mocked.create).toHaveBeenCalledOnce();
-  });
-
-  it.each(['cancelled', 'finalized', 'permission removed'] as const)('blocks subsequent actions when the voyage is %s', async kind => {
-    const { client, rerender } = setup(); await actOn('agency-agent', 'link');
-    const changed = measurementFixture();
-    if (kind === 'cancelled') changed.status = 'cancelled';
-    else if (kind === 'finalized') changed.reconciliations = [{ ...reconciliationFixture(), status: 'final' }];
-    else { mocked.can.mockReturnValue(false); rerender(<QueryClientProvider client={client}><NewMeasurement /></QueryClientProvider>); }
-    if (kind !== 'permission removed') await publish(client, changed);
-    await rejectsAction('This voyage is no longer open for readings.');
-    expect(screen.queryByRole('region')).not.toBeInTheDocument(); expect(mocked.createLink).toHaveBeenCalledOnce(); expect(mocked.create).toHaveBeenCalledOnce();
-  });
-
-  it('submits the opened reading, updates the plan and closes the dialog without navigation', async () => {
-    setup(); await actOn(); const input = submissionFixture();
-    await act(async () => { await mocked.reading!.onSave(input); });
-    expect(mocked.submit).toHaveBeenCalledExactlyOnceWith('plan-1', 4, input);
-    expect(mocked.form!.savedPlan!.version).toBe(5); expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(mocked.toast).toHaveBeenCalledExactlyOnceWith('Agency reading submitted'); expect(mocked.navigate).not.toHaveBeenCalled();
-  });
-
-  it('keeps the opening reading snapshot and rejects its save if a newer plan arrives', async () => {
-    const { client } = setup(); await actOn(); const opening = mocked.reading!.plan;
-    const changed = { ...measurementFixture(), version: 5, title: 'Updated by another operator', lines: [] };
-    await publish(client, changed);
-    expect(mocked.reading!.plan).toBe(opening);
-    await act(async () => { await expect(mocked.reading!.onSave(submissionFixture())).rejects.toThrow('This voyage changed. Close the reading and reopen it to use the latest record.'); });
-    expect(mocked.submit).not.toHaveBeenCalled(); expect(screen.getByRole('dialog')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Close reading' })); await actOn();
-    expect(mocked.reading!.plan.version).toBe(5);
-  });
-
-  it('rejects another participant and refreshes after a server version conflict', async () => {
-    setup(); await actOn();
-    await act(async () => { await expect(mocked.reading!.onSave({ ...submissionFixture(), participantId: 'party-2' })).rejects.toThrow('This voyage changed.'); });
-    expect(mocked.submit).not.toHaveBeenCalled();
-    mocked.submit.mockRejectedValueOnce(new ApiError('Version changed', 409));
-    mocked.detail.mockResolvedValueOnce({ plan: { ...measurementFixture(), version: 5 } });
-    await act(async () => { await expect(mocked.reading!.onSave(submissionFixture())).rejects.toThrow('Version changed'); });
-    expect(mocked.detail).toHaveBeenCalledExactlyOnceWith('plan-1'); expect(mocked.toast).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-  });
-
-  it('drops saved voyage and link state when the organisation changes', async () => {
-    const { client, rerender } = setup(); await actOn('agency-agent', 'link');
-    mocked.orgId = 'org-2';
-    rerender(<QueryClientProvider client={client}><NewMeasurement /></QueryClientProvider>);
-    expect(screen.getByTestId('saved-plan')).toHaveTextContent('unsaved'); expect(screen.queryByRole('region')).not.toBeInTheDocument();
-    await actOn(); expect(mocked.create).toHaveBeenCalledTimes(2);
+  it('ignores cancelled voyages, agencies without a directory id and unknown calls', () => {
+    const cancelled = { ...previousVoyage('call-0', ['agency-cancelled'], '2026-09-20T10:00:00Z'), status: 'cancelled' as const };
+    const manual = previousVoyage('call-older', ['agency-2']);
+    manual.participants.push({ ...manual.participants[0], id: 'manual', agencyId: undefined });
+    expect(suggestedAgencies('call-1', calls, [cancelled, manual])).toEqual(['agency-2']);
+    expect(suggestedAgencies('missing', calls, [manual])).toEqual([]);
   });
 });

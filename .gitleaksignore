@@ -1,3 +1,6 @@
 # Reviewed false positive: Python key type union, with no credential or literal value.
 # Exact historical finding only; file, rule and all other history remain scanned.
 bc02b11f948a72a549dccf4453a4c7ce428c2547:backend/scripts/release_signing.py:generic-api-key:25
+# Reviewed false positive: SHA-256 fingerprint of the public release-signing
+# verification key in staging release evidence, not a credential.
+a9e3f6beb4cec312be9d3e03f9feb671f8104f7b:docs/release-evidence/2026-10-14-authenticator-qr-staging-release.md:generic-api-key:21

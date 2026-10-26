@@ -1,5 +1,5 @@
 Django==5.2.17
-djangorestframework==3.17.2
+djangorestframework==3.18.2
 argon2-cffi==25.1.0
 boto3==1.43.56
 celery==5.5.3

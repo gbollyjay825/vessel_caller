@@ -7,7 +7,8 @@ export interface CargoLine extends CargoLineInput { id: string }
 export interface Evidence { id: string; fileName: string; contentType: string; size: number; checksum: string; createdAt: string }
 export interface SubmissionLine { lineId: string; status: "reported" | "not-applicable"; quantity: string | null; note: string }
 export interface SubmissionInput { participantId: string; observedAt: string; sourceReference: string; notes: string; reason: string; lines: SubmissionLine[]; evidenceIds: string[] }
-export interface Submission extends SubmissionInput { id: string; revision: number; recordedBy: Actor; recordedAt: string }
+// recordedBy is null when the agency submitted through its secure link.
+export interface Submission extends SubmissionInput { id: string; revision: number; recordedBy: Actor | null; recordedAt: string }
 export interface ReconciliationInput { reason: string; lines: { lineId: string; quantity: string; reason: string }[]; evidenceIds: string[] }
 export interface ApprovalInput { participantId: string; decision: "agreed" | "disputed"; representative: string; reference: string; evidenceIds: string[] }
 export interface Approval extends ApprovalInput { id: string; recordedBy: Actor; recordedAt: string }

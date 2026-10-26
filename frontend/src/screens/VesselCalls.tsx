@@ -61,11 +61,14 @@ export function VesselCalls() {
     if (searchParams.get("register") != null) setRegisterOpen(true);
   }, [searchParams]);
 
+  // A vessel profile can open registration pre-filled; the voyage flow then continues to its declaration.
+  const prefill = { vesselName: searchParams.get("vesselName") ?? "", flag: searchParams.get("flag") ?? "", type: searchParams.get("type") ?? "" };
+  const thenDeclaration = searchParams.get("then") === "declaration";
   const closeRegister = () => {
     setRegisterOpen(false);
-    if (searchParams.get("register") != null) {
+    if (["register", "vesselName", "flag", "type", "then"].some((key) => searchParams.get(key) != null)) {
       const next = new URLSearchParams(searchParams);
-      next.delete("register");
+      ["register", "vesselName", "flag", "type", "then"].forEach((key) => next.delete(key));
       setSearchParams(next, { replace: true });
     }
   };
@@ -151,7 +154,8 @@ export function VesselCalls() {
           emptyState={<EmptyState icon="search" title="No matching vessel calls" body="Try a different search term or status filter." />} />
       </div>
 
-      {registerOpen && <RegisterCall store={store} onClose={closeRegister} />}
+      {registerOpen && <RegisterCall store={store} prefill={prefill} onClose={closeRegister}
+        onRegistered={(call) => { if (thenDeclaration) navigate(`/app/measurements/new?callId=${encodeURIComponent(call.id)}`); }} />}
     </div>
   );
 }
@@ -160,11 +164,16 @@ export function VesselCalls() {
 // Register Vessel Call — slide-over
 // =========================================================
 interface RegisterForm {
-  vesselName: string; reference: string; type: string; nrt: string;
+  vesselName: string; flag: string; reference: string; type: string; nrt: string;
   eta: string; sailingEta: string; berth: string; notes: string;
 }
 
-function RegisterCall({ store, onClose }: { store: StoreApi; onClose: () => void }) {
+function RegisterCall({ store, prefill, onClose, onRegistered }: {
+  store: StoreApi;
+  prefill?: { vesselName: string; flag: string; type: string };
+  onClose: () => void;
+  onRegistered?: (call: VesselCall) => void;
+}) {
   const nextRef = useMemo(() => {
     const nums = store.calls.map((c) => parseInt(c.reference.split("-")[2], 10)).filter((n) => !isNaN(n));
     const next = (Math.max(0, ...nums) + 1).toString().padStart(4, "0");
@@ -172,7 +181,8 @@ function RegisterCall({ store, onClose }: { store: StoreApi; onClose: () => void
   }, []);
 
   const [form, setForm] = useState<RegisterForm>({
-    vesselName: "", reference: nextRef, type: "Tanker", nrt: "",
+    vesselName: prefill?.vesselName ?? "", flag: prefill?.flag ?? "", reference: nextRef,
+    type: prefill?.type && VESSEL_TYPES.includes(prefill.type) ? prefill.type : "Tanker", nrt: "",
     eta: "", sailingEta: "", berth: store.settings.terminals[0] || "", notes: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -208,13 +218,14 @@ function RegisterCall({ store, onClose }: { store: StoreApi; onClose: () => void
     setSubmitting(true);
     try {
       const payload: Record<string, unknown> = {
-        vesselName: form.vesselName.trim(), reference: form.reference.trim(), type: form.type,
+        vesselName: form.vesselName.trim(), flag: form.flag.trim(), reference: form.reference.trim(), type: form.type,
         nrt: Number(form.nrt), eta: form.eta || new Date().toISOString().slice(0, 16),
         sailingEta: form.sailingEta || null, berth: form.berth, status: "pending", notes: form.notes.trim(),
       };
-      await store.addCall(payload as Partial<VesselCall>);
+      const call = await store.addCall(payload as Partial<VesselCall>);
       store.toast(`Vessel call ${form.reference.trim()} registered`, "success");
       onClose();
+      onRegistered?.(call);
     } catch (e: any) {
       store.toast(e.message || "Could not register vessel call", "error");
     } finally {
@@ -236,6 +247,10 @@ function RegisterCall({ store, onClose }: { store: StoreApi; onClose: () => void
         <input type="text" className={errors.vesselName ? "invalid" : ""} value={form.vesselName}
           placeholder="e.g. MT Sea Eagle" onChange={(e) => set("vesselName", e.target.value)}
           onBlur={() => !form.vesselName.trim() && setErrors((x) => ({ ...x, vesselName: "Vessel name is required." }))} />
+      </Field>
+
+      <Field label="Flag" hint="The vessel's flag state. A vessel's voyages are grouped by name and flag.">
+        <input type="text" value={form.flag} placeholder="e.g. Liberia" onChange={(e) => set("flag", e.target.value)} />
       </Field>
 
       <Field label="Rotation number" required hint="Auto-suggested. Editable; must be unique."

@@ -23,6 +23,10 @@ import { Invoices } from "./screens/Invoices";
 import { Measurements, MeasurementDetail, NewMeasurement } from "./screens/Measurements";
 import { VoyageReadings } from "./screens/VoyageReadings";
 import { VoyageReconciliation } from "./screens/VoyageReconciliation";
+import { VoyageAgencies } from "./screens/VoyageAgencies";
+import { VoyageDeclaration } from "./screens/VoyageDeclaration";
+import { VesselProfile, Vessels } from "./screens/Vessels";
+import { TariffSettings } from "./screens/TariffSettings";
 import { VariationInvoice, VariationInvoices } from "./screens/VariationInvoice";
 import { ActivityDashboard } from "./screens/ActivityDashboard";
 import { AgencyDirectory } from "./measurements/AgencyDirectoryScreen";
@@ -65,9 +69,13 @@ function WorkspaceRoutes() {
       <Route path="/app"><WorkspaceHome /></Route>
       <Route path="/app/dashboard"><SecureScreen permission="measurements.view"><ActivityDashboard /></SecureScreen></Route>
       <Route path="/app/variation-invoices"><SecureScreen permission="measurements.view"><VariationInvoices /></SecureScreen></Route>
+      <Route path="/app/vessels/:slug"><SecureScreen permission="calls.view"><VesselProfile /></SecureScreen></Route>
+      <Route path="/app/vessels"><SecureScreen permission="calls.view"><Vessels /></SecureScreen></Route>
       <Route path="/app/vessel-calls/:id"><VesselCallDetail /></Route>
       <Route path="/app/vessel-calls"><VesselCalls /></Route>
       <Route path="/app/measurements/new"><SecureScreen permission="measurements.manage"><NewMeasurement /></SecureScreen></Route>
+      <Route path="/app/measurements/voyages/:callId/declaration"><SecureScreen permission="measurements.view"><VoyageDeclaration /></SecureScreen></Route>
+      <Route path="/app/measurements/voyages/:callId/agencies"><SecureScreen permission="measurements.view"><VoyageAgencies /></SecureScreen></Route>
       <Route path="/app/measurements/voyages/:callId/readings"><SecureScreen permission="measurements.view"><VoyageReadings /></SecureScreen></Route>
       <Route path="/app/measurements/voyages/:callId/reconciliation"><SecureScreen permission="measurements.view"><VoyageReconciliation /></SecureScreen></Route>
       <Route path="/app/measurements/voyages/:callId/variation-invoice"><SecureScreen permission="measurements.view"><VariationInvoice /></SecureScreen></Route>
@@ -83,6 +91,9 @@ function WorkspaceRoutes() {
       </Route>
       <Route path="/app/users">
         <SecureScreen permission="users.view"><UserManagement /></SecureScreen>
+      </Route>
+      <Route path="/app/settings/tariffs">
+        <SecureScreen permission="settings.view"><TariffSettings /></SecureScreen>
       </Route>
       <Route path="/app/settings/agencies">
         <SecureScreen permission="settings.view"><AgencyDirectory /></SecureScreen>

@@ -14,20 +14,20 @@ vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: auth.user }) }))
 
 describe('measurement entry controls', () => {
   beforeEach(() => vi.clearAllMocks());
-  it('retains unknown and explicit NIL as distinct declaration values while adding container items', async () => {
-    render(<PlanForm calls={[{ id: 'call-1', vesselName: 'Atlas', reference: 'CALL-001', status: 'pending' } as VesselCall]} callId="call-1" onSave={vi.fn()} onCancel={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    const manifest = screen.getByLabelText(/Manifest quantity 1/);
-    expect(manifest).toHaveValue(null);
-    await userEvent.selectOptions(screen.getByLabelText('Category 1'), 'Container');
-    await userEvent.type(manifest, '0');
-    expect(manifest).toHaveValue(0);
-    expect(screen.getByLabelText('Unit 1')).toHaveValue('count');
-    await userEvent.selectOptions(screen.getByLabelText('Container size 1'), '40');
-    await userEvent.selectOptions(screen.getByLabelText('Load status 1'), 'empty');
-    await userEvent.click(screen.getByRole('button', { name: 'Add Bulk' }));
-    expect(screen.getByLabelText('Cargo description 2')).toHaveValue('');
-    expect(screen.getByLabelText('Container size 1')).toHaveValue('40');
+  it('keeps a blank declaration distinct from an explicit NIL even when the voyage has no vessel type', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<PlanForm calls={[{ id: 'call-1', vesselName: 'Atlas', reference: 'CALL-001', status: 'pending' } as VesselCall]} callId="call-1" agencyCatalog={[{ id: 'agency-1', name: 'Agent', role: 'Master', representative: 'Grace', active: true }]} onSave={onSave} onCancel={vi.fn()} />);
+    expect(screen.getByLabelText('40 ft empty declared')).toHaveValue('');
+    await userEvent.type(screen.getByLabelText('Manifest / bill of lading reference'), 'MAN-0');
+    await userEvent.type(screen.getByLabelText('40 ft empty declared'), '0');
+    expect(screen.getByText('Declared: 0 containers')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Continue to agencies' }));
+    await userEvent.click(screen.getByText(/^Declaration · 1 cargo line/, { selector: 'summary' }));
+    expect(screen.getByText('NIL (0) count')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select agency Agent' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create voyage and invite agencies' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].lines).toEqual([expect.objectContaining({ containerSize: '40', loadStatus: 'empty', manifestQuantity: '0', baselineReference: 'MAN-0' })]);
   });
   it('submits a staff return without attachments while preserving explicit zero', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
@@ -128,24 +128,24 @@ describe('measurement entry controls', () => {
   });
   it('saves a voyage sheet with an explicit schedule, cargo basis and agency participation requirements', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(<PlanForm calls={[{ id: 'call-1', vesselName: 'Atlas', reference: 'CALL-001', status: 'pending' } as VesselCall]} callId="call-1" agencyCatalog={[{ id: 'agency-1', name: 'Agent', role: 'Master', representative: 'Grace', active: true }]} onSave={onSave} onCancel={vi.fn()} />);
-    await userEvent.click(screen.getByText('Voyage details (optional)', { selector: 'summary' }));
-    for (const [label, value] of [['Terminal / berth','Berth 3'], ['Lead surveyor','Ada'], ['Voyage notes (optional)','Use certified instrument']] as const) { await userEvent.clear(screen.getByLabelText(label)); await userEvent.type(screen.getByLabelText(label), value); }
-    await userEvent.clear(screen.getByLabelText('Scheduled start', { exact: false }));
-    await userEvent.type(screen.getByLabelText('Scheduled start', { exact: false }), '2026-10-01T10:00');
-    await userEvent.type(screen.getByLabelText('Scheduled end (optional)'), '2026-10-01T12:00');
+    render(<PlanForm calls={[{ id: 'call-1', vesselName: 'Atlas', reference: 'CALL-001', type: 'Bulk carrier', status: 'pending' } as VesselCall]} agencyCatalog={[{ id: 'agency-1', name: 'Agent', role: 'Master', representative: 'Grace', active: true }]} onSave={onSave} onCancel={vi.fn()} />);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Vessel' }), screen.getByRole('option', { name: 'Atlas' }));
+    expect(screen.getByRole('combobox', { name: 'Voyage' })).toHaveValue('call-1');
+    await userEvent.click(screen.getByText('Measurement details (optional)', { selector: 'summary' }));
+    for (const [label, value] of [['Terminal / berth', 'Berth 3'], ['Lead surveyor', 'Ada']] as const) { await userEvent.clear(screen.getByLabelText(label)); await userEvent.type(screen.getByLabelText(label), value); }
+    await userEvent.clear(screen.getByLabelText(/Measurement starts/));
+    await userEvent.type(screen.getByLabelText(/Measurement starts/), '2026-10-01T10:00');
+    await userEvent.type(screen.getByLabelText('Measurement ends (optional)'), '2026-10-01T12:00');
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    await userEvent.type(screen.getByLabelText('Cargo description 1'), 'Wheat');
-    await userEvent.click(screen.getByLabelText('Quantity basis for item 1'));
-    await userEvent.clear(screen.getByLabelText('Quantity basis 1'));
-    await userEvent.type(screen.getByLabelText('Quantity basis 1'), 'Net mass');
-    await userEvent.type(screen.getByLabelText('Manifest / baseline reference 1'), 'BL-001');
-    await userEvent.selectOptions(screen.getByLabelText('Unit 1'), 'm3');
-    await userEvent.type(screen.getByLabelText('Manifest quantity 1'), '1000.25');
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await userEvent.type(screen.getByLabelText('Manifest / bill of lading reference'), 'BL-001');
+    await userEvent.type(screen.getByLabelText('commodity 1'), 'Wheat');
+    await userEvent.selectOptions(screen.getByLabelText('Unit commodity 1'), 'm3');
+    await userEvent.type(screen.getByLabelText('Declared quantity commodity 1'), '1000.25');
+    await userEvent.click(screen.getByRole('button', { name: 'Continue to agencies' }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Select agency Agent' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Create voyage sheet' }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ callId: 'call-1', title: 'Bulk discharge tally · Atlas · CALL-001', endsAt: expect.any(String), lines: [expect.objectContaining({ manifestQuantity: '1000.25', direction: 'import', unit: 'm3' })], participants: [expect.objectContaining({ name: 'Agent', role: 'Master', requiredSubmission: true, requiredApproval: true })] })));
+    await userEvent.click(screen.getByRole('button', { name: 'Create voyage and invite agencies' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ callId: 'call-1', title: 'Bulk discharge tally · Atlas · CALL-001', method: 'Draft survey', location: 'Berth 3', leadSurveyor: 'Ada', scheduledAt: new Date('2026-10-01T10:00').toISOString(), endsAt: new Date('2026-10-01T12:00').toISOString(), lines: [expect.objectContaining({ category: 'Bulk', description: 'Wheat', manifestQuantity: '1000.25', direction: 'import', unit: 'm3', basis: 'Volume in cubic metres', baselineReference: 'BL-001' })], participants: [expect.objectContaining({ name: 'Agent', role: 'Master', requiredSubmission: true, requiredApproval: true })] });
   });
   it('records a signed dispute against the named party and exact proposal', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);

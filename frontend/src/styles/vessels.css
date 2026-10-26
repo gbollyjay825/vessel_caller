@@ -1,0 +1,41 @@
+/* Vessels list and vessel profile. */
+.vessels-scroll { max-width: 100%; overflow-x: auto; position: relative; }
+.vessels-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13.5px; }
+.vessels-table th, .vessels-table td { padding: 13px 16px; border-bottom: 1px solid var(--hairline); text-align: left; vertical-align: top; }
+.vessels-table thead th { background: #F6F7F9; color: var(--slate); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.vessels-table tbody tr:last-child > * { border-bottom: 0; }
+.vessels-table tbody th { font-weight: 600; }
+.vessels-table tbody th a { color: var(--ink); text-decoration: none; }
+.vessels-table tbody th a:hover { color: var(--accent); text-decoration: underline; }
+.vessels-table small { display: block; color: var(--slate); font-size: 12.5px; font-weight: 400; margin-top: 2px; }
+.vessels-table .var-badge { margin-right: 4px; }
+.vessel-history-table { min-width: 600px; }
+.vessel-history-table th, .vessel-history-table td { padding: 12px 12px; }
+.vessel-history-table tbody th { white-space: nowrap; }
+.vessels-empty { text-align: center; }
+.vessels-empty h1, .vessels-empty h2 { margin: 0 0 6px; font-size: 18px; }
+.vessels-empty p { margin: 0 0 12px; color: var(--slate); }
+.vessel-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.vessel-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.vessel-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.vessel-stats strong { font-size: 24px; line-height: 1.2; }
+.vessel-stats strong.amber { color: var(--above); }
+.vessel-stats strong.blue { color: var(--below); }
+.vessel-stats span { font-size: 13.5px; font-weight: 600; }
+.vessel-stats small { font-size: 12.5px; color: var(--slate); }
+.vessel-particulars h2, .vessel-agencies h2 { margin: 0 0 12px; font-size: 16px; }
+.vessel-particulars dl { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 10px 12px; font-size: 13.5px; }
+.vessel-particulars dt { color: var(--slate); }
+.vessel-particulars dd { margin: 0; }
+.vessel-agencies ul { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; }
+.vessel-agencies li { display: flex; justify-content: space-between; gap: 10px; }
+.vessel-agencies li > span:first-child { display: flex; flex-direction: column; }
+.vessel-agencies small { color: var(--slate); font-size: 12.5px; }
+
+.tariff-table { min-width: 480px; table-layout: fixed; }
+.tariff-table th:first-child { width: 40%; }
+.tariff-table th:last-child, .tariff-table td:last-child { width: 200px; }
+.tariff-table input { width: 160px; text-align: right; padding: 7px 10px; }
+.tariff-summary { display: flex; flex-direction: column; gap: 12px; }
+.tariff-summary h2 { margin: 0; font-size: 16px; }
+.tariff-summary .btn { align-self: flex-start; }

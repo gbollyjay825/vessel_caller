@@ -176,6 +176,11 @@ async function installCustomerEnrollmentSession(page: Page, role: "Admin" | "Fin
         return enrolled
           ? json({ plans: [] })
           : json({ detail: "You do not have permission to perform this action." }, 403);
+      case "/api/agencies":
+        // The dashboard's setup checklist counts the agency directory.
+        return enrolled
+          ? json({ agencies: [] })
+          : json({ detail: "You do not have permission to perform this action." }, 403);
       case "/api/poll":
         return json({ changed: false, rev: 1 });
       default:
@@ -235,7 +240,7 @@ for (const role of ["Admin", "Finance"] as const) {
     ));
     await page.getByRole("link", { name: "Open workspace", exact: true }).click();
     await expect(page).toHaveURL(/\/app\/dashboard$/);
-    await expect(page.getByRole("heading", { name: "Start with the owner’s declaration", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Start with a voyage’s paid declaration", exact: true })).toBeVisible();
     expect((await measurementsResponse).ok()).toBe(true);
     expect(requests.state).toBeGreaterThan(0);
     expect(requests.unexpected).toEqual([]);

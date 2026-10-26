@@ -14,31 +14,30 @@ const renderScreen = (element: React.ReactNode) => render(<QueryClientProvider c
 
 describe('measurement workflow', () => {
   beforeEach(() => { mocked.can.mockReturnValue(true); mocked.workspace = 'reconciliation'; mocked.userId = 'admin-1'; mocked.detail.mockResolvedValue({ plan: measurementFixture() }); mocked.list.mockResolvedValue({ plans: [measurementFixture()] }); mocked.agencyLinks.mockResolvedValue({ links: [] }); });
-  it('opens at report vessel load with server-supported agency link generation', async () => {
+  it('sends a plan without the reconciliation workspace flag to its voyage agency tracker', async () => {
     mocked.workspace = '';
-    mocked.createLink.mockResolvedValue({ link: { id: 'link-1', participantId: 'party-2', expiresAt: '2099-10-12T12:00:00Z', revokedAt: null, submittedAt: null }, url: 'https://example.test/agency-reading#token=synthetic-demo-token' });
+    window.history.replaceState(null, '', '/app/measurements/plan-1');
     renderScreen(<MeasurementDetail />);
-    await screen.findByRole('heading', { name: 'Report vessel load' });
+    await waitFor(() => expect(window.location.pathname).toBe('/app/measurements/voyages/call-1/agencies'));
     expect(screen.queryByRole('tab', { name: 'Reconciliation' })).not.toBeInTheDocument();
-    await userEvent.click(await screen.findByRole('button', { name: 'Get link' }));
-    expect(mocked.createLink).toHaveBeenCalledWith('plan-1', 'party-2', 7);
-    expect(screen.getByLabelText('Link for Terminal One')).toHaveValue('https://example.test/agency-reading#token=synthetic-demo-token');
+    window.history.replaceState(null, '', '/');
   });
-  it('does not advertise working links when the backend capability is absent', async () => {
-    mocked.workspace = '';
-    mocked.agencyLinks.mockRejectedValue(new Error('Not available'));
-    renderScreen(<MeasurementDetail />);
-    await screen.findByRole('heading', { name: 'Report vessel load' });
-    expect(await screen.findByText('Secure agency links are not enabled on this server yet.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Get link' })).not.toBeInTheDocument();
-  });
-  it('exposes an actionable plan worklist and search', async () => {
+  it('lists each voyage with its step, next action and search', async () => {
     renderScreen(<Measurements />);
-    expect(await screen.findByRole('link', { name: 'Readings' })).toHaveAttribute('href', '/app/measurements/voyages/call-1/readings');
+    const action = await screen.findByRole('link', { name: 'Agency readings · MV Atlas CALL-001' });
+    expect(action).toHaveAttribute('href', '/app/measurements/voyages/call-1/agencies');
     expect(screen.getByRole('heading', { name: 'Voyages', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /New voyage/ })).toHaveAttribute('href', '/app/measurements/new');
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText('Search vessels or voyages'), 'unknown');
+    await userEvent.type(screen.getByLabelText('Search vessels, voyages or agencies'), 'unknown');
     expect(screen.getByText('No voyages found')).toBeInTheDocument();
+  });
+  it('hides voyage creation without manage permission', async () => {
+    mocked.can.mockReturnValue(false);
+    renderScreen(<Measurements />);
+    expect(await screen.findByRole('link', { name: 'Agency readings · MV Atlas CALL-001' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /New voyage/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Register voyage/ })).not.toBeInTheDocument();
   });
   it('shows missing party returns separately from reported quantities', () => {
     render(<ComparisonGrid plan={measurementFixture()} />);

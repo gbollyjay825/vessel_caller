@@ -4,6 +4,10 @@ import { Icon } from "../components/Icon";
 import { measurementApi } from "./api";
 import type { Evidence, MeasurementPlan } from "./types";
 
+// Reconciliation approvals and variation invoices are not on the server yet; say so once, plainly.
+export function PreviewStorageNotice() {
+  return <p className="preview-storage-notice"><Icon name="info" size={14} />Approvals and invoice drafts are kept in this browser until the server workflow is connected.</p>;
+}
 export function MeasurementBadge({ status }: { status: string }) {
   return <span className={`measurement-badge ${status}`}>{status.replaceAll("-", " ")}</span>;
 }

@@ -46,14 +46,25 @@ function syntheticPdf(): Buffer {
   return Buffer.from(body);
 }
 
+async function assertFitsViewport(page: Page) {
+  const width = await page.locator("html").evaluate(element => (element as { scrollWidth: number }).scrollWidth);
+  expect(width, "Measurement views should scroll their data tables inside the viewport").toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+}
+
 async function assertMeasurementWorkspace(page: Page, name: string | RegExp) {
   const tabs = page.getByRole("tablist", { name: "Measurement workspaces", exact: true });
   await expect(tabs.getByRole("tab")).toHaveCount(5);
   const selected = tabs.getByRole("tab", { name, exact: true, selected: true });
   await expect(selected).toHaveAttribute("aria-controls", "measurement-panel");
   await expect(page.getByRole("tabpanel", { name, exact: true })).toBeVisible();
-  const width = await page.locator("html").evaluate(element => (element as { scrollWidth: number }).scrollWidth);
-  expect(width, "Measurement views should scroll their data tables inside the viewport").toBeLessThanOrEqual(page.viewportSize()!.width + 1);
+  await assertFitsViewport(page);
+}
+
+async function assertPdfResponse(page: Page, href: string) {
+  const response = await page.request.get(href);
+  expect(response.ok()).toBe(true);
+  expect(response.headers()["content-type"]).toContain("application/pdf");
+  expect((await response.body()).subarray(0, 4).toString()).toBe("%PDF");
 }
 
 async function assertPdfDownload(page: Page, label: string, filename: RegExp) {
@@ -73,7 +84,131 @@ async function assertPdfDownload(page: Page, label: string, filename: RegExp) {
   expect((await readFile(file!)).subarray(0, 4).toString()).toBe("%PDF");
 }
 
-test("stakeholder returns reconcile independently and Finance issues one persisted disparity invoice", async ({ page }, testInfo) => {
+async function createAgencies(page: Page, agencies: [name: string, role: string, representative: string][]) {
+  await page.goto("/app/settings/agencies");
+  for (const [name, role, representative] of agencies) {
+    await page.getByLabel("Agency name", { exact: true }).fill(name);
+    await page.getByRole("combobox", { name: "Agency role", exact: true }).selectOption(role);
+    await page.getByLabel("Default representative", { exact: true }).fill(representative);
+    await page.getByRole("button", { name: "Save agency", exact: true }).click();
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  }
+}
+
+async function createVoyageCall(page: Page, vesselName: string, reference: string): Promise<string> {
+  const csrf = await (await page.request.get("/api/auth/csrf")).json();
+  const createdCall = await page.request.post("/api/vessel-calls", {
+    headers: { "X-CSRFToken": csrf.csrfToken, Referer: page.url() },
+    data: { vesselName, reference, type: "Container", nrt: "10000" },
+  });
+  expect(createdCall.status(), await createdCall.text()).toBe(201);
+  return (await createdCall.json()).call.id;
+}
+
+test("a voyage’s paid declaration, agency readings and second-reviewer approval draft the variation invoice", async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+  page.setDefaultTimeout(20_000);
+  const suffix = `${testInfo.project.name}-${Date.now()}`;
+  const vesselName = `MV Voyage ${suffix}`;
+  const reference = `ROT-VOYAGE-${suffix}`;
+  const cargoLabel = "20 ft laden containers · import · 20 ft · laden";
+  const agentName = `Test Ship Agent ${suffix}`;
+  const terminalName = `Test Terminal ${suffix}`;
+  const evidenceName = `synthetic-agency-tally-${suffix}.pdf`;
+
+  await signIn(page, "admin@e2e.vesselcalls.test");
+  await createAgencies(page, [[agentName, "Agent", "Agent Representative"], [terminalName, "Terminal operator", "Terminal Representative"]]);
+  // The variation tariff is kept in this browser until the server tariff table exists.
+  await page.goto("/app/settings/tariffs");
+  await page.getByLabel("Containers 20 ft laden rate", { exact: true }).fill("2.50");
+  await page.getByLabel("Reference", { exact: true }).fill("SYNTHETIC-TARIFF-2.50-PER-CONTAINER");
+  await page.getByRole("button", { name: "Save tariff", exact: true }).click();
+  await expect(page.getByText(/^Last saved by E2E Admin/)).toBeVisible();
+  await signOut(page);
+
+  await signIn(page, "operations@e2e.vesselcalls.test");
+  const callId = await createVoyageCall(page, vesselName, reference);
+  const voyagePath = `/app/measurements/voyages/${encodeURIComponent(callId)}`;
+  await page.goto(`/app/measurements/new?callId=${encodeURIComponent(callId)}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(vesselName);
+  await expect(page.getByRole("button", { name: /^Containers/ })).toHaveAttribute("aria-pressed", "true");
+  await page.getByLabel("20 ft laden declared", { exact: true }).fill("100");
+  await page.getByLabel("Manifest / bill of lading reference", { exact: true }).fill("SYNTHETIC-MANIFEST-100");
+  await page.getByLabel("Payer (vessel owner)", { exact: true }).fill("Synthetic Cargo Receiver");
+  await page.getByLabel("Declaration invoice number", { exact: true }).fill(`SYNTHETIC-DECLARATION-${suffix}`);
+  await page.getByRole("radio", { name: "Confirmed paid", exact: true }).check();
+  await page.getByRole("button", { name: "Continue to agencies", exact: true }).click();
+  await page.getByRole("checkbox", { name: `Select agency ${agentName}`, exact: true }).check();
+  await page.getByRole("checkbox", { name: `Select agency ${terminalName}`, exact: true }).check();
+  const createdPlanResponse = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/measurement-plans");
+  await page.getByRole("button", { name: "Create voyage and invite agencies", exact: true }).click();
+  const createdPlan = await createdPlanResponse;
+  expect(createdPlan.status(), await createdPlan.text()).toBe(201);
+  const planId: string = (await createdPlan.json()).plan.id;
+  await expect(page).toHaveURL(new RegExp(`${voyagePath}/agencies$`));
+  await expect(page.getByRole("navigation", { name: "Voyage steps", exact: true }).getByRole("link", { name: /^Declaration/ })).toContainText("Paid · 100 containers");
+
+  for (const [index, party] of [agentName, terminalName].entries()) {
+    const row = page.getByRole("row", { name: new RegExp(`^${party}`) });
+    await expect(row.getByText("Not invited", { exact: true })).toBeVisible();
+    await row.getByRole("button", { name: `Enter reading for ${party}`, exact: true }).click();
+    await expect(page.getByRole("heading", { name: `Enter reading · ${party}`, exact: true })).toBeVisible();
+    await page.getByLabel("Source document reference", { exact: true }).fill(`SYNTHETIC-READING-${index + 1}`);
+    await page.getByLabel(`Reported quantity · ${cargoLabel}`, { exact: true }).fill(index ? "110" : "108");
+    if (!index) {
+      await page.locator('input[type="file"]').setInputFiles({ name: evidenceName, mimeType: "application/pdf", buffer: syntheticPdf() });
+      await expect(page.getByLabel(evidenceName, { exact: true })).toBeChecked();
+    } else {
+      await page.getByLabel(evidenceName, { exact: true }).check();
+    }
+    await page.getByRole("button", { name: "Submit reading", exact: true }).click();
+    await expect(page.getByText("Agency reading saved", { exact: true }).last()).toBeVisible();
+    await expect(page.getByRole("heading", { name: `Agency readings · ${index + 1} of 2 submitted`, exact: true })).toBeVisible();
+    await expect(row.getByText("Submitted", { exact: true })).toBeVisible();
+  }
+  await assertFitsViewport(page);
+  const agentReceipt = page.waitForEvent("download");
+  await page.getByRole("button", { name: `PDF for ${agentName}`, exact: true }).click();
+  const receipt = await agentReceipt;
+  expect(receipt.suggestedFilename()).toMatch(/^agency-reading-.*\.pdf$/);
+  expect((await readFile((await receipt.path())!)).subarray(0, 4).toString()).toBe("%PDF");
+
+  await page.getByRole("link", { name: "Open readings report", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`${voyagePath}/readings$`));
+  await assertPdfResponse(page, (await page.getByRole("link", { name: "Readings PDF", exact: true }).getAttribute("href"))!);
+  const laden = page.getByRole("table", { name: "Paid declaration, each agency’s reading and NPA’s final agreed quantity for every cargo line", exact: true }).getByRole("row", { name: /^20 ft · Laden/ });
+  await expect(laden.getByText("+8", { exact: true })).toBeVisible();
+  await expect(laden.getByText("+10", { exact: true })).toBeVisible();
+  await laden.getByRole("button", { name: `110 · ${terminalName}`, exact: true }).click();
+  await laden.getByLabel(/^Reason · 20 ft · Laden/).fill("Terminal recount accepted against the recorded tally evidence.");
+  await page.getByRole("textbox", { name: "Review note", exact: true }).fill("Physical recount resolves the two container difference.");
+  await assertFitsViewport(page);
+  await page.getByRole("button", { name: "Submit for approval", exact: true }).click();
+  await expect(page.getByText("Version 1 sent for approval.", { exact: true })).toBeVisible();
+  await expect(page.getByText("A second reviewer with approval rights must approve the version you prepared.", { exact: true })).toBeVisible();
+  await signOut(page);
+
+  // Approvals are kept in this browser until the server workflow exists, so the
+  // approver signs in to the same browser profile.
+  await signIn(page, "admin@e2e.vesselcalls.test");
+  await page.goto(`${voyagePath}/readings`);
+  await page.getByRole("button", { name: /Approve final quantities/ }).click();
+  await expect(page.getByText(/^Version 1 approved\. Variation invoice DRAFT-VAR-.+ has been drafted\.$/)).toBeVisible();
+  await expect(page.getByText("Approved by E2E Admin · version 1 locked", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Open variation invoice", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`${voyagePath}/variation-invoice$`));
+  const invoice = page.getByRole("article", { name: /^Variation invoice DRAFT-VAR-/ });
+  await expect(invoice).toContainText("Synthetic Cargo Receiver");
+  await expect(invoice).toContainText(`SYNTHETIC-DECLARATION-${suffix}`);
+  await expect(invoice).toContainText(/Total due\s*USD 25\.00/);
+  await assertFitsViewport(page);
+
+  const persisted = (await (await page.request.get(`/api/measurement-plans/${planId}`)).json()).plan;
+  expect(persisted.submissions.map((item: { sourceReference: string }) => item.sourceReference).sort()).toEqual(["SYNTHETIC-READING-1", "SYNTHETIC-READING-2"]);
+  expect(persisted.evidence).toEqual([expect.objectContaining({ fileName: evidenceName, contentType: "application/pdf" })]);
+});
+
+test("the retained server workspace reconciles returns and Finance issues one persisted disparity invoice", async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   page.setDefaultTimeout(20_000);
   const suffix = `${testInfo.project.name}-${Date.now()}`;
@@ -86,52 +221,28 @@ test("stakeholder returns reconcile independently and Finance issues one persist
   const evidenceName = `synthetic-paper-tally-${suffix}.pdf`;
 
   await signIn(page, "admin@e2e.vesselcalls.test");
-  await page.goto("/app/settings/agencies");
-  for (const [name, role, representative] of [[agentName, "Agent", "Agent Representative"], [terminalName, "Terminal operator", "Terminal Representative"]]) {
-    await page.getByLabel("Agency name", { exact: true }).fill(name);
-    await page.getByRole("combobox", { name: "Agency role", exact: true }).selectOption(role);
-    await page.getByLabel("Default representative", { exact: true }).fill(representative);
-    await page.getByRole("button", { name: "Save agency", exact: true }).click();
-    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-  }
+  await createAgencies(page, [[agentName, "Agent", "Agent Representative"], [terminalName, "Terminal operator", "Terminal Representative"]]);
   await signOut(page);
   await signIn(page, "operations@e2e.vesselcalls.test");
-  const csrf = await (await page.request.get("/api/auth/csrf")).json();
-  const createdCall = await page.request.post("/api/vessel-calls", {
-    headers: { "X-CSRFToken": csrf.csrfToken, Referer: page.url() },
-    data: { vesselName, reference: `ROT-MEASURE-${suffix}`, type: "Container", nrt: "10000" },
-  });
-  expect(createdCall.status(), await createdCall.text()).toBe(201);
-  const callId: string = (await createdCall.json()).call.id;
-  await page.goto(`/app/measurements/new?callId=${encodeURIComponent(callId)}`);
-  await page.getByText("Voyage details (optional)", { exact: true }).click();
-  await page.getByLabel("Scheduled start").fill(new Date(Date.now() + 3_600_000).toISOString().slice(0, 16));
-  await page.getByLabel("Terminal / berth", { exact: true }).fill("Synthetic terminal");
-  await page.getByLabel("Lead surveyor", { exact: true }).fill("Test Surveyor");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("radio", { name: "Containers", exact: true }).check();
-  await page.getByLabel("Cargo details for item 1", { exact: true }).click();
-  await page.getByLabel("Cargo description 1", { exact: true }).fill(cargo);
-  await page.getByLabel("Quantity basis 1", { exact: true }).fill("Physical container count");
-  await page.getByLabel("Manifest quantity 1").fill("100");
-  await page.getByLabel("Manifest / baseline reference 1", { exact: true }).fill("SYNTHETIC-MANIFEST-100");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByRole("checkbox", { name: `Select agency ${agentName}`, exact: true }).check();
-  await page.getByRole("checkbox", { name: `Select agency ${terminalName}`, exact: true }).check();
-  await expect(page.getByRole("button", { name: "Finish", exact: true })).toBeDisabled();
-  const createdPlanResponse = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/measurement-plans");
-  await page.getByRole("group", { name: `Agency ${agentName}`, exact: true }).getByRole("button", { name: "Enter reading", exact: true }).click();
-  const createdPlan = await createdPlanResponse;
+  const callId = await createVoyageCall(page, vesselName, `ROT-MEASURE-${suffix}`);
+  // The voyage screens no longer create server reconciliations, so this
+  // regression creates its sheet through the API and drives the retained
+  // server workspace that still owns finalization and disparity billing.
+  const csrf = (await (await page.request.get("/api/auth/csrf")).json()).csrfToken;
+  const agencies: { id: string; name: string; role: string; representative: string }[] = (await (await page.request.get("/api/agencies")).json()).agencies;
+  const participants = [agentName, terminalName].map(name => agencies.find(agency => agency.name === name)!)
+    .map(agency => ({ agencyId: agency.id, name: agency.name, role: agency.role, representative: agency.representative, requiredSubmission: true, requiredApproval: true }));
+  const createdPlan = await page.request.post("/api/measurement-plans", { headers: { "X-CSRFToken": csrf, Referer: page.url() }, data: {
+    callId, title, method: "Physical container tally", stage: "Discharge", scope: cargo, location: "Synthetic terminal", leadSurveyor: "Test Surveyor",
+    scheduledAt: new Date(Date.now() + 3_600_000).toISOString(), endsAt: null, notes: "", participants,
+    lines: [{ description: cargo, category: "Container", direction: "import", containerSize: "20", loadStatus: "laden", unit: "count", basis: "Physical container count", manifestQuantity: "100", baselineReference: "SYNTHETIC-MANIFEST-100" }],
+  } });
   expect(createdPlan.status(), await createdPlan.text()).toBe(201);
   const planId: string = (await createdPlan.json()).plan.id;
   const planPath = `/app/measurements/${planId}`;
-  await expect(page.getByRole("dialog", { name: `${agentName} reading`, exact: true })).toBeVisible();
-  await expect(page).toHaveURL(/\/app\/measurements\/new\?callId=/);
-  await page.getByRole("button", { name: "Close reading", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: `${agentName} reading`, exact: true })).toHaveCount(0);
-  await expect(page.getByRole("tablist", { name: "Measurement workspaces", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Finish", exact: true }).click();
-  await expect(page).toHaveURL(/\/app\/measurements$/);
+  // Without the workspace flag an old measurement link opens the voyage's agency step.
+  await page.goto(planPath);
+  await expect(page).toHaveURL(new RegExp(`/app/measurements/voyages/${callId}/agencies$`));
   await page.goto(`${planPath}?workspace=reconciliation`);
   await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
 

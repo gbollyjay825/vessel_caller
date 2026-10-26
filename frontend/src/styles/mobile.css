@@ -5,10 +5,10 @@
    large tap targets (≥44px), big numeric inputs, sticky CTAs.
    ============================================================ */
 :root{
-  --ink:#16191D; --slate:#5F6B7A; --soft:#8A95A3;
+  --ink:#16191D; --slate:#5F6B7A; --soft:#667180;
   --accent:var(--brand-accent); --accent-hover:var(--brand-accent-hover); --accent-tint:var(--brand-accent-soft); --accent-tint-2:var(--brand-accent-faint);
   --hairline:#E8EAED; --hairline-strong:#D8DCE1; --field-bg:#F2F2F7;
-  --success:#1F9254; --success-bg:#E7F4EC; --warning:#B6781E; --warning-bg:#FBF1DF;
+  --success:#17703F; --success-bg:#E7F4EC; --warning:#8A5A12; --warning-bg:#FBF1DF;
   --danger:#C0392B; --danger-bg:#FBEAE7;
   --r:16px; --r-sm:12px;
   --font:-apple-system,'SF Pro','Inter',system-ui,sans-serif;

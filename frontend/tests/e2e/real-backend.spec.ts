@@ -39,7 +39,7 @@ async function signOut(page: Page) {
 async function navigateInWorkspace(page: Page, label: string) {
   const hamburger = page.getByRole("button", { name: "Open menu" });
   const navigation = page.getByRole("navigation", { name: "Primary" });
-  const link = navigation.getByRole("link", { name: label });
+  const link = navigation.getByRole("link", { name: label, exact: true });
   if ((page.viewportSize()?.width ?? Number.POSITIVE_INFINITY) <= 767) {
     await expect(hamburger).toBeVisible();
     await hamburger.click();
@@ -54,7 +54,7 @@ async function navigateInWorkspace(page: Page, label: string) {
 test("real Django sessions enforce server RBAC without browser tokens", async ({ page, context }) => {
   await signIn(page, "operations@e2e.vesselcalls.test");
 
-  await expect(page.getByRole("link", { name: "User Management" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Users", exact: true })).toHaveCount(0);
   await page.goto("/app/users");
   await expect(page).toHaveURL(/\/app\/dashboard$/);
   expect(await page.evaluate(() => ({
@@ -67,7 +67,7 @@ test("real Django sessions enforce server RBAC without browser tokens", async ({
 
   await signOut(page);
   await signIn(page, "admin@e2e.vesselcalls.test");
-  await navigateInWorkspace(page, "User Management");
+  await navigateInWorkspace(page, "Users");
   await expect(page).toHaveURL(/\/app\/users$/);
   await expect(
     page.getByText("operations@e2e.vesselcalls.test").filter({ visible: true }),
@@ -83,9 +83,11 @@ test("operations creates and finalizes a call; finance records and reverses paym
   await signIn(page, "operations@e2e.vesselcalls.test");
   await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Vessel Calls", exact: true })).toHaveCount(0);
   await navigateInWorkspace(page, "Voyages");
-  await page.getByRole("link", { name: "Vessel setup", exact: true }).click();
-  await expect(page).toHaveURL(/\/app\/vessel-calls$/);
-  await page.getByRole("button", { name: "Register Vessel Call" }).click();
+  // Registering from Voyages opens the vessel call form and then continues
+  // straight to that voyage's declaration step.
+  await page.getByRole("link", { name: "Register voyage", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/vessel-calls\?register&then=declaration$/);
+  await expect(page.getByRole("dialog", { name: "Register Vessel Call" })).toBeVisible();
   await page.getByLabel("Vessel name").fill(vesselName);
   await page.getByLabel("Rotation number").fill(rotation);
   await page.getByLabel("Net tonnage").fill("10000");
@@ -98,6 +100,12 @@ test("operations creates and finalizes a call; finance records and reverses paym
   expect(registered.status(), await registered.text()).toBe(201);
   const callId: string = (await registered.json()).call.id;
   await expect(page.getByText(`${rotation} registered`)).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/app/measurements/new\\?callId=${callId}$`));
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(vesselName);
+  await expect(page.getByRole("navigation", { name: "Voyage steps" }).locator('[aria-current="step"]')).toContainText("Declaration");
+
+  // The legacy vessel call screens stay reachable for berthing and inspections.
+  await page.goto("/app/vessel-calls");
 
   await page.getByText(vesselName, { exact: true }).filter({ visible: true }).first().click();
   await page.getByRole("button", { name: "Mark berthed" }).click();

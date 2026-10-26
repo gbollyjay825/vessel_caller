@@ -8,6 +8,11 @@ export interface VesselVoyages {
   calls: VesselCall[];
 }
 
+// Vessels have no record of their own yet: a vessel is its name and flag.
+const slugPart = (value: string) => value.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+export const vesselSlug = (name: string, flag = "") => [slugPart(name), slugPart(flag ?? "")].filter(Boolean).join("--");
+export const vesselPath = (name: string, flag = "") => `/app/vessels/${encodeURIComponent(vesselSlug(name, flag))}`;
+
 // The existing API identifies voyages by call.id. This grouping is a display
 // index, not a new vessel identity or a substitute for that voyage key.
 export function groupVesselCalls(calls: VesselCall[]): VesselVoyages[] {

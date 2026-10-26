@@ -1,6 +1,6 @@
 import { useState } from "react";
+import { useBreadcrumbs } from "../app/breadcrumbs";
 import { useAuth } from "../auth/AuthContext";
-import { Link } from "../lib/navigation";
 import { AGENCY_ROLES } from "./cargoTemplates";
 import { useAgencyDirectory, type AgencyProfile } from "./agencyDirectory";
 import "../styles/agency-directory.css";
@@ -10,6 +10,7 @@ const emptyDraft = (): Draft => ({ name: "", role: "Agent", representative: "", 
 
 export function AgencyDirectory() {
   const { org, can } = useAuth();
+  useBreadcrumbs([{ label: "Agencies" }]);
   return <AgencyDirectoryContent key={org?.id ?? "no-organization"} orgId={org?.id} canEdit={can("manageSettings")} />;
 }
 
@@ -26,8 +27,7 @@ function AgencyDirectoryContent({ orgId, canEdit }: { orgId?: string; canEdit: b
     setDraft({ ...agency }); setCustomRole(!AGENCY_ROLES.some(role => role.value === agency.role)); setNotice("");
   }
   return <div className="content-inner agency-directory">
-    <Link to="/app/measurements" className="link-btn">Measurements</Link>
-    <div className="page-head"><div><h1>Agency setup</h1><p className="desc">Set up reusable agencies, roles and default representatives for voyage sheets.</p></div></div>
+    <div className="page-head"><div><h1>Agencies</h1><p className="desc">The agencies that report readings — agents, terminal operators, masters, surveyors and tally clerks — with their default representatives.</p></div></div>
     <p className="agency-preview-note">Agencies are saved for your organization and shared with its authorized users.</p>
     <p className="agency-help">Selecting an agency copies its details into each voyage sheet. Later directory changes do not alter historical records or readings.</p>
     {error && <div role="alert" className="agency-message error">{error}</div>}

@@ -1,15 +1,31 @@
+// Voyages list: one row per voyage, its current step and the one action that moves it on.
 import { useState } from "react";
-import { Icon } from "../components/Icon";
 import { Link } from "../lib/navigation";
 import type { VesselCall } from "../types";
-import { dateLabel, latestReconciliation, latestReturns } from "./helpers";
+import { dateLabel } from "./helpers";
 import type { MeasurementPlan } from "./types";
-import { currentReport, reconciliationIssues, type CloseoutRecord } from "./closeoutPreview";
-import { groupVesselCalls } from "./voyages";
+import type { CloseoutRecord } from "./closeoutPreview";
+import { STAGE_LABELS, STAGE_TONES, declarationTotals, nextStepPath, summarizeVoyages, type VoyageStage, type VoyageSummary } from "./voyageStatus";
+import { vesselPath, vesselSlug } from "./voyages";
+import "../styles/voyage-workspace.css";
 import "../styles/voyage-log.css";
 
-type VoyageRow = { id: string; vesselName: string; reference: string; arrival: string; vesselKey: string; vesselLabel: string; call?: VesselCall; plans: MeasurementPlan[] };
-export type VoyageReadingFilter = "all" | "awaiting" | "complete" | "cancelled" | "active" | "reconciled";
+const FILTER_STAGES: Record<string, VoyageStage[]> = {
+  declaration: ["declaration"], collecting: ["collecting"], reconcile: ["ready", "returned"], approval: ["approval"],
+  invoice: ["invoice", "draft", "held"], review: ["review"], cancelled: ["cancelled"],
+};
+const CLOSED: VoyageStage[] = ["no-charge", "cancelled"];
+
+function actionFor(voyage: VoyageSummary, canManage: boolean): string {
+  switch (voyage.stage) {
+    case "declaration": return voyage.plans.length ? "Review declaration" : canManage ? "Record declaration" : "Open";
+    case "collecting": return "Agency readings";
+    case "ready": case "returned": return "Reconcile";
+    case "approval": return "Review approval";
+    case "invoice": case "draft": case "held": case "review": return "Invoice";
+    default: return "Open";
+  }
+}
 
 export function VoyageLog({ calls, plans, canManage, closeoutRecords = [], search = "", status = "all" }: {
   calls: VesselCall[];
@@ -20,56 +36,31 @@ export function VoyageLog({ calls, plans, canManage, closeoutRecords = [], searc
   status?: string;
 }) {
   const [vesselKey, setVesselKey] = useState("");
-  const byCall = new Map<string, VoyageRow>();
-  for (const vessel of groupVesselCalls(calls)) for (const call of vessel.calls) {
-    byCall.set(call.id, { id: call.id, vesselName: call.vesselName, reference: call.reference, arrival: call.eta, vesselKey: vessel.key, vesselLabel: `${vessel.name}${vessel.flag ? ` · ${vessel.flag}` : ""}`, call, plans: [] });
-  }
-  for (const plan of plans) {
-    let row = byCall.get(plan.callId);
-    if (!row) {
-      row = { id: plan.callId, vesselName: plan.vesselName, reference: plan.callReference, arrival: "", vesselKey: `recorded:${plan.vesselName.trim().toLocaleLowerCase()}`, vesselLabel: `${plan.vesselName} · recorded voyage`, plans: [] };
-      byCall.set(plan.callId, row);
-    }
-    row.plans.push(plan);
-  }
-  const rows = [...byCall.values()].map(row => {
-    const cancelled = row.call?.status === "cancelled";
-    const currentPlans = cancelled ? row.plans : row.plans.filter(plan => plan.status !== "cancelled");
-    const expected = currentPlans.reduce((count, plan) => count + plan.participants.length, 0);
-    const received = currentPlans.reduce((count, plan) => {
-      const returns = latestReturns(plan);
-      return count + plan.participants.filter(party => returns.has(party.id)).length;
-    }, 0);
-    const lines = currentPlans.flatMap(plan => plan.lines);
-    const known = lines.filter(line => line.manifestQuantity !== null && line.manifestQuantity.trim() !== "").length;
-    const hasCurrentDeclaration = currentPlans.length > 0;
-    const declaration = !hasCurrentDeclaration ? "Not started" : known === 0 ? "Not provided" : known < lines.length ? "Partial" : "Recorded";
-    const complete = expected > 0 && received === expected;
-    const readyForReview = reconciliationIssues(currentPlans).length === 0;
-    return { ...row, expected, received, declaration, hasCurrentDeclaration, cancelled, complete, readyForReview };
-  }).sort((left, right) => (Date.parse(right.arrival) || 0) - (Date.parse(left.arrival) || 0) || left.vesselName.localeCompare(right.vesselName) || left.reference.localeCompare(right.reference) || left.id.localeCompare(right.id));
-  const vessels = [...new Map(rows.map(row => [row.vesselKey, row.vesselLabel])).entries()].sort((left, right) => left[1].localeCompare(right[1]));
-  const filter = status === "active" ? "awaiting" : status === "reconciled" ? "complete" : status;
+  const voyages = summarizeVoyages(calls, plans, closeoutRecords)
+    .sort((left, right) => (Date.parse(right.arrival) || 0) - (Date.parse(left.arrival) || 0) || left.vesselName.localeCompare(right.vesselName) || left.reference.localeCompare(right.reference));
+  const slugOf = (voyage: VoyageSummary) => vesselSlug(voyage.vesselName, voyage.call?.flag ?? "");
+  const vessels = [...new Map(voyages.map(voyage => [slugOf(voyage), `${voyage.vesselName}${voyage.call?.flag ? ` · ${voyage.call.flag}` : ""}`])).entries()].sort((left, right) => left[1].localeCompare(right[1]));
   const query = search.trim().toLocaleLowerCase();
-  const visible = rows.filter(row => (!vesselKey || row.vesselKey === vesselKey)
-    && (!query || [row.vesselName, row.reference, ...row.plans.map(plan => plan.title)].join(" ").toLocaleLowerCase().includes(query))
-    && (filter === "all" || (filter === "cancelled" ? row.cancelled : !row.cancelled && (filter === "complete" ? row.complete : !row.complete))));
+  const visible = voyages.filter(voyage => (!vesselKey || slugOf(voyage) === vesselKey)
+    && (status === "all" || (status === "open" ? !CLOSED.includes(voyage.stage) : (FILTER_STAGES[status] ?? []).includes(voyage.stage)))
+    && (!query || [voyage.vesselName, voyage.reference, ...voyage.allPlans.flatMap(plan => [plan.title, ...plan.participants.map(party => party.name)])].join(" ").toLocaleLowerCase().includes(query)));
 
   return <div className="voyage-log">
-    <div className="voyage-log-head"><p>One row per voyage. Open Readings to compare the owner declaration and agency figures.</p><label className="measurement-filter">Vessel <select aria-label="Filter voyage log by vessel" value={vesselKey} onChange={event => setVesselKey(event.target.value)}><option value="">All vessels</option>{vessels.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
-    {visible.length ? <><div className="voyage-list-scroll" role="region" aria-label="Voyages table" tabIndex={0}><table className="voyage-list-table"><caption className="voyage-sr-only">Voyages and agency readings</caption><thead><tr><th scope="col">Vessel</th><th scope="col">Voyage</th><th scope="col">Owner declaration</th><th scope="col">Agency readings</th><th scope="col">Actions</th></tr></thead><tbody>{visible.map(row => {
-      const reportPath = `/app/measurements/voyages/${encodeURIComponent(row.id)}/readings`;
-      const active = row.plans.filter(plan => plan.status !== "cancelled" && !(latestReconciliation(plan, "final") && !latestReconciliation(plan, "draft")));
-      const hasDeclaration = row.plans.some(plan => plan.status !== "cancelled");
-      const report = currentReport(row.plans, closeoutRecords.find(record => record.callId === row.id));
-      const next = report ? { label: "View invoice", path: "variation-invoice" } : row.readyForReview ? { label: "Reconcile readings", path: "reconciliation" } : undefined;
-      return <tr key={row.id} aria-label={`${row.vesselName} · ${row.reference}`}>
-        <th scope="row">{row.vesselName}{row.call?.flag && <small>{row.call.flag}</small>}</th>
-        <td><strong>{row.reference}</strong>{row.arrival && <small>Arrival {dateLabel(row.arrival)}</small>}{row.cancelled && <small className="voyage-state cancelled">Cancelled</small>}</td>
-        <td>{row.declaration}</td>
-        <td><strong>{row.expected ? `${row.received} of ${row.expected} received` : "—"}</strong>{!row.cancelled && row.complete && <small className="voyage-state complete">Complete</small>}{row.expected === 0 && <small>{row.hasCurrentDeclaration ? "No readings yet" : "Awaiting declaration"}</small>}</td>
-        <td><div className="voyage-row-actions"><Link className="btn btn-primary" to={reportPath}>Readings <Icon name="chevronRight" size={14} /></Link>{!row.cancelled && next ? <Link className="link-btn" to={`/app/measurements/voyages/${encodeURIComponent(row.id)}/${next.path}`}>{next.label}</Link> : canManage && !row.cancelled && (active.length === 1 ? <Link className="link-btn" to={`/app/measurements/${encodeURIComponent(active[0].id)}`}>Record readings</Link> : active.length > 1 ? null : !hasDeclaration ? <Link className="link-btn" to={`/app/measurements/new?callId=${encodeURIComponent(row.id)}`}>Start declaration</Link> : null)}</div></td>
-      </tr>;
-    })}</tbody></table></div><p className="voyage-log-note">Received means an agency has submitted a reading.</p></> : <div className="voyage-empty"><h2>No voyages found</h2><p>Change the filters or register a voyage to begin.</p><Link className="link-btn" to="/app/vessel-calls">View vessel calls</Link></div>}
+    <div className="voyage-log-head"><p>{visible.length} {visible.length === 1 ? "voyage" : "voyages"}</p><label className="measurement-filter">Vessel <select aria-label="Filter voyages by vessel" value={vesselKey} onChange={event => setVesselKey(event.target.value)}><option value="">All vessels</option>{vessels.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
+    {visible.length ? <div className="voyage-card voyage-list-scroll" role="region" aria-label="Voyages table" tabIndex={0}><table className="voyage-list-table">
+      <caption className="hide-sr">Voyages, their declaration, agency readings and current step</caption>
+      <thead><tr><th scope="col">Vessel</th><th scope="col">Voyage</th><th scope="col">Declared</th><th scope="col">Agency readings</th><th scope="col">Step</th><th scope="col"><span className="hide-sr">Next action</span></th></tr></thead>
+      <tbody>{visible.map(voyage => {
+        const declared = declarationTotals(voyage.plans.flatMap(plan => plan.lines));
+        return <tr key={voyage.callId} aria-label={`${voyage.vesselName} · ${voyage.reference}`}>
+          <th scope="row"><Link to={vesselPath(voyage.vesselName, voyage.call?.flag ?? "")}>{voyage.vesselName}</Link>{voyage.call?.flag && <small>{voyage.call.flag}</small>}</th>
+          <td><strong>{voyage.reference}</strong>{voyage.arrival && <small>Arrival {dateLabel(voyage.arrival)}</small>}</td>
+          <td>{declared || <span className="voyage-log-muted">{voyage.plans.length ? "Quantities missing" : "Not recorded"}</span>}{voyage.declaration?.paymentStatus === "paid" && <small>Paid</small>}</td>
+          <td>{voyage.expected ? `${voyage.received} of ${voyage.expected}` : <span className="voyage-log-muted">—</span>}</td>
+          <td><span className={`stage-chip ${STAGE_TONES[voyage.stage]}`}>{STAGE_LABELS[voyage.stage]}</span></td>
+          <td><Link className="btn btn-secondary btn-sm" to={nextStepPath(voyage, canManage)} aria-label={`${actionFor(voyage, canManage)} · ${voyage.vesselName} ${voyage.reference}`}>{actionFor(voyage, canManage)}</Link></td>
+        </tr>;
+      })}</tbody>
+    </table></div> : <div className="voyage-card voyage-card-pad voyage-empty"><h2>No voyages found</h2><p>Change the filters, or register a voyage to begin.</p></div>}
   </div>;
 }
